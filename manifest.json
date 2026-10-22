@@ -1,0 +1,9 @@
+{
+  "display_name": "莉露的画匣",
+  "author": "Elainadesne",
+  "version": "0.1.0",
+  "js": "dist/index.js",
+  "loading_order": 100,
+  "requires": [],
+  "optional": []
+}
