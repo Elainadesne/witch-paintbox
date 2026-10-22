@@ -1,4 +1,4 @@
-import { NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES } from './novelai.js';
+import { NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES, NAI_SIZE_PRESETS } from './novelai.js';
 function escape(value) {
     return String(value).replace(/[&<>"']/g, character => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -14,6 +14,7 @@ function numberField(name, label, value, min, max, step = 1, title = '') {
 }
 export function imageSettingsView(settings, state) {
     const { connection, parameters } = settings;
+    const sizePreset = NAI_SIZE_PRESETS.find(item => item.width === parameters.width && item.height === parameters.height)?.value ?? 'custom';
     return `<div class="image-settings">
     <section class="config-section" aria-labelledby="connection-heading">
       <h2 class="section-title" id="connection-heading">密钥配置</h2>
@@ -48,6 +49,7 @@ export function imageSettingsView(settings, state) {
       <h2 class="section-title" id="parameters-heading">生图配置</h2>
       <div class="parameter-grid">
         <label class="config-field field-wide"><span>生图模型</span><select data-parameter="model">${options(NAI_MODELS, parameters.model)}</select></label>
+        <label class="config-field"><span>预设尺寸</span><select data-field="sizePreset">${options([...NAI_SIZE_PRESETS, { value: 'custom', label: '自定义' }], sizePreset)}</select></label>
         ${numberField('width', '宽度', parameters.width, 64, 4096, 64, '图片宽度，单位为像素，使用 64 的倍数。')}
         ${numberField('height', '高度', parameters.height, 64, 4096, 64, '图片高度，单位为像素，使用 64 的倍数。')}
         ${numberField('steps', '步数', parameters.steps, 1, 50, 1, '生成时的采样步数。')}

@@ -1,5 +1,6 @@
 import { bindLauncher } from './launcher.js';
 import { ImageConfig } from './image-config.js';
+import { ModelConfig } from './model-config.js';
 import { isPageId, pluginName, type PageId } from './pages.js';
 import { defaultSettings, extensionId, readSettings, saveSettings, type TavernContext } from './settings.js';
 import { navigationView, pageView } from './views.js';
@@ -14,6 +15,7 @@ function mount() {
   let page: PageId = 'guide';
   let connectionPage: PageId = 'image-api';
   const imageConfig = new ImageConfig();
+  const modelConfig = new ModelConfig();
   const controller = new AbortController();
   const { signal } = controller;
   const host = document.createElement('div');
@@ -54,6 +56,7 @@ function mount() {
 
   function navigate(next: PageId, focus = true) {
     imageConfig.unmount();
+    modelConfig.unmount();
     page = next;
     const isConnection = page === 'image-api' || page === 'model-api';
     if (isConnection) connectionPage = page;
@@ -66,6 +69,9 @@ function mount() {
     });
     content.innerHTML = pageView(page, settings);
     if (page === 'image-api') imageConfig.mount(content.querySelector<HTMLElement>('[data-image-settings]')!);
+    if (page === 'model-api' || page === 'features') {
+      modelConfig.mount(content.querySelector<HTMLElement>('[data-model-settings]')!, page === 'features' ? 'features' : 'model');
+    }
     content.scrollTop = 0;
     settings.lastPage = page;
     persist();
@@ -127,6 +133,7 @@ function mount() {
 
   panel.addEventListener('close', () => {
     imageConfig.maskKey();
+    modelConfig.maskKey();
     launcher.setAttribute('aria-expanded', 'false');
     launcher.focus({ preventScroll: true });
   }, { signal });
@@ -134,13 +141,16 @@ function mount() {
     console.error(`[${pluginName}] 样式加载失败，请检查扩展文件是否完整。`);
     controller.abort();
     imageConfig.destroy();
+    modelConfig.destroy();
     host.remove();
   }, { once: true, signal });
   window.addEventListener('pagehide', event => {
     imageConfig.maskKey();
+    modelConfig.maskKey();
     if (event.persisted) return;
     controller.abort();
     imageConfig.destroy();
+    modelConfig.destroy();
     host.remove();
   }, { signal });
 

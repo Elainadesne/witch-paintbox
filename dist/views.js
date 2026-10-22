@@ -54,9 +54,8 @@ export function pageView(page, settings) {
     switch (page) {
         case 'guide': return heading + guideView();
         case 'image-api': return '<div data-image-settings></div>';
-        case 'model-api': return '<p class="muted">模型 API 连接设置暂未开放。</p>';
-        case 'features': return heading + `
-      <div class="empty-state"><h3>功能将在这里集合</h3><p>目前还没有开放的功能。</p></div>`;
+        case 'model-api': return '<div data-model-settings></div>';
+        case 'features': return '<div data-model-settings></div>';
         case 'preferences': return heading + preferencesView(settings);
     }
 }

@@ -4,7 +4,7 @@
 
 独立的 SillyTavern 前端扩展，提供可拖动悬浮球、四个主板块、从上向下展开的金字塔系谱图，以及使用偏好的保存。
 
-生图 API 已接入 NovelAI，配置页采用下划线与留白分区；生图 API / 模型 API 在窗口右上角切换。模型 API 与插件功能尚待实现。
+生图 API 已接入 NovelAI，模型 API 支持酒馆聊天补全连接或自定义接口。配置页采用下划线与留白分区；两类 API 在窗口右上角切换。
 
 看板娘的姓名、性格、外观与具体施法表现待讨论确定。本版尚未加入立绘或动画。
 
@@ -12,12 +12,23 @@
 
 - **密钥配置**：选择官方或自定义渠道，在“配置”收纳盒中选择或命名连接，填写密钥后保存。保存后下划线连成粗线，保存按钮变灰；重新打开时密钥仍保留，默认隐藏，可点击“显示”查看。
 - **生图配置**：选择 NAI V5、V4.5、V4 或 V3，以及尺寸、步数、引导强度、采样器、种子、噪声调度、CFG Rescale 和 SMEA。界面会禁用所选模型不支持的选项；种子 `-1` 表示随机。
+- **预设尺寸**：提供竖图 832×1216、横图 1216×832、方图 1024×1024、高竖图 768×1344、宽横图 1344×768、896×1152、1152×896，以及自定义。新配置默认竖图；升级时保留既存尺寸。选择预设会联动宽高，手动修改宽高会同步匹配预设。
 - **画师工坊**：填写正面、负面提示词，保存为命名配置，支持切换、更新和删除。提示词原样发送，不自动补充质量词或负面词。
 - **生成图片**：点击底部生成区，完成后可预览并保存图片。每次点击只发起一次请求，失败不自动重试；“取消等待”会停止本地请求，服务端任务可能仍在进行。
 
 密钥、连接配置、参数和提示词保存在当前酒馆站点的浏览器 `localStorage`，不随 Git 发布，也不跨浏览器或设备同步。密钥隐藏仅控制显示；浏览器存储中保存的是原值。清除站点数据会移除这些配置，专门的清除入口留待使用偏好设计。
 
 自定义渠道需兼容 NovelAI 生图协议并允许浏览器跨域访问。仅填写域名时自动使用 `/ai/generate-image`；含路径的 URL 按完整接口地址使用。浏览器需支持 `DecompressionStream('deflate-raw')`，用于解压接口返回的 PNG 压缩包。
+
+## 模型 API 与预设
+
+- **连接方式**：跟随酒馆主 API 时使用当前聊天补全连接；不修改主设置，不自动带入主聊天历史、主预设或世界书。需要酒馆提供 `ChatCompletionService`，文字补全型主 API 暂不支持。
+- **自定义接口**：填写 OpenAI 兼容接口的 URL、API Key 和模型名称；右侧刷新按钮读取 `/models` 列表，模型仍可手动填写。URL 可填 `/v1` 基址或完整 `/chat/completions` 地址，仅域名时默认补 `/v1`。接口需允许浏览器跨域访问。
+- **生成参数**：独立设置 max tokens、温度，以及非流式、流式、假流兼容。假流兼容发送流式请求，同时接受 SSE、完整 JSON 或 SSE 中一次返回的完整文本；不使用模拟逐字动画，不自动重试。
+- **预设编排**：头部和尾部支持多条消息、角色选择、启用与删除，正文默认留空。中间为功能层接口。点击“保存配置”后存入当前浏览器，关闭后重新打开密钥默认隐藏。
+- **功能层快捷入口**：预设尾部可前往功能层配置，再返回模型 API。当前只提供扩展接口；世界书选择和具体功能尚未接入，也不会自动读取世界书。
+
+打开配置页只读取本地配置；只有点击刷新才获取模型列表。模型生成由后续功能显式调用。
 
 ## 开发
 
@@ -40,11 +51,20 @@ src/image-view.ts   无边框配置页模板
 src/image-settings.ts 浏览器本地配置存储
 src/novelai.ts      NAI 模型、参数和请求
 src/image-response.ts PNG / ZIP 响应读取
+src/model-config.ts 模型配置交互与功能层选择
+src/model-view.ts   模型连接与头尾预设界面
+src/model-settings.ts 模型配置本地存储
+src/model-types.ts  模型消息与连接类型
+src/model-api.ts    模型列表和独立请求
+src/model-service.ts 功能层调用的模型入口
+src/feature-layers.ts 功能注册与预设消息组装
 style.css           隔离在 Shadow DOM 内的样式
 dist/               TypeScript 编译产物，随 Git 发布
 ```
 
 新增功能时，在 `src/pages.ts` 登记页面，在 `src/views.ts` 添加页面内容与对应系谱图入口。
+
+功能通过 `registerFeatureLayer({ id, title, messages })` 注册，返回的函数用于注销。注册后需由用户在功能层配置中启用；不会自动发送。`messages(context)` 接收本次输入消息、可选数据和取消信号，返回消息数组。`runConfiguredModel(context, onText?)` 使用已保存的模型配置，按“头部 → 已启用功能层（按启用顺序）→ 本次输入 → 尾部”组装并请求模型；`onText` 接收截至当前的完整正文。该入口不自动添加任何提示词，默认功能列表为空。
 
 ## Git 发布与安装
 
@@ -54,4 +74,4 @@ dist/               TypeScript 编译产物，随 Git 发布
 
 此目录不依赖角色卡工程、MVU 或酒馆助手。
 
-参考：[SillyTavern 扩展开发文档](https://docs.sillytavern.app/for-contributors/writing-extensions/)、[NovelAI 模型说明](https://docs.novelai.net/en/image/models/)、[NovelAI 生图接口](https://image.novelai.net/docs/doc.json)。
+参考：[SillyTavern 扩展开发文档](https://docs.sillytavern.app/for-contributors/writing-extensions/)、[SillyTavern 独立请求接口](https://github.com/SillyTavern/SillyTavern/blob/release/public/scripts/custom-request.js)、[NovelAI 模型说明](https://docs.novelai.net/en/image/models/)、[NovelAI 生图接口](https://image.novelai.net/docs/doc.json)。

@@ -23,11 +23,20 @@ export const NAI_SCHEDULES = [
     { value: 'polyexponential', label: 'Polyexponential' },
     { value: 'native', label: 'Native · V3' },
 ];
+export const NAI_SIZE_PRESETS = [
+    { value: '832x1216', label: '竖图（832×1216）', width: 832, height: 1216 },
+    { value: '1216x832', label: '横图（1216×832）', width: 1216, height: 832 },
+    { value: '1024x1024', label: '方图（1024×1024）', width: 1024, height: 1024 },
+    { value: '768x1344', label: '768×1344（高竖图）', width: 768, height: 1344 },
+    { value: '1344x768', label: '1344×768（宽横图）', width: 1344, height: 768 },
+    { value: '896x1152', label: '896×1152', width: 896, height: 1152 },
+    { value: '1152x896', label: '1152×896', width: 1152, height: 896 },
+];
 const OFFICIAL_ENDPOINT = 'https://image.novelai.net/ai/generate-image';
 const GENERATION_TIMEOUT_MS = 300_000;
 export function defaultImageParameters() {
     return {
-        model: 'nai-diffusion-5-full', width: 1024, height: 1024,
+        model: 'nai-diffusion-5-full', width: 832, height: 1216,
         steps: 28, scale: 5, sampler: 'k_euler_ancestral', seed: -1,
         noiseSchedule: 'karras', cfgRescale: 0, sm: false, smDyn: false,
     };

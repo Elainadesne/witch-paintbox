@@ -1,6 +1,6 @@
 import { loadImageSettings, saveImageSettings, type ImageSettings } from './image-settings.js';
 import { imageSettingsView } from './image-view.js';
-import { generateImage, validateImageConnection, type ImageConnection } from './novelai.js';
+import { generateImage, NAI_SIZE_PRESETS, validateImageConnection, type ImageConnection } from './novelai.js';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
@@ -133,6 +133,7 @@ export class ImageConfig {
     }
     const parameter = field.dataset.parameter;
     if (!parameter || !Object.hasOwn(settings.parameters, parameter)) return;
+    if (parameter === 'width' || parameter === 'height') this.syncSizePreset();
     if (field instanceof HTMLInputElement && !field.checkValidity()) return;
     switch (parameter) {
       case 'model': case 'sampler': case 'noiseSchedule':
@@ -183,10 +184,31 @@ export class ImageConfig {
     }
   }
 
+  private syncSizePreset(): void {
+    const width = this.container?.querySelector<HTMLInputElement>('[data-parameter="width"]');
+    const height = this.container?.querySelector<HTMLInputElement>('[data-parameter="height"]');
+    const select = this.container?.querySelector<HTMLSelectElement>('[data-field="sizePreset"]');
+    if (width && height && select) {
+      select.value = NAI_SIZE_PRESETS.find(item => item.width === width.valueAsNumber && item.height === height.valueAsNumber)?.value ?? 'custom';
+    }
+  }
+
   private select(event: Event): void {
     const field = event.target;
     if (!(field instanceof HTMLSelectElement)) return;
     const settings = this.settings!;
+    if (field.dataset.field === 'sizePreset') {
+      const preset = NAI_SIZE_PRESETS.find(item => item.value === field.value);
+      if (preset) {
+        for (const dimension of ['width', 'height'] as const) {
+          settings.parameters[dimension] = preset[dimension];
+          const input = this.container?.querySelector<HTMLInputElement>(`[data-parameter="${dimension}"]`);
+          if (input) input.value = String(preset[dimension]);
+        }
+        this.persist('settings');
+      }
+      return;
+    }
     try {
       if (field.dataset.field === 'connectionProfile') {
         const profile = settings.connectionProfiles.find(item => item.id === field.value);
