@@ -36,7 +36,7 @@ function copyMessages(messages) {
     });
 }
 function presetMessages(entries) {
-    return copyMessages(entries.filter(entry => entry.enabled && entry.content.trim()));
+    return copyMessages(entries.filter(entry => entry.enabled && !entry.marker && entry.content.trim()));
 }
 /** Exact order: preset head → enabled providers → caller input → preset tail. No automatic prompts. */
 export async function buildModelMessages(settings, context) {

@@ -3,7 +3,7 @@ export function defaultModelSettings() {
     return {
         mode: 'tavern', url: '', key: '', model: '', models: [],
         maxTokens: 2048, temperature: 1, transport: 'compatible',
-        head: [], tail: [], enabledLayers: [],
+        head: [], tail: [], enabledLayers: [], presetName: '', parseImageMarkers: true,
     };
 }
 function invalid() { throw new Error('模型配置格式无效，请检查填写内容。'); }
@@ -32,7 +32,7 @@ function stringList(value, max) {
     return items;
 }
 function entries(value) {
-    if (!Array.isArray(value) || value.length > 100)
+    if (!Array.isArray(value) || value.length > 200)
         invalid();
     const items = value.map(raw => {
         const entry = record(raw);
@@ -41,7 +41,15 @@ function entries(value) {
         const id = text(entry.id, 128);
         if (!id.trim())
             invalid();
-        return { id, role: entry.role, content: text(entry.content, 65_536), enabled: entry.enabled };
+        if (entry.marker !== undefined && typeof entry.marker !== 'boolean')
+            invalid();
+        if (entry.marker && entry.enabled)
+            invalid();
+        return {
+            id, name: entry.name === undefined ? id : text(entry.name, 256),
+            role: entry.role, content: text(entry.content, 65_536), enabled: entry.enabled,
+            ...(entry.marker ? { marker: true } : {}),
+        };
     });
     if (new Set(items.map(item => item.id)).size !== items.length)
         invalid();
@@ -53,12 +61,21 @@ export function validateModelSettings(value) {
         invalid();
     if (source.transport !== 'nonstream' && source.transport !== 'stream' && source.transport !== 'compatible')
         invalid();
+    if (source.parseImageMarkers !== undefined && typeof source.parseImageMarkers !== 'boolean')
+        invalid();
+    const head = entries(source.head);
+    const tail = entries(source.tail);
+    const all = [...head, ...tail];
+    if (all.length > 200 || new Set(all.map(entry => entry.id)).size !== all.length)
+        invalid();
     return {
         mode: source.mode, url: text(source.url, 8192), key: text(source.key, 16_384),
         model: text(source.model, 512), models: stringList(source.models, 10_000),
         maxTokens: number(source.maxTokens, 1, 65_536, true), temperature: number(source.temperature, 0, 2),
-        transport: source.transport, head: entries(source.head), tail: entries(source.tail),
+        transport: source.transport, head, tail,
         enabledLayers: stringList(source.enabledLayers, 100),
+        presetName: source.presetName === undefined ? '' : text(source.presetName, 256),
+        parseImageMarkers: source.parseImageMarkers === undefined ? true : source.parseImageMarkers,
     };
 }
 function stored() {
@@ -97,4 +114,5 @@ export function saveModelSettings(settings) {
     catch {
         throw new Error('模型配置未能保存，请检查浏览器存储权限或剩余空间。');
     }
+    window.dispatchEvent(new Event('witch-paintbox:model-settings-changed'));
 }

@@ -40,6 +40,14 @@ h2 { font-size: 25px; line-height: 1.35; font-weight: 650; }
 }
 .launcher:active { cursor: grabbing; }
 .launcher:hover { background: #443655; }
+.launcher.processing { box-shadow: 0 0 0 3px #c7b1f066; }
+.launcher-menu { position: fixed; z-index: 2147483001; width: min(290px, calc(100vw - 16px)); padding: 16px; background: #25212c; color: #eae7f0; box-shadow: 0 10px 32px #0007; }
+.launcher-menu[hidden], .launcher-menu [hidden] { display: none; }
+.launcher-menu button { border: 0; background: transparent; color: var(--accent); padding: 8px 0; font: inherit; text-align: left; }
+.launcher-menu > button { display: block; width: 100%; border-bottom: 1px solid #53475f; }
+.launcher-menu p { margin: 12px 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.launcher-menu p.is-error { color: #ef9ba4; }
+.launcher-menu-footer { display: flex; justify-content: space-between; gap: 16px; }
 
 .panel {
   width: min(980px, calc(100vw - 40px));
@@ -376,6 +384,8 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .model-key-line > .text-button, .model-choice-line > .text-button { white-space: nowrap; }
 .model-parameters { margin-top: 24px; }
 .prompt-section { padding: 0 0 12px; border-bottom: 1px solid #53475f; }
+.prompt-sections { margin-top: 20px; }
+.marker-format { display: block; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
 .prompt-section + .prompt-section { margin-top: 12px; }
 .prompt-section > summary { display: flex; align-items: center; gap: 12px; min-height: 40px; color: #e1d1f2; cursor: pointer; list-style: none; }
 .prompt-section > summary::-webkit-details-marker { display: none; }

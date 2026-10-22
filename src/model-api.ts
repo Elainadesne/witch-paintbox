@@ -19,7 +19,7 @@ const record = (value: unknown): JsonRecord =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
 const first = (value: unknown): JsonRecord => Array.isArray(value) ? record(value[0]) : {};
 
-function customEndpoint(address: string, operation: 'models' | 'chat/completions'): string {
+function customBaseUrl(address: string): string {
   let url: URL;
   try { url = new URL(address.trim()); }
   catch { throw new ModelApiError('请填写有效的 API 地址。'); }
@@ -27,16 +27,31 @@ function customEndpoint(address: string, operation: 'models' | 'chat/completions
     throw new ModelApiError('API 地址只支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。');
   }
   const path = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|models)$/, '');
-  url.pathname = `${path || '/v1'}/${operation}`;
-  return url.href;
+  url.pathname = path || '/v1';
+  return url.href.replace(/\/$/, '');
 }
 
-function customHeaders(key: string): Headers {
-  const normalized = key.trim().replace(/^Bearer\s+/i, '');
+function customConnection(settings: Pick<ModelApiSettings, 'url' | 'key'>): JsonRecord {
+  const normalized = settings.key.trim().replace(/^Bearer\s+/i, '');
   if (/[^\x21-\x7e]/.test(normalized)) throw new ModelApiError('API 密钥包含空格或无效字符。');
-  const headers = new Headers({ 'Content-Type': 'application/json' });
-  if (normalized) headers.set('Authorization', `Bearer ${normalized}`);
-  return headers;
+  return {
+    chat_completion_source: 'custom',
+    custom_url: customBaseUrl(settings.url),
+    // The backend merges these after its saved CUSTOM credential. An empty value
+    // also prevents falling back to another connection's stored API key.
+    custom_include_headers: JSON.stringify({ Authorization: normalized ? `Bearer ${normalized}` : '' }),
+    custom_prompt_post_processing: 'none',
+  };
+}
+
+function tavernContext(): JsonRecord {
+  const root = globalThis as typeof globalThis & { SillyTavern?: { getContext(): unknown } };
+  return record(root.SillyTavern?.getContext());
+}
+
+function requestHeaders(host = tavernContext()): HeadersInit {
+  if (typeof host.getRequestHeaders !== 'function') throw new ModelApiError('当前环境未提供酒馆后端连接。');
+  return (host.getRequestHeaders as () => HeadersInit)();
 }
 
 async function withRequest<T>(
@@ -57,7 +72,7 @@ async function withRequest<T>(
     if (signal?.aborted) throw new DOMException('请求已取消。', 'AbortError');
     if (timedOut) throw new ModelApiError('模型接口响应超时。');
     if (error instanceof ModelApiError) throw error;
-    throw new ModelApiError('模型接口请求失败，请检查连接设置与接口的跨域支持。');
+    throw new ModelApiError('模型接口请求失败，请检查连接设置与酒馆后端连接。');
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);
@@ -101,11 +116,12 @@ export async function fetchModelList(
   settings: Pick<ModelApiSettings, 'url' | 'key'>,
   signal?: AbortSignal,
 ): Promise<string[]> {
-  const endpoint = customEndpoint(settings.url, 'models');
-  const headers = customHeaders(settings.key);
+  const connection = customConnection(settings);
+  const headers = requestHeaders();
   return withRequest(signal, 20_000, async requestSignal => {
-    const response = await fetch(endpoint, {
-      headers, signal: requestSignal, credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
+    const response = await fetch('/api/backends/chat-completions/status', {
+      method: 'POST', headers, body: JSON.stringify(connection), signal: requestSignal,
+      credentials: 'same-origin', redirect: 'error', referrerPolicy: 'no-referrer',
     });
     const payload = parseJson(await readBody(response, requestSignal));
     if (!Array.isArray(payload.data)) throw new ModelApiError('模型列表格式不受支持，请手动填写模型名称。');
@@ -232,8 +248,7 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
 }
 
 function tavernHost(): TavernModelHost {
-  const root = globalThis as typeof globalThis & { SillyTavern?: { getContext(): unknown } };
-  const host = record(root.SillyTavern?.getContext());
+  const host = tavernContext();
   if (host.mainApi !== 'openai') {
     throw new ModelApiError('跟随酒馆主 API 目前支持“聊天补全”；请切换主 API 类型或使用自定义接口。');
   }
@@ -266,14 +281,14 @@ export async function requestModel(
   const stream = settings.transport !== 'nonstream';
   const copiedMessages = messages.map(({ role, content }) => ({ role, content }));
   return withRequest(options.signal, 300_000, async signal => {
-    let endpoint: string;
+    const endpoint = '/api/backends/chat-completions/generate';
     let headers: HeadersInit;
     let payload: JsonRecord;
     if (settings.mode === 'custom') {
       if (!settings.model.trim()) throw new ModelApiError('请填写模型名称。');
-      endpoint = customEndpoint(settings.url, 'chat/completions');
-      headers = customHeaders(settings.key);
+      headers = requestHeaders();
       payload = {
+        ...customConnection(settings),
         model: settings.model.trim(), messages: copiedMessages, stream,
         max_tokens: settings.maxTokens, temperature: settings.temperature,
       };
@@ -281,7 +296,6 @@ export async function requestModel(
       const host = tavernHost();
       const model = host.getChatCompletionModel(host.chatCompletionSettings);
       if (!model) throw new ModelApiError('请先在酒馆主 API 中选择模型。');
-      endpoint = '/api/backends/chat-completions/generate';
       headers = host.getRequestHeaders();
       payload = await host.ChatCompletionService.presetToGeneratePayload({}, {
         openai_max_tokens: settings.maxTokens, temperature: settings.temperature,
@@ -291,11 +305,12 @@ export async function requestModel(
       for (const key of ['tools', 'tool_choice', 'custom_include_body', 'custom_exclude_body', 'assistant_prefill']) {
         delete payload[key];
       }
+      payload.custom_prompt_post_processing = 'none';
     }
     signal.throwIfAborted();
     const response = await fetch(endpoint, {
       method: 'POST', headers, body: JSON.stringify(payload), signal,
-      credentials: settings.mode === 'tavern' ? 'same-origin' : 'omit',
+      credentials: 'same-origin',
       redirect: 'error', referrerPolicy: 'no-referrer',
     });
     return readCompletion(response, settings.transport, { ...options, signal });

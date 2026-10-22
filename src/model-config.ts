@@ -2,6 +2,7 @@ import { fetchModelList } from './model-api.js';
 import { listFeatureLayers, onFeatureLayersChanged } from './feature-layers.js';
 import { hasSavedModelSettings, loadModelSettings, saveModelSettings, type ModelSettings, type PromptEntry } from './model-settings.js';
 import { modelSettingsView } from './model-view.js';
+import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './preset-import.js';
 
 function escape(value: string): string {
   return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
@@ -16,6 +17,10 @@ export class ModelConfig {
   private listeners: AbortController | null = null;
   private refresh: AbortController | null = null;
   private unsubscribe: () => void;
+  private importRequest = 0;
+  private draftRevision = 0;
+  private importNotice = '';
+  private importError = false;
 
   constructor() {
     try {
@@ -35,6 +40,11 @@ export class ModelConfig {
     this.listeners = new AbortController();
     const { signal } = this.listeners;
     container.addEventListener('input', event => this.edit(event), { signal });
+    container.addEventListener('change', event => {
+      if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-preset-file')) {
+        void this.importPresetFile(event.target);
+      }
+    }, { signal });
     container.addEventListener('click', event => this.click(event), { signal });
     this.render();
   }
@@ -50,6 +60,7 @@ export class ModelConfig {
   }
 
   unmount(): void {
+    this.importRequest++;
     this.maskKey();
     this.refresh?.abort();
     this.refresh = null;
@@ -71,7 +82,10 @@ export class ModelConfig {
       return;
     }
     if (this.page === 'model') {
-      this.container.innerHTML = modelSettingsView(this.settings, { saved: this.isSaved(), refreshing: this.refresh !== null });
+      this.container.innerHTML = modelSettingsView(this.settings, {
+        saved: this.isSaved(), refreshing: this.refresh !== null,
+        importNotice: this.importNotice || undefined, importError: this.importError,
+      });
       return;
     }
     const registered = listFeatureLayers();
@@ -119,7 +133,8 @@ export class ModelConfig {
           this.container!.querySelector<HTMLElement>('[data-model-custom]')!.hidden = settings.mode !== 'custom';
           this.container!.querySelector<HTMLElement>('[data-model-tavern]')!.hidden = settings.mode !== 'tavern';
           break;
-        case 'url': case 'key': case 'model': settings[field] = input.value; break;
+        case 'url': case 'key': case 'model': case 'presetName': settings[field] = input.value; break;
+        case 'parseImageMarkers': settings.parseImageMarkers = (input as HTMLInputElement).checked; break;
         case 'maxTokens': case 'temperature':
           settings[field] = input.value === '' ? NaN : Number(input.value);
           break;
@@ -142,15 +157,24 @@ export class ModelConfig {
       if (section !== 'head' && section !== 'tail') return;
       const entry = settings[section].find(item => item.id === parent!.dataset.entryId);
       if (!entry) return;
-      if (input.dataset.promptField === 'content') entry.content = input.value;
-      if (input.dataset.promptField === 'enabled') entry.enabled = (input as HTMLInputElement).checked;
+      if (input.dataset.promptField === 'content' || input.dataset.promptField === 'name') entry[input.dataset.promptField] = input.value;
+      if (input.dataset.promptField === 'enabled' && !entry.marker) entry.enabled = (input as HTMLInputElement).checked;
       if (input.dataset.promptField === 'role' && ['system', 'user', 'assistant'].includes(input.value)) entry.role = input.value as PromptEntry['role'];
+      if (input.dataset.promptField === 'name') this.syncInsertionNames();
+    } else if (input.hasAttribute('data-insertion-index')) {
+      const entries = [...settings.head, ...settings.tail];
+      const boundary = Number(input.value);
+      if (!Number.isInteger(boundary) || boundary < 0 || boundary > entries.length) return;
+      settings.head = entries.slice(0, boundary);
+      settings.tail = entries.slice(boundary);
+      this.renderKeepingSections();
     } else if (input instanceof HTMLInputElement && input.dataset.layerId) {
       const id = input.dataset.layerId;
       settings.enabledLayers = input.checked
         ? [...new Set([...settings.enabledLayers, id])]
         : settings.enabledLayers.filter(item => item !== id);
     } else return;
+    this.draftRevision++;
     this.syncSave();
   }
 
@@ -177,9 +201,10 @@ export class ModelConfig {
         this.syncSave();
       } else if (action === 'add-head' || action === 'add-tail') {
         const section = action === 'add-head' ? 'head' : 'tail';
-        if (this.settings[section].length >= 100) throw new Error('每段最多保留 100 条预设。');
+        if (this.settings.head.length + this.settings.tail.length >= MAX_PRESET_ENTRIES) throw new Error('最多保留 200 条预设。');
         const id = `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
-        this.settings[section].push({ id, role: 'system', content: '', enabled: true });
+        this.settings[section].push({ id, name: '新条目', role: 'system', content: '', enabled: true });
+        this.draftRevision++;
         this.renderKeepingSections();
         const details = this.container!.querySelector<HTMLDetailsElement>(`details[data-section="${section}"]`)!;
         details.open = true;
@@ -189,6 +214,7 @@ export class ModelConfig {
         const section = button.dataset.section;
         if (section !== 'head' && section !== 'tail') return;
         this.settings[section] = this.settings[section].filter(item => item.id !== button.dataset.entryId);
+        this.draftRevision++;
         this.renderKeepingSections();
         this.syncSave();
       }
@@ -200,6 +226,58 @@ export class ModelConfig {
       .map(node => node.dataset.section);
     this.render();
     this.container?.querySelectorAll<HTMLDetailsElement>('details[data-section]').forEach(node => { node.open = open.includes(node.dataset.section); });
+  }
+
+  private syncInsertionNames(): void {
+    if (!this.settings) return;
+    const entries = [...this.settings.head, ...this.settings.tail];
+    const options = this.container?.querySelector<HTMLSelectElement>('[data-insertion-index]')?.options;
+    if (!options) return;
+    entries.forEach((entry, index) => {
+      if (options[index + 1]) options[index + 1].textContent = `${index + 1} · 第 ${index + 1} 条之后：${entry.name || entry.id}`;
+    });
+  }
+
+  private presetMessage(text: string, error = false): void {
+    this.importNotice = text;
+    this.importError = error;
+    const status = this.container?.querySelector<HTMLElement>('[data-preset-status]');
+    if (status) {
+      status.textContent = text;
+      status.classList.toggle('is-error', error);
+    }
+  }
+
+  private async importPresetFile(input: HTMLInputElement): Promise<void> {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || !this.settings) return;
+    const request = ++this.importRequest;
+    const revision = this.draftRevision;
+    const settings = this.settings;
+    const signal = this.listeners?.signal;
+    this.presetMessage('正在读取预设…');
+    try {
+      if (file.size > MAX_PRESET_BYTES) throw new Error('预设文件不能超过 2 MiB。');
+      const source = await file.text();
+      if (request !== this.importRequest || signal?.aborted || this.page !== 'model') return;
+      if (revision !== this.draftRevision || settings !== this.settings) throw new Error('读取期间配置已有更改，请重新选择文件。');
+      const imported = importModelPreset(source, file.name.replace(/\.json$/i, ''));
+      this.settings = { ...settings, presetName: imported.presetName, head: imported.head, tail: imported.tail };
+      this.draftRevision++;
+      this.importNotice = `已导入“${imported.presetName || '未命名预设'}”，共 ${imported.head.length + imported.tail.length} 条；点击保存配置才会保留。${imported.warnings.join(' ')}`;
+      this.importError = false;
+      this.renderKeepingSections();
+      this.container?.querySelectorAll<HTMLDetailsElement>('details[data-section]').forEach(details => {
+        const section = details.dataset.section;
+        if (section === 'head' || section === 'tail') details.open = this.settings![section].length > 0;
+      });
+      this.syncSave();
+    } catch (error) {
+      if (request === this.importRequest && !signal?.aborted) {
+        this.presetMessage(`导入失败，原配置已保留：${error instanceof Error ? error.message : '无法读取文件。'}`, true);
+      }
+    }
   }
 
   private syncRefresh(): void {

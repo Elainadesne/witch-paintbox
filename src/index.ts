@@ -1,4 +1,6 @@
 import { bindLauncher } from './launcher.js';
+import { bindLauncherMenu } from './launcher-menu.js';
+import { bindChatImages } from './chat-images.js';
 import { ImageConfig } from './image-config.js';
 import { ModelConfig } from './model-config.js';
 import { isPageId, pluginName, type PageId } from './pages.js';
@@ -26,7 +28,7 @@ function mount() {
   stylesheet.href = new URL('../style.css', import.meta.url).href;
   root.innerHTML = `
     <button type="button" class="launcher" aria-label="打开${pluginName}，可拖动调整位置"
-      aria-haspopup="dialog" aria-controls="image-plugin-panel" aria-expanded="false" title="打开${pluginName} · 拖动调整位置">绘</button>
+      aria-haspopup="dialog" aria-controls="image-plugin-panel" aria-expanded="false" title="点击打开${pluginName} · 拖动调整位置 · 长按处理最新回复">绘</button>
     <dialog id="image-plugin-panel" class="panel" aria-labelledby="image-plugin-title">
       <div class="shell">
         <header class="window-header">
@@ -53,6 +55,16 @@ function mount() {
   const content = root.querySelector<HTMLElement>('.content')!;
   const apiSwitch = root.querySelector<HTMLElement>('.api-switch')!;
   const persist = () => saveSettings(context, settings);
+  const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel('model-api'));
+
+  function openPanel(target: PageId) {
+    if (panel.open) return;
+    launcherMenu.close();
+    navigate(target, false);
+    panel.showModal();
+    launcher.setAttribute('aria-expanded', 'true');
+    content.focus({ preventScroll: true });
+  }
 
   function navigate(next: PageId, focus = true) {
     imageConfig.unmount();
@@ -81,6 +93,7 @@ function mount() {
   // Wait for the isolated styles before measuring the floating button.
   stylesheet.addEventListener('load', () => {
     host.hidden = false;
+    bindChatImages(signal);
     const floating = bindLauncher(
       launcher,
       settings.rememberPosition ? settings.position : null,
@@ -90,13 +103,10 @@ function mount() {
         persist();
       },
       () => {
-        if (panel.open) return;
-        navigate(settings.rememberPage ? settings.lastPage : 'guide', false);
-        panel.showModal();
-        launcher.setAttribute('aria-expanded', 'true');
-        content.focus({ preventScroll: true });
+        openPanel(settings.rememberPage ? settings.lastPage : 'guide');
       },
       signal,
+      launcherMenu.open,
     );
     root.addEventListener('click', event => {
       const target = event.target;

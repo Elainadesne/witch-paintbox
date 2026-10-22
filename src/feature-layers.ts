@@ -52,7 +52,7 @@ function copyMessages(messages: readonly ModelMessage[]): ModelMessage[] {
 }
 
 function presetMessages(entries: PromptEntry[]): ModelMessage[] {
-  return copyMessages(entries.filter(entry => entry.enabled && entry.content.trim()));
+  return copyMessages(entries.filter(entry => entry.enabled && !entry.marker && entry.content.trim()));
 }
 
 /** Exact order: preset head → enabled providers → caller input → preset tail. No automatic prompts. */

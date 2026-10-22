@@ -3,6 +3,8 @@ import type { ModelSettings, PromptEntry } from './model-settings.js';
 export interface ModelViewState {
   saved: boolean;
   refreshing: boolean;
+  importNotice?: string;
+  importError?: boolean;
 }
 
 function escape(value: string | number): string {
@@ -15,23 +17,25 @@ function options(items: { value: string; label: string }[], selected: string): s
   return items.map(item => `<option value="${escape(item.value)}"${item.value === selected ? ' selected' : ''}>${escape(item.label)}</option>`).join('');
 }
 
-function promptSection(section: 'head' | 'tail', title: string, entries: PromptEntry[]): string {
+function promptSection(section: 'head' | 'tail', title: string, entries: PromptEntry[], offset = 0): string {
   return `<details class="prompt-section" data-section="${section}">
     <summary><span>${title}</span><span class="prompt-count">${entries.length} 条</span></summary>
     <div class="prompt-list">
       ${entries.map((entry, index) => `<div class="prompt-entry" data-entry-id="${escape(entry.id)}" data-section="${section}">
+        <label class="config-field"><span>第 ${offset + index + 1} 条 · 名称</span><textarea data-prompt-field="name" rows="1" maxlength="256">${escape(entry.name)}</textarea></label>
         <div class="prompt-entry-toolbar">
-          <label class="config-field"><span>第 ${index + 1} 条 · 角色</span>
+          <label class="config-field"><span>角色</span>
             <select data-prompt-field="role">${options([
               { value: 'system', label: '系统 · system' },
               { value: 'user', label: '用户 · user' },
               { value: 'assistant', label: '助手 · assistant' },
             ], entry.role)}</select>
           </label>
-          <label class="prompt-enable"><input type="checkbox" data-prompt-field="enabled"${entry.enabled ? ' checked' : ''}>启用</label>
+          <label class="prompt-enable"><input type="checkbox" data-prompt-field="enabled"${entry.enabled ? ' checked' : ''}${entry.marker ? ' disabled' : ''}>启用</label>
           <button type="button" class="text-button" data-model-action="remove-entry" data-entry-id="${escape(entry.id)}" data-section="${section}" aria-label="删除${title}第 ${index + 1} 条">删除</button>
         </div>
         <label class="config-field"><span>正文</span><textarea data-prompt-field="content" rows="4" maxlength="65536" spellcheck="false">${escape(entry.content)}</textarea></label>
+        ${entry.marker ? '<p class="config-status">酒馆占位标记，保留供查看，不会发送。</p>' : ''}
       </div>`).join('')}
       ${entries.length ? '' : '<p class="config-status">暂未添加，可留空。</p>'}
       <button type="button" class="text-button prompt-add" data-model-action="add-${section}">添加条目</button>
@@ -40,6 +44,7 @@ function promptSection(section: 'head' | 'tail', title: string, entries: PromptE
 }
 
 export function modelSettingsView(settings: ModelSettings, state: ModelViewState): string {
+  const entries = [...settings.head, ...settings.tail];
   return `<div class="image-settings model-settings">
     <section class="config-section" aria-labelledby="model-connection-heading">
       <h2 class="section-title" id="model-connection-heading">模型连接</h2>
@@ -87,13 +92,24 @@ export function modelSettingsView(settings: ModelSettings, state: ModelViewState
 
     <section class="config-section" aria-labelledby="model-prompts-heading">
       <h2 class="section-title" id="model-prompts-heading">预设编排</h2>
+      <div class="artist-fields">
+        <label class="config-field"><span>导入 JSON 预设</span><input type="file" data-preset-file accept=".json,application/json"></label>
+        <p class="config-status${state.importError ? ' is-error' : ''}" data-preset-status role="status">${escape(state.importNotice ?? '导入后替换当前预设草稿，点击保存配置才会保留。')}</p>
+        <label class="config-field"><span>预设名称</span><textarea data-model-field="presetName" rows="1" maxlength="256">${escape(settings.presetName)}</textarea></label>
+        <label class="config-field"><span>功能层插入位置</span>
+          <select data-insertion-index>${Array.from({ length: entries.length + 1 }, (_, index) => `<option value="${index}"${index === settings.head.length ? ' selected' : ''}>${index === 0 ? '0 · 全部条目之前' : escape(`${index} · 第 ${index} 条之后：${entries[index - 1].name || entries[index - 1].id}`)}</option>`).join('')}</select>
+        </label>
+        <label class="prompt-enable"><input type="checkbox" data-model-field="parseImageMarkers"${settings.parseImageMarkers ? ' checked' : ''}>解析配图标记</label>
+        <p class="config-status">每个标记按以下四行格式闭合；此处说明不会发送给模型。</p>
+        <code class="marker-format">&lt;img&gt;\n[图片内容概括]\n该场景的生图提示词\n&lt;/img&gt;</code>
+      </div>
       <div class="prompt-sections">
         ${promptSection('head', '头部', settings.head)}
         <details class="prompt-section prompt-middle">
           <summary><span>中部 · 功能层</span><span class="prompt-count">${settings.enabledLayers.length} 项启用</span></summary>
-          <p class="config-status">此处放入功能层启用的内容，可在功能层配置。</p>
+          <p class="config-status">此处放入已启用的功能层内容和本次待处理原文。</p>
         </details>
-        ${promptSection('tail', '尾部', settings.tail)}
+        ${promptSection('tail', '尾部', settings.tail, settings.head.length)}
       </div>
       <button type="button" class="text-button model-feature-link" data-page="features">前往功能层配置 →</button>
     </section>
