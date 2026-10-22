@@ -1,4 +1,5 @@
 import { bindLauncher } from './launcher.js';
+import { ImageConfig } from './image-config.js';
 import { isPageId, pluginName } from './pages.js';
 import { defaultSettings, extensionId, readSettings, saveSettings } from './settings.js';
 import { navigationView, pageView } from './views.js';
@@ -8,6 +9,8 @@ function mount() {
     const context = SillyTavern.getContext();
     let settings = readSettings(context);
     let page = 'guide';
+    let connectionPage = 'image-api';
+    const imageConfig = new ImageConfig();
     const controller = new AbortController();
     const { signal } = controller;
     const host = document.createElement('div');
@@ -23,7 +26,13 @@ function mount() {
       <div class="shell">
         <header class="window-header">
           <div><p class="eyebrow">魔女的绘图工坊</p><h1 id="image-plugin-title">${pluginName}</h1></div>
-          <button type="button" class="close-button" aria-label="关闭${pluginName}" title="关闭">×</button>
+          <div class="header-actions">
+            <nav class="api-switch" aria-label="接口类型" hidden>
+              <button type="button" data-page="image-api">生图 API</button>
+              <button type="button" data-page="model-api">模型 API</button>
+            </nav>
+            <button type="button" class="close-button" aria-label="关闭${pluginName}" title="关闭">×</button>
+          </div>
         </header>
         <div class="workspace">
           <nav class="sidebar" aria-label="插件导航"></nav>
@@ -36,11 +45,26 @@ function mount() {
     const panel = root.querySelector('.panel');
     const sidebar = root.querySelector('.sidebar');
     const content = root.querySelector('.content');
+    const apiSwitch = root.querySelector('.api-switch');
     const persist = () => saveSettings(context, settings);
     function navigate(next, focus = true) {
+        imageConfig.unmount();
         page = next;
+        const isConnection = page === 'image-api' || page === 'model-api';
+        if (isConnection)
+            connectionPage = page;
         sidebar.innerHTML = navigationView(page);
+        sidebar.querySelector('[data-page="image-api"]').dataset.page = connectionPage;
+        apiSwitch.hidden = !isConnection;
+        apiSwitch.querySelectorAll('button').forEach(button => {
+            if (button.dataset.page === page)
+                button.setAttribute('aria-current', 'page');
+            else
+                button.removeAttribute('aria-current');
+        });
         content.innerHTML = pageView(page, settings);
+        if (page === 'image-api')
+            imageConfig.mount(content.querySelector('[data-image-settings]'));
         content.scrollTop = 0;
         settings.lastPage = page;
         persist();
@@ -85,7 +109,7 @@ function mount() {
         }, { signal });
         root.addEventListener('change', event => {
             const input = event.target;
-            if (!(input instanceof HTMLInputElement))
+            if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition'].includes(input.name))
                 return;
             if (input.name === 'rememberPage') {
                 settings.rememberPage = input.checked;
@@ -100,18 +124,22 @@ function mount() {
         }, { signal });
     }, { once: true, signal });
     panel.addEventListener('close', () => {
+        imageConfig.maskKey();
         launcher.setAttribute('aria-expanded', 'false');
         launcher.focus({ preventScroll: true });
     }, { signal });
     stylesheet.addEventListener('error', () => {
         console.error(`[${pluginName}] 样式加载失败，请检查扩展文件是否完整。`);
         controller.abort();
+        imageConfig.destroy();
         host.remove();
     }, { once: true, signal });
     window.addEventListener('pagehide', event => {
+        imageConfig.maskKey();
         if (event.persisted)
             return;
         controller.abort();
+        imageConfig.destroy();
         host.remove();
     }, { signal });
     host.hidden = true;

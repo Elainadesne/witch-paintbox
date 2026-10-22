@@ -36,21 +36,6 @@ function guideView(): string {
     </section>`;
 }
 
-function connectionView(page: 'image-api' | 'model-api'): string {
-  return `
-    <nav class="subnav" aria-label="接口类型">
-      ${(['image-api', 'model-api'] as const).map(id => `
-        <button type="button" data-page="${id}" ${id === page ? 'aria-current="page"' : ''}>${pages[id].title}</button>
-      `).join('')}
-    </nav>
-    <div class="empty-state">
-      <span class="status">尚未配置</span>
-      <h3>${page === 'image-api' ? '生图服务' : '模型服务'}</h3>
-      <p>${pages[page].description}</p>
-      <p class="muted">连接设置暂未开放。</p>
-    </div>`;
-}
-
 function preferencesView(settings: Settings): string {
   return `
     <label class="preference-row">
@@ -75,8 +60,8 @@ export function pageView(page: PageId, settings: Settings): string {
 
   switch (page) {
     case 'guide': return heading + guideView();
-    case 'image-api':
-    case 'model-api': return heading + connectionView(page);
+    case 'image-api': return '<div data-image-settings></div>';
+    case 'model-api': return '<p class="muted">模型 API 连接设置暂未开放。</p>';
     case 'features': return heading + `
       <div class="empty-state"><h3>功能将在这里集合</h3><p>目前还没有开放的功能。</p></div>`;
     case 'preferences': return heading + preferencesView(settings);
