@@ -22,7 +22,7 @@ function mount() {
     <dialog id="image-plugin-panel" class="panel" aria-labelledby="image-plugin-title">
       <div class="shell">
         <header class="window-header">
-          <div><p class="eyebrow">小魔女的绘图工坊</p><h1 id="image-plugin-title">${pluginName}</h1></div>
+          <div><p class="eyebrow">魔女的绘图工坊</p><h1 id="image-plugin-title">${pluginName}</h1></div>
           <button type="button" class="close-button" aria-label="关闭${pluginName}" title="关闭">×</button>
         </header>
         <div class="workspace">

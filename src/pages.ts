@@ -1,4 +1,4 @@
-export const pluginName = '莉露的画匣';
+export const pluginName = '魔女画匣';
 
 export const pages = {
   guide: { title: '开始使用', description: '认识插件，找到你需要的入口。', group: 'guide' },

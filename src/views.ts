@@ -18,7 +18,7 @@ function node(page: PageId, className = 'map-node'): string {
 function guideView(): string {
   return `
     <div class="next-step">
-      <div><strong>先逛逛莉露的画匣</strong><p>连接服务、找到功能，再按你的习惯布置画匣。点击下面的节点即可前往。</p></div>
+      <div><strong>先逛逛${pluginName}</strong><p>连接服务、找到功能，再按你的习惯布置画匣。点击下面的节点即可前往。</p></div>
       <button type="button" class="primary" data-page="image-api">查看接口配置</button>
     </div>
     <section class="map" aria-label="插件功能系谱图，从上向下展示各板块">
