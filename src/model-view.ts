@@ -1,5 +1,6 @@
 import type { ModelSettings, PromptEntry } from './model-settings.js';
 import { listFeatureLayers } from './feature-layers.js';
+import type { WorldbookSourceEntry } from './worldbook-source.js';
 
 export interface ModelViewState {
   saved: boolean;
@@ -11,7 +12,7 @@ export interface ModelViewState {
   worldbook?: {
     names: string[];
     book: string;
-    entries: { id: string; name: string; content: string; enabled: boolean }[];
+    entries: WorldbookSourceEntry[];
     loading: boolean;
     error: string;
     previewId?: string;
@@ -45,6 +46,26 @@ function promptEditor(entry: PromptEntry): string {
   </div>`;
 }
 
+function keywordSummary(keys: string[]): string {
+  const present = keys.map(key => key.trim()).filter(Boolean);
+  if (!present.length) return '未设置';
+  const summary = present.slice(0, 3).map(key => key.length > 48 ? `${key.slice(0, 48)}…` : key).join('、');
+  return present.length > 3 ? `${summary}等 ${present.length} 项` : summary;
+}
+
+function worldbookActivationView(entry: WorldbookSourceEntry): string {
+  const activation = entry.activation;
+  if (!activation) return '<small class="worldbook-activation" data-mode="unknown">缺少规则 · 请重新导入原世界书</small>';
+  const secondaryLogic = ['至少命中一项', '至少一项不匹配', '全部不匹配', '全部匹配'][activation.selectiveLogic];
+  const hasKeys = activation.keys.some(key => key.trim());
+  const secondary = activation.secondaryKeys.length
+    ? `${keywordSummary(activation.secondaryKeys)} · ${activation.selective ? secondaryLogic : '未启用次关键词条件'}`
+    : '未设置';
+  return `<small class="worldbook-activation" data-mode="${activation.constant ? 'constant' : 'keyword'}">${activation.constant ? '蓝灯 · 常驻' : '绿灯 · 匹配本次正文'}</small>
+    <small class="worldbook-keywords">主关键词：${escape(keywordSummary(activation.keys))}${!activation.constant && !hasKeys ? '，不会触发' : ''}</small>
+    <small class="worldbook-keywords">次关键词：${escape(secondary)}</small>`;
+}
+
 export function worldbookSettingsView(settings: ModelSettings, state: ModelViewState['worldbook'], manage = false): string {
   const book = state?.book ?? '';
   const selected = settings.worldbooks.find(item => item.name === book)?.entries ?? [];
@@ -61,15 +82,15 @@ export function worldbookSettingsView(settings: ModelSettings, state: ModelViewS
       ], book)}</select></label>
       <button type="button" class="text-button" data-model-action="refresh-worldbooks"${unavailable ? ' disabled' : ''}>${state?.loading ? '读取中…' : '刷新'}</button>
     </div>
-    <p class="config-status">勾选后固定随预设发送，不依赖关键词触发。已挂载 ${count} 条，来自 ${settings.worldbooks.filter(item => item.entries.length).length} 本世界书。</p>
+    <p class="config-status">勾选后按原世界书规则发送：蓝灯常驻，绿灯仅在本次正文命中关键词时激活。已挂载 ${count} 条，来自 ${settings.worldbooks.filter(item => item.entries.length).length} 本世界书。</p>
     ${manage ? '' : '<button type="button" class="text-button model-feature-link" data-page="features" data-feature-tab="worldbook">上传与管理世界书 →</button>'}
     ${state?.error ? `<p class="config-status is-error" role="status">${escape(state.error)}</p>` : ''}
-    ${book ? `<div class="worldbook-toolbar"><span>${escape(book)}</span><button type="button" class="text-button" data-model-action="select-worldbook"${unavailable || !entries.some(entry => entry.enabled && entry.content.trim()) ? ' disabled' : ''}>全选可用</button><button type="button" class="text-button" data-model-action="clear-worldbook"${unavailable || !selected.length ? ' disabled' : ''}>清空挂载</button>${manage ? `<button type="button" class="text-button worldbook-danger" data-model-action="delete-worldbook"${unavailable || !state?.names.includes(book) ? ' disabled' : ''}>删除世界书</button>` : ''}</div>
+    ${book ? `<div class="worldbook-toolbar"><span>${escape(book)}</span><button type="button" class="text-button" data-model-action="select-worldbook"${unavailable || !entries.some(entry => entry.enabled && entry.activation && entry.content.trim()) ? ' disabled' : ''}>全选可用</button><button type="button" class="text-button" data-model-action="clear-worldbook"${unavailable || !selected.length ? ' disabled' : ''}>清空挂载</button>${manage ? `<button type="button" class="text-button worldbook-danger" data-model-action="delete-worldbook"${unavailable || !state?.names.includes(book) ? ' disabled' : ''}>删除世界书</button>` : ''}</div>
     <div class="worldbook-entry-list" aria-label="世界书条目">
       ${entries.map(entry => {
         const checked = selected.includes(entry.id);
         const status = !entry.enabled ? '已禁用，不会发送' : !entry.content.trim() ? '内容为空，不会发送' : '';
-        return `<div class="worldbook-entry-row"><label class="worldbook-entry"><input type="checkbox" data-worldbook-entry="${escape(entry.id)}" data-worldbook-name="${escape(book)}"${checked ? ' checked' : ''}${unavailable || ((!entry.enabled || !entry.content.trim()) && !checked) ? ' disabled' : ''}><span>${escape(entry.name || '未命名条目')}${status ? `<small>${status}</small>` : ''}</span></label>${manage ? `<button type="button" class="text-button" data-model-action="preview-worldbook-entry" data-entry-id="${escape(entry.id)}" aria-label="查看${escape(entry.name)}内容" aria-pressed="${preview?.id === entry.id}"${unavailable ? ' disabled' : ''}>查看</button>` : ''}</div>`;
+        return `<div class="worldbook-entry-row"><label class="worldbook-entry"><input type="checkbox" data-worldbook-entry="${escape(entry.id)}" data-worldbook-name="${escape(book)}"${checked ? ' checked' : ''}${unavailable || ((!entry.enabled || !entry.activation || !entry.content.trim()) && !checked) ? ' disabled' : ''}><span>${escape(entry.name || '未命名条目')}${worldbookActivationView(entry)}${status ? `<small>${status}</small>` : ''}</span></label>${manage ? `<button type="button" class="text-button" data-model-action="preview-worldbook-entry" data-entry-id="${escape(entry.id)}" aria-label="查看${escape(entry.name)}内容" aria-pressed="${preview?.id === entry.id}"${unavailable ? ' disabled' : ''}>查看</button>` : ''}</div>`;
       }).join('')}
       ${stale.map(id => `<label class="worldbook-entry is-unavailable"><input type="checkbox" data-worldbook-entry="${escape(id)}" data-worldbook-name="${escape(book)}" checked${state?.busy ? ' disabled' : ''}><span>条目 ${escape(id)}<small>已失效，可取消挂载</small></span></label>`).join('')}
       ${entries.length || stale.length ? '' : `<p class="config-status">${state?.loading ? '正在读取条目…' : state?.error ? '读取成功后显示条目。' : '这本世界书暂无可用条目。'}</p>`}

@@ -27,7 +27,7 @@ export class ChatProcessor {
       controller.signal.throwIfAborted();
       this.report(`正在处理第 ${snapshot.messageId + 1} 楼…`, true);
       const candidate = await runConfiguredModel({
-        messages: [{ role: 'user', content: plan.text }], signal: controller.signal,
+        messages: [{ role: 'user', content: plan.text }], sourceText: snapshot.text, signal: controller.signal,
       }, text => this.report(`AI 处理中 · 已返回 ${text.length} 字符`, true), settings);
       controller.signal.throwIfAborted();
       const result = applyImageInsertions(plan, candidate);

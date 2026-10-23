@@ -41,7 +41,9 @@ export async function featureLayerMessages(id, settings, context) {
     if (!layer)
         throw new Error('功能层当前不可用，请关闭此条目或重新加载对应功能。');
     context.signal?.throwIfAborted();
-    const messages = await layer.messages({ ...context, settings, messages: copyMessages(context.messages) });
+    const body = context.sourceText ?? context.messages.map(message => message.content).join('\n\n');
+    const sourceText = settings.hideImageContext ? stripImageBlocks(body) : body;
+    const messages = await layer.messages({ ...context, settings, sourceText, messages: copyMessages(context.messages) });
     context.signal?.throwIfAborted();
     return copyMessages(messages);
 }

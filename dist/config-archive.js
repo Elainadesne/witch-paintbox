@@ -1,5 +1,5 @@
 import { defaultImageSettings, loadImageSettings, saveImageSettings, validateImageSettings } from './image-settings.js';
-import { loadModelSettings, saveModelSettings, validateModelSettings } from './model-settings.js';
+import { defaultModelSettings, loadModelSettings, saveModelSettings, validateModelSettings } from './model-settings.js';
 import { loadAnchors, replaceAnchors, validateAnchor, ANCHOR_PORTRAIT_LIMIT } from './anchor-store.js';
 import { loadWorldbookArchive, replaceWorldbookArchive, validateWorldbookArchive } from './worldbook-source.js';
 import { readSettings, saveSettings } from './settings.js';
@@ -35,6 +35,25 @@ function artistSettings(value) {
     fields(source, ['artists', 'positive', 'negative', 'activeArtistId'], '画师串');
     const validated = validateImageSettings({ ...defaultImageSettings(), ...source });
     return { artists: validated.artists, positive: validated.positive, negative: validated.negative, activeArtistId: validated.activeArtistId };
+}
+function selectPreset(settings) {
+    const { presetName, head, tail, promptOrder, enabledLayers, parseImageMarkers, hideImageContext } = settings;
+    return { presetName, head, tail, promptOrder, enabledLayers, parseImageMarkers, hideImageContext };
+}
+function presetSettings(value) {
+    const source = object(value, '预设');
+    fields(source, ['presetName', 'head', 'tail', 'promptOrder', 'enabledLayers', 'parseImageMarkers', 'hideImageContext'], '预设');
+    return selectPreset(validateModelSettings({ ...defaultModelSettings(), ...source }));
+}
+function worldbookSettings(value) {
+    const source = object(value, '世界书配置');
+    fields(source, ['worldbooks', 'attachments'], '世界书配置');
+    if (!Array.isArray(source.attachments))
+        throw new Error('世界书挂载必须是数组。');
+    const worldbooks = validateWorldbookArchive(source.worldbooks);
+    const attachments = validateModelSettings({ ...defaultModelSettings(), worldbooks: source.attachments }).worldbooks;
+    checkWorldbookLinks(attachments, worldbooks);
+    return { worldbooks, attachments };
 }
 async function encodePortrait(blob) {
     if (!blob)
@@ -84,8 +103,8 @@ function anchors(value) {
     }
     return rows;
 }
-function checkWorldbookLinks(model, books) {
-    for (const selected of model.worldbooks) {
+function checkWorldbookLinks(attachments, books) {
+    for (const selected of attachments) {
         const book = books.find(book => book.name === selected.name);
         if (!book || selected.entries.some(id => !book.entries.some(entry => entry.id === id))) {
             throw new Error(`世界书挂载“${selected.name}”缺少对应书籍或条目，无法完整迁移。`);
@@ -93,7 +112,7 @@ function checkWorldbookLinks(model, books) {
     }
 }
 export function archiveKeyCount(archive) {
-    if (archive.kind === 'artists')
+    if (archive.kind !== 'all')
         return 0;
     const { image, model } = archive.data;
     return [image.connection.key, ...image.connectionProfiles.map(profile => profile.key), model.key].filter(Boolean).length;
@@ -109,10 +128,10 @@ export function parseArchive(source) {
     const raw = object(decoded, '配置文件');
     fields(raw, ['format', 'version', 'kind', 'exportedAt', 'includesKeys', 'data'], '配置文件');
     if (raw.format !== 'witch-paintbox-config')
-        throw new Error('请选择魔女画匣导出的配置文件；模型预设和世界书请在各自页面导入。');
+        throw new Error('请选择魔女画匣导出的配置文件；原始模型预设和世界书 JSON 请在各自页面导入。');
     if (raw.version !== 1)
         throw new Error('不支持这个配置文件版本，请更新插件后重试。');
-    if (!['all', 'artists'].includes(String(raw.kind)) || typeof raw.includesKeys !== 'boolean'
+    if (!['all', 'artists', 'presets', 'worldbooks'].includes(String(raw.kind)) || typeof raw.includesKeys !== 'boolean'
         || typeof raw.exportedAt !== 'string' || raw.exportedAt.length > 64 || !Number.isFinite(Date.parse(raw.exportedAt))) {
         throw new Error('配置文件的类型、时间或密钥标记无效。');
     }
@@ -120,11 +139,18 @@ export function parseArchive(source) {
         exportedAt: raw.exportedAt, includesKeys: raw.includesKeys };
     const data = object(raw.data, '配置内容');
     let result;
+    if (raw.kind !== 'all' && raw.includesKeys)
+        throw new Error('局部配置文件不应包含密钥。');
     if (raw.kind === 'artists') {
         fields(data, ['artists'], '画师串分享文件');
-        if (raw.includesKeys)
-            throw new Error('画师串分享文件不应包含密钥。');
         result = { ...base, kind: 'artists', data: { artists: artistSettings(data.artists) } };
+    }
+    else if (raw.kind === 'presets') {
+        fields(data, ['presets'], '预设分享文件');
+        result = { ...base, kind: 'presets', data: { presets: presetSettings(data.presets) } };
+    }
+    else if (raw.kind === 'worldbooks') {
+        result = { ...base, kind: 'worldbooks', data: worldbookSettings(data) };
     }
     else {
         fields(data, ['image', 'model', 'preferences', 'anchors', 'worldbooks'], '完整配置');
@@ -134,7 +160,7 @@ export function parseArchive(source) {
             throw new Error('配置文件的世界书来源不受支持。');
         const model = validateModelSettings(modelRaw);
         const worldbooks = validateWorldbookArchive(data.worldbooks);
-        checkWorldbookLinks(model, worldbooks);
+        checkWorldbookLinks(model.worldbooks, worldbooks);
         result = { ...base, kind: 'all', data: { image, model, worldbooks, anchors: anchors(data.anchors), preferences: preferences(data.preferences) } };
     }
     if (!result.includesKeys && archiveKeyCount(result))
@@ -142,15 +168,25 @@ export function parseArchive(source) {
     return result;
 }
 export async function exportArchive(kind, includeKeys, context) {
-    const image = loadImageSettings();
     const envelope = { format: 'witch-paintbox-config', version: 1, kind, exportedAt: new Date().toISOString(), includesKeys: kind === 'all' && includeKeys };
     let data;
-    if (kind === 'artists')
+    if (kind === 'artists') {
+        const image = loadImageSettings();
         data = { artists: artistSettings({ artists: image.artists, positive: image.positive, negative: image.negative, activeArtistId: image.activeArtistId }) };
+    }
+    else if (kind === 'presets')
+        data = { presets: selectPreset(loadModelSettings()) };
+    else if (kind === 'worldbooks') {
+        const model = loadModelSettings();
+        const worldbooks = await loadWorldbookArchive();
+        checkWorldbookLinks(model.worldbooks, worldbooks);
+        data = { worldbooks, attachments: model.worldbooks };
+    }
     else {
+        const image = loadImageSettings();
         const model = loadModelSettings();
         const [characters, worldbooks] = await Promise.all([loadAnchors(), loadWorldbookArchive()]);
-        checkWorldbookLinks(model, worldbooks);
+        checkWorldbookLinks(model.worldbooks, worldbooks);
         if (!includeKeys) {
             image.connection.key = '';
             image.connectionProfiles.forEach(profile => { profile.key = ''; });
@@ -167,6 +203,15 @@ export async function exportArchive(kind, includeKeys, context) {
     return blob;
 }
 export function summarizeArchive(archive) {
+    if (archive.kind === 'presets') {
+        const preset = archive.data.presets;
+        return [{ title: '预设', detail: `“${preset.presetName || '未命名'}”，${preset.head.length + preset.tail.length} 个文本条目，含条目编排、功能层启用状态和标记设置。` }];
+    }
+    if (archive.kind === 'worldbooks') {
+        const { worldbooks, attachments } = archive.data;
+        return [{ title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目。${worldbooks.map(book => book.name).join('、')}` },
+            { title: '条目挂载', detail: `${attachments.reduce((total, book) => total + book.entries.length, 0)} 个条目，来自 ${attachments.filter(book => book.entries.length).length} 本书；世界书层的启用状态和预设位置保留当前设置。` }];
+    }
     const image = archive.kind === 'all' ? archive.data.image : archive.data.artists;
     const rows = [{ title: '画师串', detail: `${image.artists.length} 个命名配置及当前正、负面提示词。${image.artists.map(item => item.name).join('、')}` }];
     if (archive.kind === 'all') {
@@ -178,8 +223,8 @@ export function summarizeArchive(archive) {
 }
 /** Validate everything before writes; restore completed sections if a later storage operation fails. */
 export async function applyArchive(archive, context) {
-    const image = loadImageSettings();
     if (archive.kind === 'artists') {
+        const image = loadImageSettings();
         try {
             saveImageSettings({ ...image, ...archive.data.artists });
         }
@@ -195,6 +240,32 @@ export async function applyArchive(archive, context) {
         }
         return;
     }
+    if (archive.kind === 'presets') {
+        const model = loadModelSettings();
+        try {
+            saveModelSettings({ ...model, ...archive.data.presets });
+        }
+        catch (error) {
+            await rollback(error, [() => saveModelSettings(model)]);
+        }
+        return;
+    }
+    if (archive.kind === 'worldbooks') {
+        const model = loadModelSettings(), previousBooks = await loadWorldbookArchive();
+        const undo = [];
+        try {
+            checkWorldbookLinks(archive.data.attachments, archive.data.worldbooks);
+            await replaceWorldbookArchive(archive.data.worldbooks);
+            undo.push(() => replaceWorldbookArchive(previousBooks));
+            undo.push(() => saveModelSettings(model));
+            saveModelSettings({ ...model, worldbooks: archive.data.attachments });
+        }
+        catch (error) {
+            await rollback(error, undo);
+        }
+        return;
+    }
+    const image = loadImageSettings();
     const model = loadModelSettings(), previousPreferences = readSettings(context);
     const [previousAnchors, previousBooks] = await Promise.all([loadAnchors(), loadWorldbookArchive()]);
     const undo = [];
@@ -211,15 +282,18 @@ export async function applyArchive(archive, context) {
         saveSettings(context, archive.data.preferences);
     }
     catch (error) {
-        let failed = false;
-        for (const restore of undo.reverse()) {
-            try {
-                await restore();
-            }
-            catch {
-                failed = true;
-            }
-        }
-        throw new Error(`${error instanceof Error ? error.message : '配置导入失败。'}${failed ? '部分配置未能恢复，请保留导入文件并检查浏览器存储。' : '本次更改已撤回，原配置已恢复。'}`);
+        await rollback(error, undo);
     }
+}
+async function rollback(error, undo) {
+    let failed = false;
+    for (const restore of undo.reverse()) {
+        try {
+            await restore();
+        }
+        catch {
+            failed = true;
+        }
+    }
+    throw new Error(`${error instanceof Error ? error.message : '配置导入失败。'}${failed ? '部分配置未能恢复，请保留导入文件并检查浏览器存储。' : '本次更改已撤回，原配置已恢复。'}`);
 }

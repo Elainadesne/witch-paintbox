@@ -6,6 +6,7 @@ import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './prese
 import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook } from './worldbook-source.js';
 import { onAnchorsChanged } from './anchor-store.js';
 import { getContextFilterStatus, onContextFilterStatusChanged } from './context-filter.js';
+import { assertChatSnapshot, captureLatestAssistant } from './chat-host.js';
 
 function escape(value: string): string {
   return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
@@ -49,18 +50,30 @@ export class ModelConfig {
     ];
   }
 
-  reloadSaved(): void {
+  reloadSaved(scope: 'all' | 'presets' | 'worldbooks' = 'all'): void {
     this.refresh?.abort(); this.bookRequest?.abort(); this.previewRequest?.abort();
     this.refresh = this.bookRequest = this.previewRequest = null;
     this.importRequest++; this.draftRevision++;
-    this.settings = null; this.saved = ''; this.loadError = '';
+    this.loadError = '';
+    if (scope === 'all') { this.settings = null; this.saved = ''; }
     this.importNotice = ''; this.importError = false;
     this.selectedKey = ''; this.preview = undefined;
-    this.worldbook = { names: [], book: '', entries: [], loading: false, error: '', busy: this.worldbook.busy };
-    this.booksLoaded = false; this.worldbookNotice = ''; this.worldbookError = false;
+    if (scope !== 'presets') {
+      this.worldbook = { names: [], book: '', entries: [], loading: false, error: '', busy: this.worldbook.busy };
+      this.booksLoaded = false; this.worldbookNotice = ''; this.worldbookError = false;
+    }
     try {
-      this.settings = loadModelSettings();
-      if (hasSavedModelSettings()) this.saved = JSON.stringify(this.settings);
+      const stored = loadModelSettings();
+      if (scope !== 'all' && this.settings) {
+        const fields = scope === 'worldbooks' ? ['worldbooks'] as const
+          : ['presetName', 'head', 'tail', 'promptOrder', 'enabledLayers', 'parseImageMarkers', 'hideImageContext'] as const;
+        const imported = Object.fromEntries(fields.map(key => [key, structuredClone(stored[key])]));
+        this.settings = { ...this.settings, ...imported };
+        this.saved = JSON.stringify({ ...(this.saved ? JSON.parse(this.saved) : stored), ...imported });
+      } else {
+        this.settings = stored;
+        this.saved = hasSavedModelSettings() ? JSON.stringify(stored) : '';
+      }
       this.ensureLayerSlots();
     } catch (error) { this.loadError = (error as Error).message; }
     this.render();
@@ -120,7 +133,7 @@ export class ModelConfig {
 
   private render(): void {
     if (!this.container) return;
-    if (!this.settings) { this.container.innerHTML = `<p role="alert">${escape(this.loadError)}</p>`; return; }
+    if (!this.settings || this.loadError) { this.container.innerHTML = `<p role="alert">${escape(this.loadError)}</p>`; return; }
     if (this.page === 'model') { this.container.innerHTML = modelSettingsView(this.settings, this.state()); return; }
     if (this.page === 'worldbook') {
       this.container.innerHTML = `<div class="image-settings model-settings worldbook-library">
@@ -220,7 +233,7 @@ export class ModelConfig {
     if (input instanceof HTMLInputElement && input.hasAttribute('data-worldbook-entry')) {
       const name = input.dataset.worldbookName ?? this.worldbook.book;
       const id = input.dataset.worldbookEntry!;
-      if (this.worldbook.busy || name !== this.worldbook.book || (input.checked && !this.worldbook.entries.some(entry => entry.id === id && entry.enabled && entry.content.trim()))) return;
+      if (this.worldbook.busy || name !== this.worldbook.book || (input.checked && !this.worldbook.entries.some(entry => entry.id === id && entry.enabled && entry.activation && entry.content.trim()))) return;
       const selected = new Set(settings.worldbooks.find(book => book.name === name)?.entries ?? []);
       if (input.checked) selected.add(id); else selected.delete(id);
       this.setBookSelection(name, [...selected]); return;
@@ -285,7 +298,7 @@ export class ModelConfig {
       }
       else if (action === 'refresh-layer') void this.refreshPreview();
       else if (action === 'select-worldbook' || action === 'clear-worldbook') {
-        this.setBookSelection(this.worldbook.book, action === 'clear-worldbook' ? [] : this.worldbook.entries.filter(entry => entry.enabled && entry.content.trim()).map(entry => entry.id));
+        this.setBookSelection(this.worldbook.book, action === 'clear-worldbook' ? [] : this.worldbook.entries.filter(entry => entry.enabled && entry.activation && entry.content.trim()).map(entry => entry.id));
       } else if (action === 'save-model') {
         for (const field of Array.from(this.container!.querySelectorAll<HTMLInputElement>('input[type="number"]'))) if (!field.reportValidity()) return;
         saveModelSettings(this.settings); this.saved = JSON.stringify(this.settings); this.maskKey(); this.syncSave();
@@ -362,7 +375,14 @@ export class ModelConfig {
     const controller = new AbortController(); this.previewRequest = controller;
     const key = this.selectedKey; this.preview = { key, text: '', loading: true }; this.renderPreset();
     try {
-      const messages = await featureLayerMessages(key.slice(6), structuredClone(this.settings), { messages: [], signal: controller.signal });
+      const settings = structuredClone(this.settings);
+      const snapshot = key === 'layer:worldbook' ? await captureLatestAssistant() : null;
+      controller.signal.throwIfAborted();
+      const messages = await featureLayerMessages(key.slice(6), settings, { messages: [], sourceText: snapshot?.text ?? '', signal: controller.signal });
+      if (snapshot) {
+        try { await assertChatSnapshot(snapshot); }
+        catch { throw new Error('聊天或正文状态已变化，请刷新世界书预览。'); }
+      }
       controller.signal.throwIfAborted();
       this.preview = { key, text: messages.map(message => message.content).join('\n\n'), loading: false };
     } catch (error) {

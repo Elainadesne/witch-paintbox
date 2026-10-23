@@ -1,9 +1,21 @@
+export interface WorldbookActivation {
+  constant: boolean;
+  keys: string[];
+  secondaryKeys: string[];
+  selective: boolean;
+  selectiveLogic: 0 | 1 | 2 | 3;
+  caseSensitive: boolean;
+  matchWholeWords: boolean;
+}
+
 export interface WorldbookSourceEntry {
   /** Stable within one imported book; pair it with the book name when storing selections. */
   id: string;
   name: string;
   content: string;
   enabled: boolean;
+  /** Null means the old import discarded activation fields and must be imported again. */
+  activation: WorldbookActivation | null;
 }
 
 export interface StoredWorldbook { name: string; entries: WorldbookSourceEntry[] }
@@ -118,7 +130,64 @@ function entryId(value: unknown): string {
   throw new Error('世界书含有无效条目标识；请使用非负整数或非空字符串。');
 }
 
-function parseEntries(value: unknown): WorldbookSourceEntry[] {
+function activationBoolean(value: unknown, fallback: boolean, label: string): boolean {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== 'boolean') throw new Error(`世界书激活设置 ${label} 必须是布尔值。`);
+  return value;
+}
+
+function activationKeys(value: unknown, label: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > entryLimit
+    || value.some(key => typeof key !== 'string' || key.length > 32_768)) {
+    throw new Error(`世界书激活设置 ${label} 必须是文本数组。`);
+  }
+  return [...value];
+}
+
+function activationLogic(value: unknown): WorldbookActivation['selectiveLogic'] {
+  if (value === undefined || value === null) return 0;
+  if (value !== 0 && value !== 1 && value !== 2 && value !== 3) {
+    throw new Error('世界书 selectiveLogic 必须为 0、1、2 或 3。');
+  }
+  return value;
+}
+
+function parseActivation(entry: Record<string, unknown>, source: 'native' | 'character' | 'stored'): WorldbookActivation | null {
+  if (source === 'stored') {
+    // Missing metadata in an older library/backup cannot safely imply either blue or green.
+    if (entry.activation === undefined || entry.activation === null) return null;
+    const saved = record(entry.activation);
+    if (!saved || ['constant', 'selective', 'caseSensitive', 'matchWholeWords'].some(key => typeof saved[key] !== 'boolean')
+      || !Array.isArray(saved.keys) || !Array.isArray(saved.secondaryKeys)
+      || ![0, 1, 2, 3].includes(saved.selectiveLogic as number)) {
+      throw new Error('已保存的世界书激活设置无效，请重新导入原世界书。');
+    }
+    return {
+      constant: saved.constant as boolean,
+      keys: activationKeys(saved.keys, 'keys'),
+      secondaryKeys: activationKeys(saved.secondaryKeys, 'secondaryKeys'),
+      selective: saved.selective as boolean,
+      selectiveLogic: activationLogic(saved.selectiveLogic),
+      caseSensitive: saved.caseSensitive as boolean,
+      matchWholeWords: saved.matchWholeWords as boolean,
+    };
+  }
+  const extensions = entry.extensions === undefined ? null : record(entry.extensions);
+  if (entry.extensions !== undefined && !extensions) throw new Error('世界书条目的 extensions 必须是对象。');
+  // ST recognizes /pattern/flags directly in keys; there is no separate regex switch.
+  return {
+    constant: activationBoolean(entry.constant, false, 'constant'),
+    keys: activationKeys(entry.key ?? entry.keys, 'key/keys'),
+    secondaryKeys: activationKeys(entry.keysecondary ?? entry.secondary_keys, 'keysecondary/secondary_keys'),
+    selective: activationBoolean(entry.selective, source === 'native', 'selective'),
+    selectiveLogic: activationLogic(entry.selectiveLogic ?? extensions?.selectiveLogic),
+    caseSensitive: activationBoolean(entry.caseSensitive ?? extensions?.case_sensitive ?? entry.case_sensitive, false, 'caseSensitive'),
+    matchWholeWords: activationBoolean(entry.matchWholeWords ?? extensions?.match_whole_words, false, 'matchWholeWords'),
+  };
+}
+
+function parseEntries(value: unknown, source: 'native' | 'character' | 'stored' = 'stored'): WorldbookSourceEntry[] {
   const object = record(value);
   const array = Array.isArray(value);
   if (!array && !object) throw new Error('世界书需要 entries 对象或数组。');
@@ -152,7 +221,8 @@ function parseEntries(value: unknown): WorldbookSourceEntry[] {
     const name = (typeof entry.comment === 'string' ? entry.comment.trim() : '')
       || (typeof entry.name === 'string' ? entry.name.trim() : '') || `条目 ${id}`;
     return { id, name, content: entry.content,
-      enabled: typeof entry.enabled === 'boolean' ? entry.enabled : entry.disable !== true };
+      enabled: typeof entry.enabled === 'boolean' ? entry.enabled : entry.disable !== true,
+      activation: parseActivation(entry, source) };
   });
 }
 
@@ -165,7 +235,7 @@ function parseBook(value: unknown, filename: string): StoredWorldbook {
   if (source.name !== undefined && typeof source.name !== 'string') throw new Error('世界书名称必须是文本。');
   const filenameName = typeof filename === 'string' ? filename.replace(/\.json$/i, '').trim() : '';
   const name = bookName(typeof source.name === 'string' && source.name.trim() ? source.name : filenameName || '未命名世界书');
-  return { name, entries: parseEntries(source.entries) };
+  return { name, entries: parseEntries(source.entries, wrapped !== undefined || Array.isArray(source.entries) ? 'character' : 'native') };
 }
 
 function notify(): void {

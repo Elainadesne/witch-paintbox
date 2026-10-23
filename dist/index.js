@@ -24,7 +24,10 @@ function mount() {
     let anchorConfig = new AnchorConfig();
     let floating = null;
     const transfer = new ConfigTransfer(context, kind => {
-        imageConfig.reloadSaved(kind === 'artists');
+        if (kind === 'all' || kind === 'artists')
+            imageConfig.reloadSaved(kind === 'artists');
+        if (kind === 'presets' || kind === 'worldbooks')
+            modelConfig.reloadSaved(kind);
         if (kind === 'all') {
             modelConfig.reloadSaved();
             anchorConfig.destroy();
@@ -39,7 +42,7 @@ function mount() {
                     input.checked = settings[input.name];
             }
         }
-    }, () => modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites ? '角色或世界书仍在保存，请完成后再确认导入。' : undefined);
+    }, () => modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites ? '角色图仍在生成，或角色、世界书仍在保存，请完成后再确认导入。' : undefined);
     const controller = new AbortController();
     const { signal } = controller;
     signal.addEventListener('abort', unregisterLayers, { once: true });

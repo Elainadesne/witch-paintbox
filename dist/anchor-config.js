@@ -2,6 +2,8 @@ import { loadAnchors, saveAnchor, deleteAnchor, onAnchorsChanged, newAnchorId, A
 import { getCurrentRoundImages } from './current-images.js';
 import { onImageHistoryChanged } from './image-history.js';
 import { watchChatRendering } from './chat-host.js';
+import { loadImageSettings } from './image-settings.js';
+import { generateImage } from './novelai.js';
 function escape(value) {
     return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 }
@@ -63,7 +65,11 @@ export class AnchorConfig {
     urls = [];
     notice = '';
     failed = false;
-    get hasPendingWrites() { return this.busy; }
+    portraitRequest = null;
+    portraitPhase = 'queued';
+    portraitNotice = '';
+    portraitError = false;
+    get hasPendingWrites() { return this.busy || this.portraitRequest !== null; }
     mount(container) {
         this.unmount();
         this.container = container;
@@ -92,7 +98,7 @@ export class AnchorConfig {
         this.releaseUrls();
         this.container = null;
     }
-    destroy() { this.unmount(); }
+    destroy() { this.cancelPortrait(); this.unmount(); }
     releaseUrls() {
         this.urls.splice(0).forEach(url => URL.revokeObjectURL(url));
     }
@@ -171,6 +177,7 @@ export class AnchorConfig {
       ${this.tab === 'round' ? this.roundView() : this.draft ? this.editorView() : this.libraryView()}
       <p class="config-status${this.failed ? ' is-error' : ''}" data-anchor-status role="status">${escape(this.notice)}</p>
     </div>`;
+        this.syncPortrait();
     }
     roundView() {
         return `<div class="anchor-toolbar"><p class="config-status">当前聊天最新 AI 回复的已生成图片。点击图片与 tag，配置单个角色。</p>
@@ -205,6 +212,9 @@ export class AnchorConfig {
         <div class="anchor-identity">${this.image(draft.portrait, 'anchor-editor-portrait')}
           <div class="anchor-identity-fields"><label class="config-field"><span>角色中文名称</span><input type="text" data-anchor-field="name" value="${escape(draft.name)}" maxlength="${ANCHOR_NAME_LIMIT}" placeholder="例如：莎莉" autocomplete="off"></label>
             <label class="config-field"><span>角色图</span><input type="file" accept="image/png,image/jpeg,image/webp" data-anchor-portrait></label>
+            <div class="anchor-portrait-actions"><button type="button" class="text-button" data-anchor-action="generate-portrait"${this.portraitRequest ? ' disabled' : ''}>生成角色图</button><button type="button" class="text-button" data-anchor-action="cancel-portrait"${this.portraitRequest ? '' : ' hidden'}>取消</button></div>
+            <p class="config-status anchor-portrait-hint">沿用生图 API 的参数与画师串，生成后点击“保存角色”保留。</p>
+            <p class="config-status${this.portraitError ? ' is-error' : ''}" data-portrait-status role="status">${escape(this.portraitNotice)}</p>
             ${draft.portrait ? '<button type="button" class="text-button" data-anchor-action="remove-portrait">移除角色图</button>' : ''}
           </div>
         </div>
@@ -222,8 +232,8 @@ export class AnchorConfig {
           </details>`).join('')}</div>
         </section>
         <p class="anchor-usage">在生图 tag 中单独填写角色名，即可使用固定外貌和当前服装。填写“角色名/服装名”可指定服装，“角色名/无服装”只展开外貌。用逗号与其他 tag 分隔。</p>
-        <div class="anchor-save-line"><button type="button" class="primary" data-anchor-action="save"${!this.dirty ? ' disabled' : ''}>${this.busy ? '保存中…' : '保存角色'}</button>
-          ${exists ? '<button type="button" class="text-button anchor-danger" data-anchor-action="delete">删除角色</button>' : ''}</div>
+        <div class="anchor-save-line"><button type="button" class="primary" data-anchor-action="save"${!this.dirty || this.portraitRequest ? ' disabled' : ''}>${this.busy ? '保存中…' : '保存角色'}</button>
+          ${exists ? `<button type="button" class="text-button anchor-danger" data-anchor-action="delete"${this.portraitRequest ? ' disabled' : ''}>删除角色</button>` : ''}</div>
         ${this.deleting ? '<div class="anchor-delete-confirm" role="alert"><p>删除这个角色及其服装库？原生成图片会保留。</p><button type="button" class="text-button anchor-danger" data-anchor-action="confirm-delete">确认删除</button><button type="button" class="text-button" data-anchor-action="cancel-delete">取消</button></div>' : ''}
       </fieldset>`;
     }
@@ -239,7 +249,7 @@ export class AnchorConfig {
         this.deleting = false;
         const button = this.container?.querySelector('[data-anchor-action="save"]');
         if (button)
-            button.disabled = this.busy;
+            button.disabled = this.busy || this.portraitRequest !== null;
         this.container?.querySelector('.anchor-delete-confirm')?.remove();
         this.message('尚未保存。');
     }
@@ -249,6 +259,8 @@ export class AnchorConfig {
             return;
         const key = field.dataset.anchorField;
         if (key === 'name' || key === 'appearance' || key === 'selectedOutfitId') {
+            if (key !== 'name' && this.draft[key] !== field.value)
+                this.cancelPortrait('外貌或服装已修改，已取消本次生成等待。');
             this.draft[key] = field.value;
             if (key === 'appearance') {
                 this.picker = null;
@@ -262,6 +274,8 @@ export class AnchorConfig {
             const outfit = this.draft.outfits.find(item => item.id === details?.dataset.outfit);
             if (!outfit)
                 return;
+            if (outfitKey === 'tags' && outfit.id === this.draft.selectedOutfitId && outfit.tags !== field.value)
+                this.cancelPortrait('服装 tag 已修改，已取消本次生成等待。');
             outfit[outfitKey] = field.value;
             if (outfitKey === 'name') {
                 details.querySelector('summary').textContent = field.value || '新服装';
@@ -289,6 +303,7 @@ export class AnchorConfig {
             this.message('请选择不超过 10 MB 的 PNG、JPEG 或 WebP 图片。', true);
             return;
         }
+        this.cancelPortrait('已手动更换角色图，已取消本次生成等待。');
         this.draft.portrait = file;
         this.markDirty();
         this.render();
@@ -296,6 +311,7 @@ export class AnchorConfig {
     begin(anchor, source) {
         if (this.draft && this.dirty && !window.confirm('放弃当前尚未保存的角色修改？'))
             return false;
+        this.cancelPortrait('已切换角色，已取消之前的生成等待。');
         this.draft = anchor ? structuredClone(anchor) : {
             id: newAnchorId(), name: '', appearance: source?.entry.positive ?? '', outfits: [],
             selectedOutfitId: '', portrait: source?.entry.blob ?? null, updatedAt: Date.now(),
@@ -307,6 +323,10 @@ export class AnchorConfig {
         this.tab = 'anchors';
         this.notice = '';
         this.failed = false;
+        if (!this.portraitRequest) {
+            this.portraitNotice = '';
+            this.portraitError = false;
+        }
         this.render();
         this.container?.querySelector('[data-anchor-field="name"]')?.focus({ preventScroll: true });
         return true;
@@ -323,7 +343,7 @@ export class AnchorConfig {
     }
     async commit(remove = false) {
         const draft = this.draft;
-        if (!draft || this.busy)
+        if (!draft || this.busy || this.portraitRequest)
             return;
         this.busy = true;
         this.render();
@@ -352,6 +372,92 @@ export class AnchorConfig {
         finally {
             this.busy = false;
             this.render();
+        }
+    }
+    syncPortrait() {
+        const request = this.portraitRequest;
+        const generate = this.container?.querySelector('[data-anchor-action="generate-portrait"]');
+        if (generate) {
+            generate.disabled = this.busy || request !== null;
+            generate.textContent = !request ? '生成角色图' : request.signal.aborted ? '取消中…' : this.portraitPhase === 'queued' ? '排队中…' : '绘制中…';
+        }
+        const cancel = this.container?.querySelector('[data-anchor-action="cancel-portrait"]');
+        if (cancel) {
+            cancel.hidden = !request;
+            cancel.disabled = !request || request.signal.aborted;
+        }
+        const status = this.container?.querySelector('[data-portrait-status]');
+        if (status) {
+            status.textContent = this.portraitNotice;
+            status.classList.toggle('is-error', this.portraitError);
+        }
+        const save = this.container?.querySelector('[data-anchor-action="save"]');
+        if (save)
+            save.disabled = this.busy || request !== null || !this.dirty;
+        const remove = this.container?.querySelector('[data-anchor-action="delete"]');
+        if (remove)
+            remove.disabled = this.busy || request !== null;
+    }
+    cancelPortrait(reason = '已取消本次角色图生成等待。') {
+        const request = this.portraitRequest;
+        if (!request || request.signal.aborted)
+            return;
+        request.abort();
+        this.portraitNotice = reason + (this.portraitPhase === 'generating' ? '服务端任务可能仍在继续。' : '');
+        this.portraitError = false;
+        this.syncPortrait();
+    }
+    async generatePortrait() {
+        const draft = this.draft;
+        if (!draft || this.busy || this.portraitRequest)
+            return;
+        const appearance = draft.appearance, outfitId = draft.selectedOutfitId, portrait = draft.portrait;
+        const outfitTags = draft.outfits.find(outfit => outfit.id === outfitId)?.tags ?? '';
+        const current = () => this.draft === draft && draft.appearance === appearance && draft.selectedOutfitId === outfitId
+            && (draft.outfits.find(outfit => outfit.id === outfitId)?.tags ?? '') === outfitTags && draft.portrait === portrait;
+        this.deleting = false;
+        this.container?.querySelector('.anchor-delete-confirm')?.remove();
+        const request = new AbortController();
+        this.portraitRequest = request;
+        this.portraitPhase = 'queued';
+        this.portraitNotice = '正在加入生图队列…';
+        this.portraitError = false;
+        this.syncPortrait();
+        try {
+            if (!appearance.trim())
+                throw new Error('请先填写角色的固定外貌 tag。');
+            const settings = loadImageSettings();
+            const positive = [settings.positive, appearance, outfitTags].map(part => part.trim()).filter(Boolean).join(', ');
+            const result = await generateImage(settings.connection, settings.parameters, positive, settings.negative, request.signal, progress => {
+                if (request.signal.aborted || !current())
+                    return;
+                this.portraitPhase = progress.state;
+                this.portraitNotice = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在生成角色图…';
+                this.syncPortrait();
+            });
+            if (request.signal.aborted || !current())
+                return;
+            if (!result.blob.size || result.blob.size > ANCHOR_PORTRAIT_LIMIT)
+                throw new Error('生成的角色图超过 10 MiB 或为空，请调小生图尺寸后重试。');
+            if (!['image/png', 'image/jpeg', 'image/webp'].includes(result.blob.type))
+                throw new Error('生成结果不是支持的角色图片格式。');
+            draft.portrait = result.blob;
+            this.sourcePrompt = positive;
+            this.markDirty();
+            this.portraitNotice = '角色图已生成，点击“保存角色”后保留。';
+            this.render();
+        }
+        catch (error) {
+            if (!request.signal.aborted && current()) {
+                this.portraitError = true;
+                this.portraitNotice = error instanceof Error ? error.message : '角色图生成失败，请重试。';
+            }
+        }
+        finally {
+            if (this.portraitRequest === request) {
+                this.portraitRequest = null;
+                this.syncPortrait();
+            }
         }
     }
     async click(event) {
@@ -405,6 +511,7 @@ export class AnchorConfig {
             case 'back':
                 if (this.dirty && !window.confirm('放弃当前尚未保存的角色修改？'))
                     return;
+                this.cancelPortrait();
                 this.draft = null;
                 this.picker = null;
                 this.dirty = false;
@@ -412,8 +519,15 @@ export class AnchorConfig {
                 this.message('');
                 this.render();
                 break;
+            case 'generate-portrait':
+                await this.generatePortrait();
+                break;
+            case 'cancel-portrait':
+                this.cancelPortrait();
+                break;
             case 'remove-portrait':
                 if (this.draft) {
+                    this.cancelPortrait('角色图已移除，已取消本次生成等待。');
                     this.draft.portrait = null;
                     this.markDirty();
                     this.render();
@@ -426,6 +540,8 @@ export class AnchorConfig {
                 if (!this.draft)
                     return;
                 const id = button.closest('[data-outfit]')?.dataset.outfit;
+                if (this.draft.selectedOutfitId === id)
+                    this.cancelPortrait('当前服装已移除，已取消本次生成等待。');
                 this.draft.outfits = this.draft.outfits.filter(item => item.id !== id);
                 if (this.draft.selectedOutfitId === id)
                     this.draft.selectedOutfitId = '';
@@ -460,6 +576,7 @@ export class AnchorConfig {
                     this.message('请至少保留一个外貌 tag。', true);
                     return;
                 }
+                this.cancelPortrait('外貌 tag 已修改，已取消本次生成等待。');
                 this.draft.appearance = this.picker.filter(item => item.keep).map(item => item.tag).join(', ');
                 this.picker = null;
                 this.markDirty();

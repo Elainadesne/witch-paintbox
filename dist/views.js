@@ -33,7 +33,7 @@ function guideView() {
           </div>
         </div>
         <div class="map-branch">${node('preferences')}
-          <div class="map-leaves"><button type="button" class="map-leaf" data-page="preferences" data-section="config-transfer"><strong>配置迁移与分享</strong><span>导出配置、分享画师串</span></button></div>
+          <div class="map-leaves"><button type="button" class="map-leaf" data-page="preferences" data-section="config-transfer"><strong>配置迁移与分享</strong><span>选择配置范围，迁移或分享</span></button></div>
         </div>
       </div>
     </section>
@@ -47,7 +47,7 @@ function guideView() {
       </ol>
     </section>
     <section class="guide-transfer" aria-labelledby="guide-transfer-heading">
-      <div><h3 id="guide-transfer-heading">把配置带走，也把画师串分享出去</h3><p>可导出完整配置用于迁移，或只导出画师串；密钥由你选择是否包含。导入时先校验文件并展示内容，确认后才会写入。</p></div>
+      <div><h3 id="guide-transfer-heading">把配置带走，也分享喜欢的内容</h3><p>点击按钮选择全部配置、画师串、预设或世界书。完整导出可选择是否包含密钥；导入时先校验并展示内容，确认后才会写入。</p></div>
       <button type="button" class="secondary" data-page="preferences" data-section="config-transfer">配置迁移与分享 →</button>
     </section>`;
 }
