@@ -1,12 +1,8 @@
-export function bindLauncher(button, initial, onMove, onOpen, signal, onLongPress) {
+export function bindLauncher(button, initial, onMove, onOpen, signal, onDrag) {
     let position;
     let drag = null;
     let moved = false;
     let suppressClick = false;
-    let held = false;
-    let holdTimer;
-    const clearHold = () => { clearTimeout(holdTimer); holdTimer = undefined; };
-    signal.addEventListener('abort', clearHold, { once: true });
     function place(next) {
         const margin = 12;
         position = {
@@ -27,35 +23,26 @@ export function bindLauncher(button, initial, onMove, onOpen, signal, onLongPres
         if (!event.isPrimary || event.button !== 0 || drag)
             return;
         drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, origin: { ...position } };
-        moved = suppressClick = held = false;
+        moved = suppressClick = false;
         button.setPointerCapture(event.pointerId);
-        if (onLongPress)
-            holdTimer = setTimeout(() => {
-                if (!drag || moved)
-                    return;
-                held = suppressClick = true;
-                onLongPress();
-            }, 600);
     }, { signal });
     button.addEventListener('pointermove', event => {
         if (!drag || event.pointerId !== drag.pointerId)
-            return;
-        if (held)
             return;
         const dx = event.clientX - drag.x;
         const dy = event.clientY - drag.y;
         if (!moved && Math.hypot(dx, dy) < 6)
             return;
+        if (!moved)
+            onDrag?.();
         moved = true;
-        clearHold();
         button.classList.add('dragging');
         place({ x: drag.origin.x + dx, y: drag.origin.y + dy });
     }, { signal });
     function endDrag(event) {
         if (!drag || event.pointerId !== drag.pointerId)
             return;
-        clearHold();
-        suppressClick = moved || held || event.type === 'pointercancel';
+        suppressClick = moved || event.type === 'pointercancel';
         if (moved)
             onMove({ ...position });
         drag = null;
@@ -72,16 +59,7 @@ export function bindLauncher(button, initial, onMove, onOpen, signal, onLongPres
         if (!ignore)
             onOpen();
     }, { signal });
-    button.addEventListener('contextmenu', event => {
-        if (!onLongPress)
-            return;
-        event.preventDefault();
-        clearHold();
-        if (!held)
-            onLongPress();
-        held = suppressClick = true;
-    }, { signal });
-    window.addEventListener('blur', clearHold, { signal });
+    button.addEventListener('contextmenu', event => event.preventDefault(), { signal });
     window.addEventListener('resize', () => place(position), { signal });
     return { reset, getPosition: () => ({ ...position }) };
 }

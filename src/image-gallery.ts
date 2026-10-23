@@ -19,7 +19,7 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
   element.className = 'wp-gallery';
   element.setAttribute('aria-label', `${summary} · 图片查看器`);
   element.innerHTML = `<style>
-    .wp-gallery { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: #19181d; color: #eae7f0; font: 14px/1.5 system-ui, sans-serif; color-scheme: dark; }
+    .wp-gallery { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: #19181d; color: #eae7f0; font: 14px/1.5 system-ui, sans-serif; color-scheme: dark; }
     .wp-gallery, .wp-gallery * { box-sizing: border-box; }
     .wp-gallery[open] { display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
     .wp-gallery:not([open]), .wp-gallery [hidden] { display: none; }
@@ -29,10 +29,12 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
     .wp-gallery button:hover:not(:disabled), .wp-gallery-action:hover:not([aria-disabled="true"]) { background: #ffffff0a; }
     .wp-gallery button:disabled, .wp-gallery [aria-disabled="true"] { opacity: .4; cursor: default; }
     .wp-gallery :focus-visible { outline: 2px solid #c7b1f0; outline-offset: 2px; }
-    .wp-gallery-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 14px 20px 8px; }
-    .wp-gallery-title { flex: 1 1 180px; min-width: 0; margin: 0; font-size: 16px; font-weight: 550; overflow-wrap: anywhere; }
-    .wp-gallery-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-left: auto; color: #c6bfce; font-size: 13px; }
-    .wp-gallery-status { flex: 1 0 100%; margin: 0; color: #aaa2b4; font-size: 12px; overflow-wrap: anywhere; }
+    .wp-gallery-header { display: grid; min-width: 0; min-height: 0; max-height: 32vh; max-height: 32dvh; gap: 6px; padding: 10px 20px 8px; overflow-y: auto; }
+    .wp-gallery-caption { display: grid; gap: 3px; min-width: 0; text-align: center; }
+    .wp-gallery-caption-label { color: #aaa2b4; font-size: 11px; letter-spacing: .16em; }
+    .wp-gallery-title { min-width: 0; margin: 0; font-size: 16px; font-weight: 550; overflow-wrap: anywhere; }
+    .wp-gallery-tools { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 2px; min-width: 0; color: #c6bfce; font-size: 13px; }
+    .wp-gallery-status { margin: 0; color: #aaa2b4; font-size: 12px; overflow-wrap: anywhere; }
     .wp-gallery-status:empty { display: none; }
     .wp-gallery-status[data-error="true"] { color: #efa0aa; }
     .wp-gallery-history { min-width: 0; padding: 0 20px 10px; }
@@ -43,10 +45,11 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
     .wp-gallery .wp-gallery-thumb[aria-current="true"] { border-bottom-color: #c7b1f0; opacity: 1; }
     .wp-gallery .wp-gallery-thumb:hover { opacity: 1; }
     .wp-gallery-thumb img { display: block; width: 100%; height: 100%; margin: 0; object-fit: cover; }
-    .wp-gallery-workspace { display: grid; grid-template-rows: minmax(0, 1fr) 0px; min-height: 0; overflow: hidden; transition: grid-template-rows .18s ease; }
+    .wp-gallery-workspace { display: grid; grid-template-rows: minmax(0, 1fr) 0px; min-width: 0; min-height: 0; overflow: hidden; transition: grid-template-rows .18s ease; }
     .wp-gallery-workspace[data-drawer="open"] { grid-template-rows: minmax(0, 1fr) min(44%, 340px); }
-    .wp-gallery-stage { display: grid; place-items: center; min-width: 0; min-height: 0; overflow: hidden; padding: 12px 20px 20px; }
-    .wp-gallery-image { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; margin: 0; object-fit: contain; }
+    .wp-gallery-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+    .wp-gallery-image-frame { position: absolute; inset: 12px 20px 20px; display: grid; place-items: center; min-width: 0; min-height: 0; }
+    .wp-gallery-image { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; max-height: none; margin: 0; object-fit: contain; }
     .wp-gallery-empty { margin: 0; color: #aaa2b4; }
     .wp-gallery-drawer { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: hidden; border-top: 1px solid #48414f; background: #242128; transform: translateY(100%); visibility: hidden; transition: transform .18s ease, visibility .18s; }
     .wp-gallery-workspace[data-drawer="open"] .wp-gallery-drawer { transform: translateY(0); visibility: visible; }
@@ -61,27 +64,37 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
     .wp-gallery-prompt h4 { margin: 0 0 6px; font-size: 12px; font-weight: 500; color: #b9afc6; }
     .wp-gallery-prompt pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 system-ui, sans-serif; color: inherit; background: transparent; border: 0; padding: 0; }
     @media (max-width: 640px) {
-      .wp-gallery-header { gap: 4px 12px; padding: 10px 12px 6px; }
+      .wp-gallery-header { gap: 4px; padding: 6px 12px; }
       .wp-gallery-title { font-size: 14px; }
       .wp-gallery-tools { gap: 0; font-size: 12px; }
       .wp-gallery button, .wp-gallery-action { min-height: 36px; padding: 7px 8px; }
       .wp-gallery-history { padding: 0 12px 6px; }
       .wp-gallery .wp-gallery-thumb { flex-basis: 52px; width: 52px; height: 52px; }
-      .wp-gallery-stage { padding: 8px 12px 12px; }
+      .wp-gallery-image-frame { inset: 8px 12px 12px; }
       .wp-gallery-properties { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
       .wp-gallery-drawer-header { padding: 0 12px; }
       .wp-gallery-drawer-body { padding: 6px 12px 16px; }
     }
+    @media (max-height: 500px) {
+      .wp-gallery-header { gap: 2px; padding-top: 2px; padding-bottom: 4px; }
+      .wp-gallery-title { font-size: 13px; }
+      .wp-gallery button, .wp-gallery-action { min-height: 30px; padding-top: 4px; padding-bottom: 4px; }
+      .wp-gallery-history { padding-bottom: 2px; }
+      .wp-gallery-counter { margin-bottom: 2px; }
+      .wp-gallery-thumbnails { padding-top: 0; padding-bottom: 3px; }
+      .wp-gallery .wp-gallery-thumb { flex-basis: 36px; width: 36px; height: 36px; }
+      .wp-gallery-image-frame { inset: 4px 12px 8px; }
+    }
     @media (prefers-reduced-motion: reduce) { .wp-gallery-workspace, .wp-gallery-drawer { transition: none; } }
   </style>
   <header class="wp-gallery-header">
-    <h2 class="wp-gallery-title"></h2>
     <nav class="wp-gallery-tools" aria-label="当前图片操作">
       <a class="wp-gallery-action" data-gallery-download aria-label="下载当前图片" aria-disabled="true" tabindex="-1">下载</a>
       <button type="button" data-gallery-delete aria-label="删除当前图片" disabled>删除</button>
       <button type="button" data-gallery-properties aria-label="查看生成属性" aria-expanded="false" disabled>生成属性</button>
       <button type="button" data-gallery-close aria-label="关闭图片查看器">关闭</button>
     </nav>
+    <div class="wp-gallery-caption"><span class="wp-gallery-caption-label">画题</span><h2 class="wp-gallery-title"></h2></div>
     <p class="wp-gallery-status" role="status"></p>
   </header>
   <section class="wp-gallery-history" aria-label="同一标记的图片历史">
@@ -89,7 +102,7 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
     <div class="wp-gallery-thumbnails" role="group" aria-label="选择历史图片"></div>
   </section>
   <div class="wp-gallery-workspace" data-drawer="closed">
-    <main class="wp-gallery-stage"><img class="wp-gallery-image" decoding="async" hidden><p class="wp-gallery-empty">暂无图片</p></main>
+    <main class="wp-gallery-stage"><div class="wp-gallery-image-frame"><img class="wp-gallery-image" decoding="async" hidden><p class="wp-gallery-empty">暂无图片</p></div></main>
     <section class="wp-gallery-drawer" aria-label="生成属性" aria-hidden="true" inert>
       <header class="wp-gallery-drawer-header"><h3>生成属性</h3><button type="button" data-gallery-drawer-close aria-label="收起生成属性">收起</button></header>
       <div class="wp-gallery-drawer-body">

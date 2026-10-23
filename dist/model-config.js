@@ -88,8 +88,8 @@ export class ModelConfig {
         const registered = listFeatureLayers();
         const unavailable = this.settings.enabledLayers.filter(id => !registered.some(layer => layer.id === id));
         this.container.innerHTML = `<div class="image-settings model-settings">
-      <section class="config-section"><h2 class="section-title">功能层配置</h2>
-        <p class="muted">启用的内容会放在预设头部与尾部之间。</p>
+      <section class="config-section"><header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
+        <h2 class="section-title">功能层配置</h2><p class="section-description">启用的内容会放在预设头部与尾部之间。</p></header>
         ${registered.length || unavailable.length ? `<div class="feature-layer-list">${[
             ...registered,
             ...unavailable.map(id => ({ id, title: `${id}（当前不可用）` })),

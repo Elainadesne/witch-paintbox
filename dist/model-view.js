@@ -35,7 +35,8 @@ export function modelSettingsView(settings, state) {
     const entries = [...settings.head, ...settings.tail];
     return `<div class="image-settings model-settings">
     <section class="config-section" aria-labelledby="model-connection-heading">
-      <h2 class="section-title" id="model-connection-heading">模型连接</h2>
+      <header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
+        <h2 class="section-title" id="model-connection-heading">模型连接</h2><p class="section-description">选择负责理解正文、编写场景提示词的 AI。</p></header>
       <label class="config-field channel-field"><span>连接方式</span>
         <select data-model-field="mode">${options([
         { value: 'tavern', label: '跟随酒馆主 API' },
@@ -61,7 +62,7 @@ export function modelSettingsView(settings, state) {
           <button type="button" class="text-button" data-model-action="refresh-models"${state.refreshing ? ' disabled' : ''}>${state.refreshing ? '刷新中…' : '刷新列表'}</button>
         </div>
       </div>
-      <div class="parameter-grid model-parameters">
+      <div class="parameter-group"><h3 class="subsection-title">回复参数</h3><div class="parameter-grid model-parameters">
         <label class="config-field"><span>最大回复长度 · max tokens</span>
           <input type="number" data-model-field="maxTokens" value="${escape(settings.maxTokens)}" min="1" max="65536" step="1" required>
         </label>
@@ -75,28 +76,21 @@ export function modelSettingsView(settings, state) {
         { value: 'compatible', label: '假流兼容' },
     ], settings.transport)}</select>
         </label>
-      </div>
+      </div></div>
     </section>
 
     <section class="config-section" aria-labelledby="model-prompts-heading">
-      <h2 class="section-title" id="model-prompts-heading">预设编排</h2>
+      <header class="section-heading"><span class="section-index" aria-hidden="true">02</span>
+        <h2 class="section-title" id="model-prompts-heading">预设编排</h2><p class="section-description">导入预设，按头部、功能层、尾部的顺序组织内容。</p></header>
       <div class="artist-fields">
         <label class="config-field"><span>导入 JSON 预设</span><input type="file" data-preset-file accept=".json,application/json"></label>
         <p class="config-status${state.importError ? ' is-error' : ''}" data-preset-status role="status">${escape(state.importNotice ?? '导入后替换当前预设草稿，点击保存配置才会保留。')}</p>
         <label class="config-field"><span>预设名称</span><textarea data-model-field="presetName" rows="1" maxlength="256">${escape(settings.presetName)}</textarea></label>
+      </div>
+      <div class="parameter-group"><h3 class="subsection-title">发送顺序</h3>
         <label class="config-field"><span>功能层插入位置</span>
           <select data-insertion-index>${Array.from({ length: entries.length + 1 }, (_, index) => `<option value="${index}"${index === settings.head.length ? ' selected' : ''}>${index === 0 ? '0 · 全部条目之前' : escape(`${index} · 第 ${index} 条之后：${entries[index - 1].name || entries[index - 1].id}`)}</option>`).join('')}</select>
         </label>
-        <label class="prompt-enable"><input type="checkbox" data-model-field="parseImageMarkers"${settings.parseImageMarkers ? ' checked' : ''}>解析配图标记</label>
-        <p class="config-status">完整闭合的标记会在楼层中显示为生成图片按钮。</p>
-        <code class="marker-format">&lt;img&gt;\n[图片内容概括]\n该场景的生图提示词\n&lt;/img&gt;</code>
-        <details class="prompt-section">
-          <summary><span>AI 配图返回格式</span></summary>
-          <p class="config-status">长按悬浮球处理时，正文副本会标注【插入点 P001】等行间位置。预设负责让 AI 返回以下 JSON 数组，插件按编号插入配图，保留原文。</p>
-          <code class="marker-format">[{"at":"P001","summary":"图片内容概括","prompt":"该场景的生图提示词"}]</code>
-          <p class="config-status">at 填本次提供的编号；summary 为概括；prompt 只填场景提示词。此处说明不会发送给模型。</p>
-        </details>
-      </div>
       <div class="prompt-sections">
         ${promptSection('head', '头部', settings.head)}
         <details class="prompt-section prompt-middle">
@@ -106,6 +100,18 @@ export function modelSettingsView(settings, state) {
         ${promptSection('tail', '尾部', settings.tail, settings.head.length)}
       </div>
       <button type="button" class="text-button model-feature-link" data-page="features">前往功能层配置 →</button>
+      </div>
+      <div class="parameter-group marker-settings"><h3 class="subsection-title">标记解析</h3>
+        <label class="prompt-enable"><input type="checkbox" data-model-field="parseImageMarkers"${settings.parseImageMarkers ? ' checked' : ''}>解析配图标记</label>
+        <p class="config-status">完整闭合的标记会在楼层中显示为生成图片按钮。</p>
+        <details class="prompt-section format-reference">
+          <summary><span>查看配图标记与 AI 返回格式</span></summary>
+          <code class="marker-format">&lt;img&gt;\n[图片内容概括]\n该场景的生图提示词\n&lt;/img&gt;</code>
+          <p class="config-status">在悬浮球菜单点击“AI生图”时，正文副本会标注【插入点 P001】等行间位置。预设负责让 AI 返回以下 JSON 数组，插件按编号插入配图，保留原文。</p>
+          <code class="marker-format">[{"at":"P001","summary":"图片内容概括","prompt":"该场景的生图提示词"}]</code>
+          <p class="config-status">at 填本次提供的编号；summary 为概括；prompt 只填场景提示词。此处说明不会发送给模型。</p>
+        </details>
+      </div>
     </section>
 
     <div class="model-save-line" data-saved="${state.saved}">

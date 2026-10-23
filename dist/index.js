@@ -24,8 +24,8 @@ function mount() {
     stylesheet.rel = 'stylesheet';
     stylesheet.href = new URL('../style.css', import.meta.url).href;
     root.innerHTML = `
-    <button type="button" class="launcher" aria-label="打开${pluginName}，可拖动调整位置"
-      aria-haspopup="dialog" aria-controls="image-plugin-panel" aria-expanded="false" title="点击打开${pluginName} · 拖动调整位置 · 长按处理最新回复">绘</button>
+    <button type="button" class="launcher" aria-label="打开${pluginName}菜单，可拖动调整位置"
+      aria-haspopup="dialog" aria-expanded="false" title="点击打开菜单 · 拖动调整位置">绘</button>
     <dialog id="image-plugin-panel" class="panel" aria-labelledby="image-plugin-title">
       <div class="shell">
         <header class="window-header">
@@ -51,14 +51,13 @@ function mount() {
     const content = root.querySelector('.content');
     const apiSwitch = root.querySelector('.api-switch');
     const persist = () => saveSettings(context, settings);
-    const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel('model-api'));
+    const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'));
     function openPanel(target) {
         if (panel.open)
             return;
         launcherMenu.close();
         navigate(target, false);
         panel.showModal();
-        launcher.setAttribute('aria-expanded', 'true');
         content.focus({ preventScroll: true });
     }
     function navigate(next, focus = true) {
@@ -98,9 +97,7 @@ function mount() {
                 return;
             settings.position = position;
             persist();
-        }, () => {
-            openPanel(settings.rememberPage ? settings.lastPage : 'guide');
-        }, signal, launcherMenu.open);
+        }, launcherMenu.toggle, signal, launcherMenu.close);
         root.addEventListener('click', event => {
             const target = event.target;
             if (!(target instanceof Element))

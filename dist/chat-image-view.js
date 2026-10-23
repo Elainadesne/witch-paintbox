@@ -34,17 +34,20 @@ export function createChatImageView(summary, signal) {
     slot.contentEditable = 'false';
     const root = slot.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>
-    :host { --button-surface: #45434e; display: block; width: min(100%, 680px); margin: 1.2em auto; color: inherit; font: inherit; text-indent: 0; text-align: left; }
+    :host { --button-surface: #45434e; display: block; width: min(100%, 680px); margin: .8em auto; color: inherit; font: inherit; text-indent: 0; text-align: left; }
     *, *::before, *::after { box-sizing: border-box; }
-    figure { display: grid; gap: 14px; margin: 0; padding: 16px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 10px; background: color-mix(in srgb, currentColor 3%, transparent); }
-    figcaption { display: grid; gap: 5px; padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, currentColor 16%, transparent); overflow-wrap: anywhere; }
+    figure { margin: 0; padding: 8px; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 6px; background: color-mix(in srgb, currentColor 2%, transparent); }
+    .scene > summary { position: relative; display: grid; gap: 2px; padding: 3px 24px; text-align: center; list-style: none; cursor: pointer; overflow-wrap: anywhere; }
+    .scene > summary::-webkit-details-marker { display: none; }
+    .scene > summary::after { content: '⌄'; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); opacity: .6; }
+    .scene[open] > summary::after { content: '⌃'; }
+    .scene-body { display: grid; gap: 8px; padding-top: 8px; }
     .label { font-size: 10px; letter-spacing: .2em; opacity: .6; }
-    .title { margin: 0; color: inherit; font: inherit; font-size: .95em; font-weight: 650; line-height: 1.65; }
-    .title::before { content: '「'; opacity: .5; } .title::after { content: '」'; opacity: .5; }
+    .title { color: inherit; font: inherit; font-size: .95em; font-weight: 650; line-height: 1.65; text-wrap: balance; }
     button, a { font: inherit; -webkit-tap-highlight-color: transparent; }
     button { cursor: pointer; }
     button:disabled { opacity: .6; cursor: wait; }
-    button:focus-visible, a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+    button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
     .generate { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 44px; padding: 10px 16px; border: 1px solid #ffffff38; border-radius: 7px; background: var(--button-surface); color: #fff; font-size: .85em; font-weight: 650; letter-spacing: .04em; }
     .generate:not(:disabled):hover { filter: brightness(1.1); }
     .generate:disabled { opacity: 1; color: #fff; }
@@ -57,6 +60,7 @@ export function createChatImageView(summary, signal) {
     .canvas[data-phase="generating"] .placeholder { animation: breathe 2s ease-in-out infinite; }
     .footer, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
     .footer { justify-content: space-between; font-size: .76em; line-height: 1.6; }
+    .footer:has(.status:empty):not(:has(.actions > :not([hidden]))) { display: none; }
     .actions button, .actions a { display: inline-flex; align-items: center; min-height: 32px; padding: 0; border: 0; background: transparent; color: inherit; text-decoration: none; }
     .actions button:hover, .actions a:hover { text-decoration: underline; text-underline-offset: 5px; }
     .cancel, .status { opacity: .7; }
@@ -65,10 +69,12 @@ export function createChatImageView(summary, signal) {
     [hidden] { display: none !important; }
     @keyframes breathe { 50% { opacity: .8; } }
     @media (prefers-reduced-motion: reduce) { .placeholder { animation: none !important; } }
-    @media (max-width: 480px) { figure { padding: 12px; } .footer { gap: 2px; } .status { flex-basis: 100%; } }
+    @media (max-width: 480px) { figure { padding: 6px; } .footer { gap: 2px; } .status { flex-basis: 100%; } }
   </style>
   <figure>
-    <figcaption><span class="label">画题</span><h3 class="title"></h3></figcaption>
+    <details class="scene" open>
+    <summary title="点击收起或展开图片"><span class="label">画题</span><span class="title"></span></summary>
+    <div class="scene-body">
     <div class="canvas" hidden>
       <button type="button" class="preview" aria-label="全屏查看图片与历史" hidden><img></button>
       <span class="placeholder" aria-hidden="true">✦</span>
@@ -78,9 +84,11 @@ export function createChatImageView(summary, signal) {
       <div class="actions"><button type="button" class="cancel" hidden>取消排队</button><a class="download" hidden>保存图片</a></div>
       <p class="status" role="status" aria-live="polite"></p>
     </div>
+    </div></details>
   </figure>`;
     // The marker parser has already identified the bracketed summary as the title.
     root.querySelector('.title').textContent = summary;
+    root.querySelector('.scene > summary').addEventListener('click', event => event.stopPropagation(), { signal });
     const button = root.querySelector('.generate');
     button.setAttribute('aria-label', `生成图片：${summary}`);
     const buttonLabel = root.querySelector('.generate-label');

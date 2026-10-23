@@ -17,7 +17,8 @@ export function imageSettingsView(settings, state) {
     const sizePreset = NAI_SIZE_PRESETS.find(item => item.width === parameters.width && item.height === parameters.height)?.value ?? 'custom';
     return `<div class="image-settings">
     <section class="config-section" aria-labelledby="connection-heading">
-      <h2 class="section-title" id="connection-heading">密钥配置</h2>
+      <header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
+        <h2 class="section-title" id="connection-heading">密钥配置</h2><p class="section-description">选择绘图服务，保存可复用的连接。</p></header>
       <div class="connection-fields">
         <label class="config-field channel-field"><span>渠道</span>
           <select data-connection="channel">${options([{ value: 'official', label: '官方' }, { value: 'custom', label: '自定义' }], connection.channel)}</select>
@@ -46,17 +47,20 @@ export function imageSettingsView(settings, state) {
     </section>
 
     <section class="config-section" aria-labelledby="parameters-heading">
-      <h2 class="section-title" id="parameters-heading">生图配置</h2>
-      <div class="parameter-grid">
-        <label class="config-field field-wide"><span>生图模型</span><select data-parameter="model">${options(NAI_MODELS, parameters.model)}</select></label>
+      <header class="section-heading"><span class="section-index" aria-hidden="true">02</span>
+        <h2 class="section-title" id="parameters-heading">生图配置</h2><p class="section-description">选定模型，再调整画幅与采样。</p></header>
+      <label class="config-field prominent-field"><span>生图模型</span><select data-parameter="model">${options(NAI_MODELS, parameters.model)}</select></label>
+      <div class="parameter-group"><h3 class="subsection-title">画幅</h3><div class="parameter-grid">
         <label class="config-field"><span>预设尺寸</span><select data-field="sizePreset">${options([...NAI_SIZE_PRESETS, { value: 'custom', label: '自定义' }], sizePreset)}</select></label>
         ${numberField('width', '宽度', parameters.width, 64, 4096, 64, '图片宽度，单位为像素，使用 64 的倍数。')}
         ${numberField('height', '高度', parameters.height, 64, 4096, 64, '图片高度，单位为像素，使用 64 的倍数。')}
+      </div></div>
+      <div class="parameter-group"><h3 class="subsection-title">采样</h3><div class="parameter-grid sampling-grid">
         ${numberField('steps', '步数', parameters.steps, 1, 50, 1, '生成时的采样步数。')}
         ${numberField('scale', '提示词引导强度', parameters.scale, 0, 100, 0.1, '控制生成结果遵循提示词的程度。')}
         <label class="config-field"><span>采样器</span><select data-parameter="sampler">${options(NAI_SAMPLERS, parameters.sampler)}</select></label>
         ${numberField('seed', '随机种子', parameters.seed, -1, 4294967295, 1, '填 -1 时每次使用新的随机种子。')}
-      </div>
+      </div></div>
       <details class="advanced-parameters">
         <summary>更多参数</summary>
         <div class="parameter-grid">
@@ -72,7 +76,8 @@ export function imageSettingsView(settings, state) {
     </section>
 
     <section class="config-section" aria-labelledby="artist-heading">
-      <h2 class="section-title" id="artist-heading">画师工坊</h2>
+      <header class="section-heading"><span class="section-index" aria-hidden="true">03</span>
+        <h2 class="section-title" id="artist-heading">画师工坊</h2><p class="section-description">统一画风与排除内容，和每个场景的提示词一起使用。</p></header>
       <div class="artist-fields">
         <label class="config-field"><span>正面提示词</span><textarea data-field="positive" rows="3" maxlength="65536" spellcheck="false">${escape(settings.positive)}</textarea></label>
         <label class="config-field"><span>负面提示词</span><textarea data-field="negative" rows="3" maxlength="65536" spellcheck="false">${escape(settings.negative)}</textarea></label>
