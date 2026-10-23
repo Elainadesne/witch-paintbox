@@ -210,8 +210,20 @@ export async function replaceAssistantMessage(snapshot, nextText, signal) {
 export function readAssistantMessages() {
     const context = host();
     const id = chatId(context);
-    return context.chat.flatMap((message, messageId) => message && !message.is_user && !message.is_system && typeof message.mes === 'string'
-        ? [{ chatId: id, messageId, text: message.mes }] : []);
+    const scope = context.groupId !== undefined && context.groupId !== null && context.groupId !== ''
+        ? JSON.stringify(['group', String(context.groupId)])
+        : JSON.stringify(['character', context.characters[Number(context.characterId)]?.avatar ?? context.characterId]);
+    return context.chat.flatMap((message, messageId) => {
+        if (!message || message.is_user || message.is_system || typeof message.mes !== 'string')
+            return [];
+        try {
+            return [{ scope, chatId: id, messageId, swipeId: currentSwipe(message), text: message.mes }];
+        }
+        catch {
+            // A swipe being created may not have its text yet; other floors can still render.
+            return [];
+        }
+    });
 }
 /** Uses the host sanitizer; rendering transient text never writes it into chat storage. */
 export function formatChatText(text, messageId) {
@@ -237,7 +249,8 @@ export function watchChatRendering(callback) {
     renderListeners.add(callback);
     const subscriptions = [];
     for (const name of ['CHAT_CHANGED', 'CHAT_LOADED', 'MORE_MESSAGES_LOADED', 'CHARACTER_MESSAGE_RENDERED',
-        'MESSAGE_UPDATED', 'MESSAGE_SWIPED', 'MESSAGE_DELETED', 'MESSAGE_SWIPE_DELETED']) {
+        'MESSAGE_UPDATED', 'MESSAGE_SWIPED', 'MESSAGE_DELETED', 'MESSAGE_SWIPE_DELETED',
+        'GENERATION_ENDED', 'GENERATION_STOPPED']) {
         const event = context.eventTypes?.[name];
         if (!event)
             continue;

@@ -1,5 +1,5 @@
 import { captureLatestAssistant, replaceAssistantMessage } from './chat-host.js';
-import { validateImageInsertions } from './image-markers.js';
+import { applyImageInsertions, createImageInsertionPlan } from './image-insertion.js';
 import { loadModelSettings } from './model-settings.js';
 import { runConfiguredModel } from './model-service.js';
 export class ChatProcessor {
@@ -25,17 +25,20 @@ export class ChatProcessor {
                 throw new Error('请先导入或填写处理正文的预设，并保存配置。');
             }
             const snapshot = await captureLatestAssistant();
+            const plan = createImageInsertionPlan(snapshot.text);
+            if (!plan.points.length)
+                throw new Error('当前正文没有可用的行间插入点。');
             controller.signal.throwIfAborted();
             this.report(`正在处理第 ${snapshot.messageId + 1} 楼…`, true);
             const candidate = await runConfiguredModel({
-                messages: [{ role: 'user', content: snapshot.text }], signal: controller.signal,
+                messages: [{ role: 'user', content: plan.text }], signal: controller.signal,
             }, text => this.report(`AI 处理中 · 已返回 ${text.length} 字符`, true), settings);
             controller.signal.throwIfAborted();
-            const result = validateImageInsertions(snapshot.text, candidate);
+            const result = applyImageInsertions(plan, candidate);
             if (!result.added.length)
-                throw new Error('AI 未插入新的有效配图标记，原文未变。');
+                throw new Error('AI 未返回配图数据，原文未变。');
             this.committing = true;
-            this.report('正在核对楼层并保存…', true, false, false);
+            this.report('正在按插入点保存配图标记…', true, false, false);
             await replaceAssistantMessage(snapshot, result.text, controller.signal);
             this.report(`已插入 ${result.added.length} 处配图标记，原正文保持不变。`, false);
         }

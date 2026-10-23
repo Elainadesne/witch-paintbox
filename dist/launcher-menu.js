@@ -7,7 +7,7 @@ export function bindLauncherMenu(launcher, root, signal, configure) {
     menu.setAttribute('aria-label', 'AI 处理');
     menu.innerHTML = `<button type="button" data-process>AI 处理最新回复</button>
     <button type="button" data-cancel hidden>取消处理</button>
-    <p role="status">按已保存的预设处理，校验通过后插入配图标记。</p>
+    <p role="status">AI 选择行间插入点并返回配图数据，由插件插入原文。</p>
     <div class="launcher-menu-footer"><button type="button" data-configure>预设配置</button><button type="button" data-close>关闭</button></div>`;
     root.append(menu);
     const processButton = menu.querySelector('[data-process]');

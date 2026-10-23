@@ -4,23 +4,60 @@ import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
 import { generateImage } from './novelai.js';
 
-interface RenderedMessage {
-  chatId: string;
-  messageId: number;
-  text: string;
+type AssistantMessage = ReturnType<typeof readAssistantMessages>[number];
+
+interface RenderedMessage extends AssistantMessage {
   slots: HTMLElement[];
-  dispose: (() => void)[];
+}
+
+interface ImageControl {
+  message: AssistantMessage;
+  slot: HTMLElement;
+  dispose(): void;
 }
 
 /** Render-only controls: stored chat text always contains the original literal markers. */
 export function bindChatImages(signal: AbortSignal): () => void {
+  if (signal.aborted) return () => {};
   const rendered = new Map<HTMLElement, RenderedMessage>();
+  // Keep requests and images across native DOM replacement and streamed text appends.
+  const images = new Map<string, ImageControl>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
 
-  function dispose(state: RenderedMessage): void { state.dispose.forEach(cleanup => cleanup()); }
+  function sameMessage(a: AssistantMessage, b: AssistantMessage): boolean {
+    return a.scope === b.scope && a.chatId === b.chatId && a.messageId === b.messageId
+      && (a.swipeId ?? 0) === (b.swipeId ?? 0);
+  }
 
-  function imageSlot(marker: ImageMarker, state: RenderedMessage): HTMLElement {
+  function markerEntries(message: AssistantMessage): Array<{ marker: ImageMarker; key: string }> {
+    const markers = parseImageMarkers(message.text);
+    const counts = new Map<string, number>();
+    markers.forEach(marker => counts.set(marker.raw, (counts.get(marker.raw) ?? 0) + 1));
+    const occurrences = new Map<string, number>();
+    return markers.map(marker => {
+      const occurrence = occurrences.get(marker.raw) ?? 0;
+      occurrences.set(marker.raw, occurrence + 1);
+      // If identical blocks are inserted/deleted, their old positions are ambiguous.
+      return { marker, key: JSON.stringify([message.scope, message.chatId, message.messageId, message.swipeId ?? 0,
+        marker.raw, counts.get(marker.raw), occurrence]) };
+    });
+  }
+
+  function isCurrent(message: AssistantMessage, key: string): boolean {
+    try {
+      if (stopped || !loadModelSettings().parseImageMarkers) return false;
+      const current = readAssistantMessages().find(item => sameMessage(item, message));
+      return Boolean(current && markerEntries(current).some(entry => entry.key === key));
+    } catch { return false; }
+  }
+
+  function clearImages(): void {
+    images.forEach(control => control.dispose());
+    images.clear();
+  }
+
+  function imageSlot(marker: ImageMarker, message: AssistantMessage, key: string): ImageControl {
     const slot = document.createElement('span');
     slot.className = 'witch-paintbox-image';
     slot.contentEditable = 'false';
@@ -42,9 +79,11 @@ export function bindChatImages(signal: AbortSignal): () => void {
     let request: AbortController | null = null;
     let url = '';
     const controls = new AbortController();
-    state.dispose.push(() => { controls.abort(); request?.abort(); if (url) URL.revokeObjectURL(url); });
-    button.addEventListener('click', async () => {
-      if (request || !slot.isConnected) return;
+    button.addEventListener('click', async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (request || !slot.isConnected || !isCurrent(message, key)
+        || slot.closest('.mes')?.querySelector('textarea.edit_textarea')) return;
       const controller = new AbortController();
       request = controller;
       button.disabled = true;
@@ -54,22 +93,27 @@ export function bindChatImages(signal: AbortSignal): () => void {
         // The model contributes only the scene. Artist positives and negatives belong to the plugin.
         const positive = [marker.prompt, settings.positive].filter(text => text.trim()).join(', ');
         const result = await generateImage(settings.connection, settings.parameters, positive, settings.negative, controller.signal);
-        if (controller.signal.aborted || !slot.isConnected) return;
+        // A native re-render can temporarily detach the slot without invalidating its request.
+        if (controller.signal.aborted || controls.signal.aborted || !isCurrent(message, key)) return;
+        const nextUrl = URL.createObjectURL(result.blob);
         if (url) URL.revokeObjectURL(url);
-        url = URL.createObjectURL(result.blob);
+        url = nextUrl;
         image.src = download.href = url;
         image.hidden = download.hidden = false;
         download.download = `witch-paintbox-${result.seed}.png`;
         button.textContent = `再次生成 · ${marker.summary}`;
         status.textContent = `生成完成 · 种子 ${result.seed}`;
       } catch (error) {
-        if (!controller.signal.aborted) status.textContent = (error as Error).message;
+        if (!controller.signal.aborted) status.textContent = error instanceof Error ? error.message : '生图未完成，请稍后重试。';
       } finally {
         request = null;
         button.disabled = false;
       }
     }, { signal: controls.signal });
-    return slot;
+    return {
+      message, slot,
+      dispose() { controls.abort(); request?.abort(); if (url) URL.revokeObjectURL(url); },
+    };
   }
 
   function render(): void {
@@ -80,18 +124,36 @@ export function bindChatImages(signal: AbortSignal): () => void {
       messages = readAssistantMessages();
       enabled = loadModelSettings().parseImageMarkers;
     } catch {
-      rendered.forEach(dispose);
+      clearImages();
+      rendered.forEach(state => state.slots.forEach(slot => slot.remove()));
       rendered.clear();
       return;
     }
     const byId = new Map(messages.map(message => [message.messageId, message]));
+    const entriesById = new Map<number, ReturnType<typeof markerEntries>>();
+    const entriesFor = (message: AssistantMessage) => {
+      let entries = entriesById.get(message.messageId);
+      if (!entries) {
+        try { entries = markerEntries(message); } catch { entries = []; }
+        entriesById.set(message.messageId, entries);
+      }
+      return entries;
+    };
+    for (const [key, control] of images) {
+      const current = byId.get(control.message.messageId);
+      if (!enabled || !current || !sameMessage(current, control.message)
+        || !entriesFor(current).some(entry => entry.key === key)) {
+        control.dispose();
+        images.delete(key);
+      }
+    }
     for (const [element, state] of rendered) {
       const current = byId.get(state.messageId);
-      if (!element.isConnected || current?.chatId !== state.chatId || current.text !== state.text || !enabled
+      if (!element.isConnected || !current || !sameMessage(current, state) || current.text !== state.text || !enabled
         || state.slots.some(slot => !element.contains(slot))) {
-        dispose(state);
         rendered.delete(element);
-        if (!enabled && element.isConnected && current?.chatId === state.chatId && current.text === state.text) {
+        if (element.isConnected && current && state.slots.some(slot => element.contains(slot))
+          && !element.closest('.mes')?.querySelector('textarea.edit_textarea')) {
           try { element.innerHTML = formatChatText(current.text, current.messageId); } catch { /* Keep native display if unavailable. */ }
         }
       }
@@ -104,19 +166,18 @@ export function bindChatImages(signal: AbortSignal): () => void {
       const message = byId.get(messageId);
       if (!message || block.querySelector('textarea.edit_textarea')) continue;
       const previous = rendered.get(element);
-      if (previous?.text === message.text && previous.chatId === message.chatId && previous.slots.every(slot => slot.isConnected && element.contains(slot))) continue;
-      if (previous) { dispose(previous); rendered.delete(element); }
-      let markers: ImageMarker[];
-      try { markers = parseImageMarkers(message.text); }
-      catch { continue; }
-      if (!markers.length) continue;
-      const state: RenderedMessage = { ...message, slots: [], dispose: [] };
+      if (previous?.text === message.text && sameMessage(previous, message)
+        && previous.slots.every(slot => slot.isConnected && element.contains(slot))) continue;
+      if (previous) rendered.delete(element);
+      const entries = entriesFor(message);
+      if (!entries.length) continue;
+      const state: RenderedMessage = { ...message, slots: [] };
       let prefix: string;
       do { prefix = `WITCHPAINTBOX${crypto.getRandomValues(new Uint32Array(2)).join('X')}MARK`; }
       while (message.text.includes(prefix));
       let cursor = 0;
       const parts: string[] = [];
-      const tokens = markers.map((marker, index) => {
+      const tokens = entries.map(({ marker }, index) => {
         const token = `${prefix}${index}END`;
         parts.push(message.text.slice(cursor, marker.start), token);
         cursor = marker.end;
@@ -127,6 +188,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
       try { formatted.innerHTML = formatChatText(parts.join(''), messageId); }
       catch { continue; }
       let valid = true;
+      const placeholders: HTMLElement[] = [];
       for (let index = 0; index < tokens.length; index++) {
         const walker = document.createTreeWalker(formatted, NodeFilter.SHOW_TEXT);
         let found: Text | null = null;
@@ -137,16 +199,29 @@ export function bindChatImages(signal: AbortSignal): () => void {
             found = node as Text;
           }
         }
-        if (!valid || !found || found.parentElement?.closest('code, pre, a, script, style')) { valid = false; break; }
+        if (!valid || !found || found.parentElement?.closest('code, pre, a, button, textarea, select, option, script, style')) {
+          valid = false;
+          break;
+        }
         const offset = found.data.indexOf(tokens[index]);
         if (found.data.indexOf(tokens[index], offset + tokens[index].length) !== -1) { valid = false; break; }
         const trailing = found.splitText(offset);
         trailing.splitText(tokens[index].length);
-        const slot = imageSlot(markers[index], state);
-        trailing.replaceWith(slot);
-        state.slots.push(slot);
+        const placeholder = document.createElement('span');
+        trailing.replaceWith(placeholder);
+        placeholders.push(placeholder);
       }
-      if (!valid) { dispose(state); continue; }
+      if (!valid) continue;
+      // Validate every placeholder before moving any existing controls into the new display.
+      entries.forEach(({ marker, key }, index) => {
+        let control = images.get(key);
+        if (!control) {
+          control = imageSlot(marker, message, key);
+          images.set(key, control);
+        }
+        placeholders[index].replaceWith(control.slot);
+        state.slots.push(control.slot);
+      });
       element.replaceChildren(...Array.from(formatted.childNodes));
       rendered.set(element, state);
     }
@@ -159,7 +234,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
   let stopWatching = () => {};
   try { stopWatching = watchChatRendering(schedule); } catch { /* The DOM observer can still follow native re-renders. */ }
   const observer = new MutationObserver(schedule);
-  observer.observe(document.getElementById('chat') ?? document.body, { childList: true, subtree: true });
+  observer.observe(document.getElementById('chat') ?? document.body, { childList: true, subtree: true, characterData: true });
   window.addEventListener('witch-paintbox:model-settings-changed', schedule, { signal });
   window.addEventListener('storage', schedule, { signal });
   schedule();
@@ -171,10 +246,10 @@ export function bindChatImages(signal: AbortSignal): () => void {
     stopWatching();
     let current: ReturnType<typeof readAssistantMessages> = [];
     try { current = readAssistantMessages(); } catch { /* Host is already unloading. */ }
+    clearImages();
     for (const [element, state] of rendered) {
-      dispose(state);
-      if (element.isConnected && current.some(message => message.chatId === state.chatId
-        && message.messageId === state.messageId && message.text === state.text)) {
+      if (element.isConnected && !element.closest('.mes')?.querySelector('textarea.edit_textarea')
+        && current.some(message => sameMessage(message, state) && message.text === state.text)) {
         try { element.innerHTML = formatChatText(state.text, state.messageId); }
         catch { state.slots.forEach(slot => slot.remove()); }
       }

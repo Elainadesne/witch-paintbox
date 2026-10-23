@@ -100,14 +100,20 @@ export function modelSettingsView(settings: ModelSettings, state: ModelViewState
           <select data-insertion-index>${Array.from({ length: entries.length + 1 }, (_, index) => `<option value="${index}"${index === settings.head.length ? ' selected' : ''}>${index === 0 ? '0 · 全部条目之前' : escape(`${index} · 第 ${index} 条之后：${entries[index - 1].name || entries[index - 1].id}`)}</option>`).join('')}</select>
         </label>
         <label class="prompt-enable"><input type="checkbox" data-model-field="parseImageMarkers"${settings.parseImageMarkers ? ' checked' : ''}>解析配图标记</label>
-        <p class="config-status">每个标记按以下四行格式闭合；此处说明不会发送给模型。</p>
+        <p class="config-status">完整闭合的标记会在楼层中显示为生成图片按钮。</p>
         <code class="marker-format">&lt;img&gt;\n[图片内容概括]\n该场景的生图提示词\n&lt;/img&gt;</code>
+        <details class="prompt-section">
+          <summary><span>AI 配图返回格式</span></summary>
+          <p class="config-status">长按悬浮球处理时，正文副本会标注【插入点 P001】等行间位置。预设负责让 AI 返回以下 JSON 数组，插件按编号插入配图，保留原文。</p>
+          <code class="marker-format">[{"at":"P001","summary":"图片内容概括","prompt":"该场景的生图提示词"}]</code>
+          <p class="config-status">at 填本次提供的编号；summary 为概括；prompt 只填场景提示词。此处说明不会发送给模型。</p>
+        </details>
       </div>
       <div class="prompt-sections">
         ${promptSection('head', '头部', settings.head)}
         <details class="prompt-section prompt-middle">
           <summary><span>中部 · 功能层</span><span class="prompt-count">${settings.enabledLayers.length} 项启用</span></summary>
-          <p class="config-status">此处放入已启用的功能层内容和本次待处理原文。</p>
+          <p class="config-status">此处放入已启用的功能层内容和带行间插入点的正文副本。</p>
         </details>
         ${promptSection('tail', '尾部', settings.tail, settings.head.length)}
       </div>

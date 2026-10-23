@@ -1,0 +1,122 @@
+export interface TextLine { start: number; contentEnd: number; end: number }
+export interface TextRegion {
+  start: number;
+  end: number;
+  kind: 'code' | 'html' | 'image';
+  closed: boolean;
+  nested?: boolean;
+}
+
+export function textLines(text: string): TextLine[] {
+  return Array.from(text.matchAll(/[^\r\n]*(?:\r\n|\r|\n|$)/g))
+    .filter(match => match[0].length > 0)
+    .map(match => ({
+      start: match.index, end: match.index + match[0].length,
+      contentEnd: match.index + match[0].replace(/(?:\r\n|\r|\n)$/, '').length,
+    }));
+}
+
+function escaped(text: string, at: number): boolean {
+  let slashes = 0;
+  while (at > 0 && text[--at] === '\\') slashes++;
+  return slashes % 2 === 1;
+}
+
+function tagEnd(text: string, start: number): number {
+  let quote = '';
+  for (let at = start + 1; at < text.length; at++) {
+    const character = text[at];
+    if (quote) { if (character === quote) quote = ''; }
+    else if (character === '"' || character === "'") quote = character;
+    else if (character === '>') return at + 1;
+  }
+  return -1;
+}
+
+/** Conservative literal regions; this is deliberately not a Markdown/HTML renderer. */
+export function imageTextRegions(text: string): TextRegion[] {
+  const lines = textLines(text);
+  const regions: TextRegion[] = [];
+  const fence = /^ {0,3}(?:> ?)*(`{3,}|~{3,})(.*)$/;
+  let lineIndex = 0;
+  let at = 0;
+  const add = (kind: TextRegion['kind'], end: number, closed = true, nested = false) => {
+    regions.push({ start: at, end, kind, closed, ...(nested ? { nested: true } : {}) });
+    at = end;
+  };
+  while (at < text.length) {
+    while (lineIndex < lines.length && lines[lineIndex].end <= at) lineIndex++;
+    const line = lines[lineIndex];
+    if (line?.start === at) {
+      const source = text.slice(at, line.contentEnd);
+      const opening = fence.exec(source);
+      if (opening) {
+        let closing: TextLine | undefined;
+        for (let index = lineIndex + 1; index < lines.length; index++) {
+          const candidate = fence.exec(text.slice(lines[index].start, lines[index].contentEnd));
+          if (candidate && candidate[1][0] === opening[1][0]
+            && candidate[1].length >= opening[1].length && !candidate[2].trim()) {
+            closing = lines[index];
+            break;
+          }
+        }
+        add('code', closing?.end ?? text.length, !!closing);
+        continue;
+      }
+      if (/^(?: {4}|\t)/.test(source)) {
+        let end = line.end;
+        for (let index = lineIndex + 1; index < lines.length; index++) {
+          const content = text.slice(lines[index].start, lines[index].contentEnd);
+          if (content.trim() && !/^(?: {4}|\t)/.test(content)) break;
+          end = lines[index].end;
+        }
+        add('code', end);
+        continue;
+      }
+    }
+    if (text[at] === '`' && !escaped(text, at)) {
+      const opening = /^`+/.exec(text.slice(at))![0];
+      const ticks = /`+/g;
+      ticks.lastIndex = at + opening.length;
+      let closing: RegExpExecArray | null;
+      do { closing = ticks.exec(text); } while (closing && closing[0].length !== opening.length);
+      add('code', closing ? closing.index + closing[0].length : text.length, !!closing);
+      continue;
+    }
+    if (text[at] === '<' && !escaped(text, at)) {
+      if (/^<img\s*>/i.test(text.slice(at))) {
+        const tokens = /<\/?img\s*>/gi;
+        tokens.lastIndex = at;
+        let depth = 0;
+        let nested = false;
+        let closing: RegExpExecArray | null = null;
+        for (let token = tokens.exec(text); token; token = tokens.exec(text)) {
+          if (token[0][1] !== '/') { if (depth++) nested = true; }
+          else if (--depth === 0) { closing = token; break; }
+        }
+        add('image', closing ? closing.index + closing[0].length : text.length, !!closing, nested);
+        continue;
+      }
+      const terminator = text.startsWith('<!--', at) ? '-->' : text.startsWith('<![CDATA[', at) ? ']]>' : text.startsWith('<?', at) ? '?>' : '';
+      if (terminator) {
+        const end = text.indexOf(terminator, at + 2);
+        add('html', end < 0 ? text.length : end + terminator.length, end >= 0);
+        continue;
+      }
+      const tag = /^<\/?([a-z][a-z\d:-]*)(?=[\s/>]|$)/i.exec(text.slice(at));
+      if (tag || text.startsWith('<!', at)) {
+        const end = tagEnd(text, at);
+        if (end < 0) { add('html', text.length, false); continue; }
+        if (tag && /^<(?:pre|code|script|style|textarea|title|a|button|select|option)\b/i.test(tag[0]) && !/\/\s*>$/.test(text.slice(at, end))) {
+          const close = new RegExp(`</${tag[1]}\\s*>`, 'gi');
+          close.lastIndex = end;
+          const closing = close.exec(text);
+          add('html', closing ? closing.index + closing[0].length : text.length, !!closing);
+        } else add('html', end);
+        continue;
+      }
+    }
+    at++;
+  }
+  return regions;
+}
