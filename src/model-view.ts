@@ -17,6 +17,7 @@ export interface ModelViewState {
     error: string;
     previewId?: string;
     busy?: boolean;
+    pickerOpen?: boolean;
   };
   filterStatus?: { enabled: boolean; active: boolean; error: string };
 }
@@ -70,19 +71,30 @@ export function worldbookSettingsView(settings: ModelSettings, state: ModelViewS
   const book = state?.book ?? '';
   const selected = settings.worldbooks.find(item => item.name === book)?.entries ?? [];
   const entries = state?.entries ?? [];
-  const names = [...new Set([...(state?.names ?? []), ...settings.worldbooks.map(item => item.name), ...(book ? [book] : [])])];
+  const names = [...new Set(state?.names ?? [])];
+  const attached = settings.worldbooks.filter(item => item.entries.length);
+  const attachedNames = new Set(attached.map(item => item.name));
   const stale = !state?.loading && !state?.error ? selected.filter(id => !entries.some(entry => entry.id === id)) : [];
   const count = settings.worldbooks.reduce((total, item) => total + item.entries.length, 0);
   const unavailable = state?.loading || state?.busy;
   const preview = entries.find(entry => entry.id === state?.previewId);
   return `<div class="worldbook-settings" data-worldbook-settings>
-    <div class="worldbook-choice-line">
-      <label class="config-field"><span>已上传的世界书</span><select data-worldbook-name${unavailable ? ' disabled' : ''}>${options([
-        { value: '', label: names.length ? '选择世界书' : '请先上传世界书' }, ...names.map(name => ({ value: name, label: name })),
-      ], book)}</select></label>
-      <button type="button" class="text-button" data-model-action="refresh-worldbooks"${unavailable ? ' disabled' : ''}>${state?.loading ? '读取中…' : '刷新'}</button>
+    <div class="worldbook-picker">
+      <div class="worldbook-picker-heading"><button type="button" class="worldbook-picker-toggle" data-model-action="toggle-worldbook-picker" aria-expanded="${Boolean(state?.pickerOpen)}"><span>世界书挂载</span><small>${state?.pickerOpen ? '收起列表' : '展开选择'}</small><span aria-hidden="true">${state?.pickerOpen ? '⌃' : '⌄'}</span></button>
+        <button type="button" class="text-button" data-model-action="refresh-worldbooks"${unavailable ? ' disabled' : ''}>${state?.loading ? '读取中…' : '刷新'}</button></div>
+      <div class="worldbook-attached" aria-label="已挂载的世界书">
+        ${attached.map(item => `<span class="worldbook-chip"><button type="button" data-model-action="choose-worldbook" data-book-name="${escape(item.name)}" aria-pressed="${item.name === book}" title="查看${escape(item.name)}的条目"${state?.busy ? ' disabled' : ''}>${escape(item.name)}</button><button type="button" class="worldbook-detach" data-model-action="detach-worldbook" data-book-name="${escape(item.name)}" aria-label="取消挂载${escape(item.name)}" title="仅取消挂载，不删除世界书"${state?.busy ? ' disabled' : ''}>×</button></span>`).join('')}
+        ${attached.length ? '' : '<p class="config-status">尚未挂载世界书。展开列表选择，可同时挂载多本。</p>'}
+      </div>
+      <div class="worldbook-picker-body"${state?.pickerOpen ? '' : ' hidden'}>
+        <p class="config-status">点击书名挂载该书全部可用条目；已挂载的书可切换查看，并在下方逐条调整。</p>
+        <div class="worldbook-picker-list" aria-label="已上传的世界书">${names.map(name => {
+          const isAttached = attachedNames.has(name);
+          return `<button type="button" data-model-action="${isAttached ? 'choose-worldbook' : 'attach-worldbook'}" data-book-name="${escape(name)}" aria-pressed="${name === book}"${state?.busy || (!isAttached && state?.loading) ? ' disabled' : ''}><span>${escape(name)}</span><small>${isAttached ? '已挂载' : '点击挂载'}</small></button>`;
+        }).join('')}${names.length ? '' : `<p class="config-status">${state?.loading ? '正在读取世界书列表…' : '还没有上传世界书。'}</p>`}</div>
+      </div>
     </div>
-    <p class="config-status">勾选后按原世界书规则发送：蓝灯常驻，绿灯仅在本次正文命中关键词时激活。已挂载 ${count} 条，来自 ${settings.worldbooks.filter(item => item.entries.length).length} 本世界书。</p>
+    <p class="config-status">已挂载 ${count} 条，来自 ${attached.length} 本世界书。蓝灯常驻，绿灯仅在本次正文命中关键词时激活。</p>
     ${manage ? '' : '<button type="button" class="text-button model-feature-link" data-page="features" data-feature-tab="worldbook">上传与管理世界书 →</button>'}
     ${state?.error ? `<p class="config-status is-error" role="status">${escape(state.error)}</p>` : ''}
     ${book ? `<div class="worldbook-toolbar"><span>${escape(book)}</span><button type="button" class="text-button" data-model-action="select-worldbook"${unavailable || !entries.some(entry => entry.enabled && entry.activation && entry.content.trim()) ? ' disabled' : ''}>全选可用</button><button type="button" class="text-button" data-model-action="clear-worldbook"${unavailable || !selected.length ? ' disabled' : ''}>清空挂载</button>${manage ? `<button type="button" class="text-button worldbook-danger" data-model-action="delete-worldbook"${unavailable || !state?.names.includes(book) ? ' disabled' : ''}>删除世界书</button>` : ''}</div>
@@ -96,6 +108,7 @@ export function worldbookSettingsView(settings: ModelSettings, state: ModelViewS
       ${entries.length || stale.length ? '' : `<p class="config-status">${state?.loading ? '正在读取条目…' : state?.error ? '读取成功后显示条目。' : '这本世界书暂无可用条目。'}</p>`}
     </div>` : ''}
     ${manage && preview ? `<div class="worldbook-preview"><h3 class="subsection-title">${escape(preview.name)}</h3><textarea class="preset-layer-preview" rows="9" readonly aria-label="世界书条目原文" spellcheck="false">${escape(preview.content)}</textarea></div>` : ''}
+    <p class="config-status">挂载与条目选择的更改，点击“保存配置”后生效。</p>
   </div>`;
 }
 

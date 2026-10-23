@@ -472,15 +472,38 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .preset-row-actions [data-model-action="remove-entry"]:hover:not(:disabled) { color: var(--danger); }
 .preset-editor-fields { display: grid; gap: 14px; }
 .preset-entry-fields { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(135px, 1fr); gap: 12px; }
-.image-settings .preset-detail input:not([type="checkbox"]), .image-settings .preset-detail select, .image-settings .preset-detail textarea, .image-settings .worldbook-settings select { padding: 9px 11px; border: 1px solid var(--border); border-radius: 3px; background: var(--field-paper); }
-.image-settings .preset-detail :is(input, select, textarea):focus, .image-settings .worldbook-settings select:focus { border-color: var(--accent); }
+.image-settings .preset-detail input:not([type="checkbox"]), .image-settings .preset-detail select, .image-settings .preset-detail textarea { padding: 9px 11px; border: 1px solid var(--border); border-radius: 3px; background: var(--field-paper); }
+.image-settings .preset-detail :is(input, select, textarea):focus { border-color: var(--accent); }
 .image-settings .preset-content textarea { min-height: 300px; line-height: 1.7; }
 .preset-description { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
 .preset-preview-heading { margin: 16px 0 5px; }
 .preset-preview-heading h4 { font-size: 12px; }
 .image-settings .preset-preview-heading .text-button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
 .image-settings .preset-layer-preview { color: var(--muted); font-size: 13px; }
-.worldbook-choice-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.worldbook-picker { width: fit-content; min-width: min(100%, 260px); max-width: 100%; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+.worldbook-picker-heading { display: flex; align-items: center; gap: 8px; padding: 5px 9px; }
+.worldbook-picker-toggle { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 36px; padding: 4px 0; border: 0; background: transparent; color: var(--section-accent); text-align: left; }
+.worldbook-picker-toggle > span:first-child { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.worldbook-picker-toggle small { color: var(--muted); font-size: 11px; }
+.image-settings .worldbook-picker-heading > .text-button { flex: 0 0 auto; min-height: 32px; padding: 4px 6px; font-size: 12px; }
+.worldbook-attached { display: flex; flex-wrap: wrap; align-items: start; gap: 7px; padding: 0 10px 11px; }
+.worldbook-attached > .config-status { margin-top: 0; }
+.worldbook-chip { display: flex; flex: 0 1 auto; align-items: stretch; min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: 3px; background: var(--field-paper); }
+.worldbook-chip > button { min-width: 0; min-height: 34px; padding: 5px 9px; border: 0; background: transparent; color: var(--muted); font-size: 13px; text-align: left; overflow-wrap: anywhere; }
+.worldbook-chip > button:first-child { flex: 1; }
+.worldbook-chip > .worldbook-detach { flex: 0 0 28px; padding: 5px; text-align: center; }
+.worldbook-chip > button:first-child:hover:not(:disabled), .worldbook-chip > button[aria-pressed="true"] { color: var(--accent); }
+.worldbook-chip > button[aria-pressed="true"] { font-weight: 600; }
+.worldbook-chip:has([aria-pressed="true"]) { border-color: var(--accent); background: var(--accent-soft); }
+.worldbook-chip > .worldbook-detach:hover:not(:disabled) { color: var(--danger); background: var(--accent-soft); }
+.worldbook-picker-body { padding: 10px; border-top: 1px solid var(--border); }
+.worldbook-picker-body > .config-status { margin-top: 0; }
+.worldbook-picker-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 240px; margin-top: 9px; overflow-y: auto; scrollbar-width: thin; }
+.worldbook-picker-list > button { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; min-width: 0; max-width: 100%; min-height: 34px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 3px; background: var(--field-paper); color: var(--ink); text-align: left; }
+.worldbook-picker-list > button > span { min-width: 0; overflow-wrap: anywhere; }
+.worldbook-picker-list small { color: var(--muted); font-size: 10px; }
+.worldbook-picker-list > button:hover:not(:disabled), .worldbook-picker-list > button[aria-pressed="true"] { border-color: var(--section-accent); color: var(--accent); }
+.worldbook-picker-list > button[aria-pressed="true"] { font-weight: 600; }
 .worldbook-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 12px; }
 .worldbook-toolbar > span { flex: 1 1 140px; min-width: 0; color: var(--section-accent); font-size: 12px; overflow-wrap: anywhere; }
 .image-settings .worldbook-toolbar .text-button { min-height: 32px; padding: 4px 8px; font-size: 12px; }

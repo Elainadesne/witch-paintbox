@@ -214,16 +214,22 @@ export class ModelConfig {
         const input = active instanceof HTMLInputElement && active.hasAttribute('data-worldbook-entry') ? active : null;
         const button = active instanceof HTMLButtonElement && active.closest('[data-worldbook-settings]') ? active : null;
         const scroll = this.container?.querySelector('.worldbook-entry-list')?.scrollTop ?? 0;
+        const pickerScroll = this.container?.querySelector('.worldbook-picker-list')?.scrollTop ?? 0;
         render();
         const list = this.container?.querySelector('.worldbook-entry-list');
         if (list)
             list.scrollTop = scroll;
+        const picker = this.container?.querySelector('.worldbook-picker-list');
+        if (picker)
+            picker.scrollTop = pickerScroll;
         if (!input && !button)
             return;
         const controls = this.container?.querySelectorAll('[data-worldbook-entry], [data-model-action]');
         const replacement = Array.from(controls ?? []).find(node => input
             ? node.dataset.worldbookEntry === input.dataset.worldbookEntry && node.dataset.worldbookName === input.dataset.worldbookName
-            : node.dataset.modelAction === button.dataset.modelAction && node.dataset.entryId === button.dataset.entryId);
+            : node.dataset.modelAction === button.dataset.modelAction && node.dataset.entryId === button.dataset.entryId
+                && node.dataset.bookName === button.dataset.bookName
+                && Boolean(node.closest('.worldbook-picker-list')) === Boolean(button.closest('.worldbook-picker-list')));
         if (replacement && !replacement.disabled)
             replacement.focus({ preventScroll: true });
     }
@@ -257,14 +263,6 @@ export class ModelConfig {
         if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement || input instanceof HTMLSelectElement) || !this.settings)
             return;
         const settings = this.settings;
-        if (input instanceof HTMLSelectElement && input.hasAttribute('data-worldbook-name')) {
-            if (this.worldbook.busy)
-                return;
-            this.worldbook.book = input.value;
-            this.worldbook.previewId = undefined;
-            void this.refreshWorldbooks(false);
-            return;
-        }
         if (input instanceof HTMLInputElement && input.hasAttribute('data-worldbook-entry')) {
             const name = input.dataset.worldbookName ?? this.worldbook.book;
             const id = input.dataset.worldbookEntry;
@@ -368,6 +366,15 @@ export class ModelConfig {
                 void this.refreshModels();
             else if (action === 'refresh-worldbooks')
                 void this.refreshWorldbooks();
+            else if (action === 'toggle-worldbook-picker') {
+                this.worldbook.pickerOpen = !this.worldbook.pickerOpen;
+                this.renderSources();
+            }
+            else if (action === 'choose-worldbook' || action === 'attach-worldbook') {
+                this.chooseWorldbook(button.dataset.bookName ?? '', action === 'attach-worldbook');
+            }
+            else if (action === 'detach-worldbook')
+                this.detachWorldbook(button.dataset.bookName ?? '');
             else if (action === 'delete-worldbook')
                 void this.removeWorldbook();
             else if (action === 'preview-worldbook-entry') {
@@ -456,18 +463,53 @@ export class ModelConfig {
         if (this.page === 'model')
             void this.refreshPreview();
     }
+    chooseWorldbook(name, attach) {
+        if (!this.settings || this.worldbook.busy || !name || (attach && this.worldbook.loading))
+            return;
+        const mounted = this.settings.worldbooks.some(book => book.name === name && book.entries.length);
+        if (!this.worldbook.names.includes(name) && !mounted)
+            return;
+        if (attach && !mounted && this.settings.worldbooks.length >= 100)
+            throw new Error('最多同时挂载 100 本世界书。');
+        this.worldbook.book = name;
+        this.worldbook.previewId = undefined;
+        this.worldbook.pickerOpen = false;
+        void this.refreshWorldbooks(false, attach && !mounted);
+        this.container?.querySelector('[data-model-action="toggle-worldbook-picker"]')?.focus({ preventScroll: true });
+    }
+    detachWorldbook(name) {
+        if (!this.settings || this.worldbook.busy || !this.settings.worldbooks.some(book => book.name === name))
+            return;
+        const current = this.worldbook.book === name;
+        if (current) {
+            this.bookRequest?.abort();
+            this.bookRequest = null;
+            this.worldbook.book = this.settings.worldbooks.find(book => book.name !== name && book.entries.length)?.name ?? '';
+            this.worldbook.entries = [];
+            this.worldbook.loading = false;
+            this.worldbook.error = '';
+            this.worldbook.previewId = undefined;
+            if (!this.worldbook.book)
+                this.worldbook.pickerOpen = true;
+        }
+        this.setBookSelection(name, []);
+        if (current && this.worldbook.book)
+            void this.refreshWorldbooks(false);
+        this.container?.querySelector('[data-model-action="toggle-worldbook-picker"]')?.focus({ preventScroll: true });
+    }
     loadSelectedSource() {
         if (this.page === 'worldbook' || (this.page === 'model' && this.selectedKey === 'layer:worldbook'))
             void this.refreshWorldbooks(!this.booksLoaded);
         if (this.page === 'model' && this.selectedKey.startsWith('layer:'))
             void this.refreshPreview();
     }
-    async refreshWorldbooks(reloadNames = true) {
+    async refreshWorldbooks(reloadNames = true, attach = false) {
         if (!this.container || !this.settings)
             return;
         this.bookRequest?.abort();
         const controller = new AbortController();
         this.bookRequest = controller;
+        const settings = this.settings;
         this.worldbook = { ...this.worldbook, entries: [], loading: true, error: '' };
         this.renderSources();
         try {
@@ -478,8 +520,19 @@ export class ModelConfig {
                 this.booksLoaded = true;
             }
             this.worldbook.book ||= this.settings.worldbooks[0]?.name ?? this.worldbook.names[0] ?? '';
-            if (this.worldbook.book)
-                this.worldbook.entries = await readWorldbook(this.worldbook.book, controller.signal);
+            const name = this.worldbook.book;
+            const entries = name ? await readWorldbook(name, controller.signal) : [];
+            controller.signal.throwIfAborted();
+            if (this.bookRequest !== controller || this.settings !== settings || this.worldbook.book !== name)
+                return;
+            this.worldbook.entries = entries;
+            if (attach && !settings.worldbooks.some(book => book.name === name && book.entries.length)) {
+                const ids = entries.filter(entry => entry.enabled && entry.activation && entry.content.trim()).map(entry => entry.id);
+                if (!ids.length)
+                    throw new Error(entries.some(entry => !entry.activation)
+                        ? '这本世界书缺少激活规则，请重新导入原文件后挂载。' : '这本世界书没有可挂载的条目。');
+                this.setBookSelection(name, ids);
+            }
         }
         catch (error) {
             if (!controller.signal.aborted)
