@@ -115,7 +115,7 @@ function selectedId(value: unknown, items: { id: string }[]): string {
   return id;
 }
 
-function validate(value: unknown): ImageSettings {
+export function validateImageSettings(value: unknown): ImageSettings {
   const source = record(value);
   const connectionProfiles = profiles(source.connectionProfiles, value => {
     const item = record(value);
@@ -144,7 +144,7 @@ function validate(value: unknown): ImageSettings {
 
 function parseSaved(raw: string): ImageSettings {
   try {
-    return validate(JSON.parse(raw));
+    return validateImageSettings(JSON.parse(raw));
   } catch {
     throw new Error('已保存的生图配置无法读取，原始记录已保留，未覆盖。');
   }
@@ -165,7 +165,7 @@ export function loadImageSettings(): ImageSettings {
 }
 
 export function saveImageSettings(settings: ImageSettings): void {
-  const value = validate(settings);
+  const value = validateImageSettings(settings);
   const { storage, raw: previous } = readStored();
   // Preserve an unreadable record instead of replacing it with a fresh UI state.
   if (previous !== null) parseSaved(previous);

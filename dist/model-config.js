@@ -30,16 +30,9 @@ export class ModelConfig {
     booksLoaded = false;
     worldbookNotice = '';
     worldbookError = false;
+    get hasPendingWrites() { return Boolean(this.worldbook.busy); }
     constructor() {
-        try {
-            this.settings = loadModelSettings();
-            if (hasSavedModelSettings())
-                this.saved = JSON.stringify(this.settings);
-            this.ensureLayerSlots();
-        }
-        catch (error) {
-            this.loadError = error.message;
-        }
+        this.reloadSaved();
         this.unsubscribe = [
             onFeatureLayersChanged(() => { this.ensureLayerSlots(); this.render(); }),
             onAnchorsChanged(() => { if (this.selectedKey === 'layer:anchors')
@@ -53,6 +46,36 @@ export class ModelConfig {
             }),
             onContextFilterStatusChanged(() => this.syncFilterStatus()),
         ];
+    }
+    reloadSaved() {
+        this.refresh?.abort();
+        this.bookRequest?.abort();
+        this.previewRequest?.abort();
+        this.refresh = this.bookRequest = this.previewRequest = null;
+        this.importRequest++;
+        this.draftRevision++;
+        this.settings = null;
+        this.saved = '';
+        this.loadError = '';
+        this.importNotice = '';
+        this.importError = false;
+        this.selectedKey = '';
+        this.preview = undefined;
+        this.worldbook = { names: [], book: '', entries: [], loading: false, error: '', busy: this.worldbook.busy };
+        this.booksLoaded = false;
+        this.worldbookNotice = '';
+        this.worldbookError = false;
+        try {
+            this.settings = loadModelSettings();
+            if (hasSavedModelSettings())
+                this.saved = JSON.stringify(this.settings);
+            this.ensureLayerSlots();
+        }
+        catch (error) {
+            this.loadError = error.message;
+        }
+        this.render();
+        this.loadSelectedSource();
     }
     mount(container, page = 'model') {
         this.unmount();

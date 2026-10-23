@@ -4,6 +4,7 @@ import { bindChatImages } from './chat-images.js';
 import { ImageConfig } from './image-config.js';
 import { ModelConfig } from './model-config.js';
 import { AnchorConfig } from './anchor-config.js';
+import { ConfigTransfer } from './config-transfer.js';
 import { registerBuiltinLayers } from './builtin-layers.js';
 import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName, type PageId } from './pages.js';
@@ -23,7 +24,21 @@ function mount() {
   let featureTab: FeatureTab = 'anchors';
   const imageConfig = new ImageConfig();
   const modelConfig = new ModelConfig();
-  const anchorConfig = new AnchorConfig();
+  let anchorConfig = new AnchorConfig();
+  let floating: ReturnType<typeof bindLauncher> | null = null;
+  const transfer = new ConfigTransfer(context, kind => {
+    imageConfig.reloadSaved(kind === 'artists');
+    if (kind === 'all') {
+      modelConfig.reloadSaved();
+      anchorConfig.destroy(); anchorConfig = new AnchorConfig();
+      settings = readSettings(context);
+      if (settings.rememberPosition && settings.position) floating?.setPosition(settings.position);
+      else floating?.reset();
+      for (const input of Array.from(content.querySelectorAll<HTMLInputElement>('.preference-row input'))) {
+        if (input.name === 'rememberPage' || input.name === 'rememberPosition') input.checked = settings[input.name];
+      }
+    }
+  }, () => modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites ? '角色或世界书仍在保存，请完成后再确认导入。' : undefined);
   const controller = new AbortController();
   const { signal } = controller;
   signal.addEventListener('abort', unregisterLayers, { once: true });
@@ -74,9 +89,11 @@ function mount() {
   }
 
   function navigate(next: PageId, focus = true, nextFeatureTab?: FeatureTab) {
+    if (transfer.isApplying) return;
     imageConfig.unmount();
     modelConfig.unmount();
     anchorConfig.unmount();
+    transfer.unmount();
     page = next;
     if (page === 'features' && nextFeatureTab) featureTab = nextFeatureTab;
     const isConnection = page === 'image-api' || page === 'model-api';
@@ -97,6 +114,8 @@ function mount() {
     if (page === 'model-api' || page === 'features') {
       if (modelContainer) modelConfig.mount(modelContainer, page === 'model-api' ? 'model' : featureTab === 'worldbook' ? 'worldbook' : 'features');
     }
+    const transferContainer = content.querySelector<HTMLElement>('[data-config-transfer]');
+    if (page === 'preferences' && transferContainer) transfer.mount(transferContainer);
     content.scrollTop = 0;
     settings.lastPage = page;
     persist();
@@ -107,11 +126,11 @@ function mount() {
   stylesheet.addEventListener('load', () => {
     host.hidden = false;
     bindChatImages(signal);
-    const floating = bindLauncher(
+    floating = bindLauncher(
       launcher,
       settings.rememberPosition ? settings.position : null,
       position => {
-        if (!settings.rememberPosition) return;
+        if (!settings.rememberPosition || transfer.isApplying) return;
         settings.position = position;
         persist();
       },
@@ -124,16 +143,21 @@ function mount() {
       if (!(target instanceof Element)) return;
       const button = target.closest<HTMLButtonElement>('button');
       if (!button) return;
+      if (transfer.isApplying && !button.classList.contains('close-button')) return;
       const nextFeatureTab = button.dataset.featureTab;
       if ((nextFeatureTab === 'anchors' || nextFeatureTab === 'worldbook') && (!button.dataset.page || button.dataset.page === 'features')) {
         navigate('features', true, nextFeatureTab);
       } else if (isPageId(button.dataset.page)) navigate(button.dataset.page);
+      if (button.dataset.section === 'config-transfer' && page === 'preferences') {
+        const target = content.querySelector<HTMLElement>('[data-config-transfer]');
+        if (target) { target.tabIndex = -1; target.scrollIntoView({ block: 'start' }); target.focus({ preventScroll: true }); }
+      }
       if (button.classList.contains('close-button')) panel.close();
       if (button.dataset.action === 'reset-preferences') {
         settings = defaultSettings();
-        floating.reset();
+        floating!.reset();
         persist();
-        content.innerHTML = pageView(page, settings, featureTab);
+        navigate('preferences', false);
         content.querySelector<HTMLElement>('[data-feedback]')!.textContent = '已恢复默认偏好。';
         content.querySelector<HTMLButtonElement>('[data-action="reset-preferences"]')!.focus();
       }
@@ -142,13 +166,14 @@ function mount() {
     root.addEventListener('change', event => {
       const input = event.target;
       if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition'].includes(input.name)) return;
+      if (transfer.isApplying) { input.checked = settings[input.name as 'rememberPage' | 'rememberPosition']; return; }
       if (input.name === 'rememberPage') {
         settings.rememberPage = input.checked;
         settings.lastPage = page;
       }
       if (input.name === 'rememberPosition') {
         settings.rememberPosition = input.checked;
-        settings.position = input.checked ? floating.getPosition() : null;
+        settings.position = input.checked ? floating!.getPosition() : null;
       }
       persist();
       content.querySelector<HTMLElement>('[data-feedback]')!.textContent = '更改会自动保存。';
@@ -167,6 +192,7 @@ function mount() {
     imageConfig.destroy();
     modelConfig.destroy();
     anchorConfig.destroy();
+    transfer.unmount();
     host.remove();
   }, { once: true, signal });
   window.addEventListener('pagehide', event => {
@@ -177,6 +203,7 @@ function mount() {
     imageConfig.destroy();
     modelConfig.destroy();
     anchorConfig.destroy();
+    transfer.unmount();
     host.remove();
   }, { signal });
 

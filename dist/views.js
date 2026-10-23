@@ -26,9 +26,29 @@ function guideView() {
           </button>
           <div class="map-leaves">${node('image-api', 'map-leaf')}${node('model-api', 'map-leaf')}</div>
         </div>
-        <div class="map-branch">${node('features')}</div>
-        <div class="map-branch">${node('preferences')}</div>
+        <div class="map-branch">${node('features')}
+          <div class="map-leaves">
+            <button type="button" class="map-leaf" data-page="features" data-feature-tab="anchors"><strong>标签锚定</strong><span>固定角色外貌与服装</span></button>
+            <button type="button" class="map-leaf" data-page="features" data-feature-tab="worldbook"><strong>世界书</strong><span>上传并挂载参考条目</span></button>
+          </div>
+        </div>
+        <div class="map-branch">${node('preferences')}
+          <div class="map-leaves"><button type="button" class="map-leaf" data-page="preferences" data-section="config-transfer"><strong>配置迁移与分享</strong><span>导出配置、分享画师串</span></button></div>
+        </div>
       </div>
+    </section>
+    <section class="guide-flow" aria-labelledby="guide-flow-heading">
+      <h3 id="guide-flow-heading">从正文到配图</h3>
+      <ol class="guide-steps">
+        <li><span class="guide-step-number" aria-hidden="true">01</span><div><h4>连接接口，导入预设</h4><p>配置生图 API 和模型 API，再导入你准备好的预设。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">02</span><div><h4>补充角色与世界资料</h4><p>按需要配置标签锚定、上传世界书，并勾选要挂载的条目。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">03</span><div><h4>让 AI 处理最新回复</h4><p>打开悬浮球菜单，点击“AI生图”，为正文插入配图位置。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层中生成图片</h4><p>点击配图位置的“生成图片”，图片会按队列依次绘制。</p></div></li>
+      </ol>
+    </section>
+    <section class="guide-transfer" aria-labelledby="guide-transfer-heading">
+      <div><h3 id="guide-transfer-heading">把配置带走，也把画师串分享出去</h3><p>可导出完整配置用于迁移，或只导出画师串；密钥由你选择是否包含。导入时先校验文件并展示内容，确认后才会写入。</p></div>
+      <button type="button" class="secondary" data-page="preferences" data-section="config-transfer">配置迁移与分享 →</button>
     </section>`;
 }
 function preferencesView(settings) {
@@ -44,7 +64,8 @@ function preferencesView(settings) {
     <div class="actions">
       <button type="button" class="secondary" data-action="reset-preferences">恢复默认偏好</button>
       <p class="muted" role="status" data-feedback>更改会自动保存。</p>
-    </div>`;
+    </div>
+    <div data-config-transfer></div>`;
 }
 function featureView(tab) {
     return `<div class="image-settings feature-settings">

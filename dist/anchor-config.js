@@ -63,6 +63,7 @@ export class AnchorConfig {
     urls = [];
     notice = '';
     failed = false;
+    get hasPendingWrites() { return this.busy; }
     mount(container) {
         this.unmount();
         this.container = container;

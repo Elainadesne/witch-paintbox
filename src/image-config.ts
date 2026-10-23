@@ -24,6 +24,21 @@ export class ImageConfig {
   private generationPhase: 'queued' | 'generating' = 'queued';
 
   constructor() {
+    this.reloadSaved();
+  }
+
+  reloadSaved(artistsOnly = false): void {
+    if (artistsOnly && this.settings) {
+      const saved = loadImageSettings();
+      this.settings = { ...this.settings, artists: saved.artists, positive: saved.positive, negative: saved.negative, activeArtistId: saved.activeArtistId };
+      this.artistName = saved.artists.find(item => item.id === saved.activeArtistId)?.name ?? '';
+      this.render();
+      return;
+    }
+    this.settings = null;
+    this.loadError = '';
+    this.connection = { channel: 'official', url: '', key: '' };
+    this.connectionId = this.connectionName = this.artistName = '';
     try {
       this.settings = loadImageSettings();
       this.connection = { ...this.settings.connection };
@@ -33,18 +48,12 @@ export class ImageConfig {
     } catch (error) {
       this.loadError = (error as Error).message;
     }
+    this.render();
   }
 
   mount(container: HTMLElement): void {
     this.unmount();
     this.container = container;
-    if (!this.settings) {
-      const message = document.createElement('p');
-      message.setAttribute('role', 'alert');
-      message.textContent = this.loadError;
-      container.replaceChildren(message);
-      return;
-    }
     this.listeners = new AbortController();
     const { signal } = this.listeners;
     container.addEventListener('input', event => this.edit(event), { signal });
@@ -83,7 +92,14 @@ export class ImageConfig {
   }
 
   private render(): void {
-    if (!this.container || !this.settings) return;
+    if (!this.container) return;
+    if (!this.settings) {
+      const message = document.createElement('p');
+      message.setAttribute('role', 'alert');
+      message.textContent = this.loadError;
+      this.container.replaceChildren(message);
+      return;
+    }
     this.container.innerHTML = imageSettingsView(
       { ...this.settings, connection: this.connection, activeConnectionId: this.connectionId },
       { connectionName: this.connectionName, artistName: this.artistName, connectionSaved: this.isConnectionSaved() },
@@ -374,7 +390,7 @@ export class ImageConfig {
   }
 
   private syncGeneration(): void {
-    if (!this.container) return;
+    if (!this.container || !this.settings) return;
     const busy = this.request !== null;
     const button = this.container.querySelector<HTMLButtonElement>('[data-action="generate"]')!;
     button.disabled = busy;

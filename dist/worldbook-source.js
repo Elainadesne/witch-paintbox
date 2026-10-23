@@ -215,6 +215,49 @@ export function onWorldbooksChanged(listener) {
     listeners.add(listener);
     return () => { listeners.delete(listener); };
 }
+export function validateWorldbookArchive(value) {
+    if (!Array.isArray(value))
+        throw new Error('世界书备份必须是数组，原有记录未修改。');
+    const names = new Set();
+    return Array.from(value, raw => {
+        const book = record(raw);
+        if (!book || !Array.isArray(book.entries))
+            throw new Error('世界书备份格式无效，原有记录未修改。');
+        const name = bookName(book.name);
+        if (name !== book.name)
+            throw new Error('世界书备份名称不能包含首尾空白，原有记录未修改。');
+        if (names.has(name))
+            throw new Error(`世界书备份中名称“${name}”重复，原有记录未修改。`);
+        names.add(name);
+        const entries = parseEntries(book.entries);
+        for (let index = 0; index < entries.length; index++) {
+            const entry = record(book.entries[index]);
+            if (entry.id !== entries[index].id || entry.name !== entries[index].name || typeof entry.enabled !== 'boolean') {
+                throw new Error(`世界书“${name}”的备份条目标识、名称或启用状态无效，原有记录未修改。`);
+            }
+        }
+        return { name, entries };
+    });
+}
+export async function loadWorldbookArchive() {
+    const books = await transact('readonly', '备份读取', (store, result) => {
+        store.getAll().onsuccess = event => result(event.target.result);
+    });
+    return validateWorldbookArchive(books).sort((a, b) => a.name.localeCompare(b.name));
+}
+export async function replaceWorldbookArchive(books) {
+    const saved = validateWorldbookArchive(books);
+    await transact('readwrite', '恢复', store => {
+        const registry = store.transaction.objectStore(namesStoreName);
+        store.clear();
+        for (const book of saved) {
+            store.put(book);
+            // Restore explicit backup names while retaining reservations from older uploads.
+            registry.put(true, book.name);
+        }
+    });
+    notify();
+}
 /** Lists only books imported into this plugin's browser storage. */
 export async function listWorldbooks(signal) {
     const keys = await transact('readonly', '读取', (store, result) => {

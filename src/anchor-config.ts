@@ -58,6 +58,8 @@ export class AnchorConfig {
   private notice = '';
   private failed = false;
 
+  get hasPendingWrites(): boolean { return this.busy; }
+
   mount(container: HTMLElement): void {
     this.unmount();
     this.container = container;

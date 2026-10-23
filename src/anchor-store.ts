@@ -90,6 +90,7 @@ async function transact<T>(mode: IDBTransactionMode, action: string, makeRequest
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      try { transaction.abort(); } catch { /* The transaction may already have completed. */ }
       reject(error);
     };
     let request: IDBRequest<T>;
@@ -181,6 +182,30 @@ export function onAnchorsChanged(callback: () => void): () => void {
 export async function loadAnchors(): Promise<CharacterAnchor[]> {
   const anchors = await transact('readonly', '读取', store => store.getAll());
   return anchors.map(snapshot).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+}
+
+export function validateAnchor(value: unknown): CharacterAnchor {
+  return snapshot(value);
+}
+
+export async function replaceAnchors(value: CharacterAnchor[]): Promise<void> {
+  if (!Array.isArray(value)) throw new Error('角色锚定备份必须是数组，原有记录未修改。');
+  const saved = Array.from(value, validateAnchor);
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  for (const anchor of saved) {
+    if (ids.has(anchor.id)) throw new Error('角色锚定备份中角色标识重复，原有记录未修改。');
+    if (names.has(anchor.name)) throw new Error('角色锚定备份中角色名称重复，原有记录未修改。');
+    ids.add(anchor.id);
+    names.add(anchor.name);
+  }
+  await transact('readwrite', '恢复', store => {
+    const cleared = store.clear();
+    for (const anchor of saved) store.put(anchor);
+    // transact resolves only after every request commits, including all puts.
+    return cleared;
+  });
+  notify();
 }
 
 export async function saveAnchor(anchor: CharacterAnchor): Promise<void> {

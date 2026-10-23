@@ -61,5 +61,5 @@ export function bindLauncher(button, initial, onMove, onOpen, signal, onDrag) {
     }, { signal });
     button.addEventListener('contextmenu', event => event.preventDefault(), { signal });
     window.addEventListener('resize', () => place(position), { signal });
-    return { reset, getPosition: () => ({ ...position }) };
+    return { reset, setPosition: place, getPosition: () => ({ ...position }) };
 }

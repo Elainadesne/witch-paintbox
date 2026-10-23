@@ -6,7 +6,7 @@ export interface WorldbookSourceEntry {
   enabled: boolean;
 }
 
-interface StoredWorldbook { name: string; entries: WorldbookSourceEntry[] }
+export interface StoredWorldbook { name: string; entries: WorldbookSourceEntry[] }
 const databaseName = 'witch-paintbox-worldbooks';
 const storeName = 'books';
 const namesStoreName = 'names';
@@ -177,6 +177,48 @@ function notify(): void {
 export function onWorldbooksChanged(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
+}
+
+export function validateWorldbookArchive(value: unknown): StoredWorldbook[] {
+  if (!Array.isArray(value)) throw new Error('世界书备份必须是数组，原有记录未修改。');
+  const names = new Set<string>();
+  return Array.from(value, raw => {
+    const book = record(raw);
+    if (!book || !Array.isArray(book.entries)) throw new Error('世界书备份格式无效，原有记录未修改。');
+    const name = bookName(book.name);
+    if (name !== book.name) throw new Error('世界书备份名称不能包含首尾空白，原有记录未修改。');
+    if (names.has(name)) throw new Error(`世界书备份中名称“${name}”重复，原有记录未修改。`);
+    names.add(name);
+    const entries = parseEntries(book.entries);
+    for (let index = 0; index < entries.length; index++) {
+      const entry = record(book.entries[index])!;
+      if (entry.id !== entries[index].id || entry.name !== entries[index].name || typeof entry.enabled !== 'boolean') {
+        throw new Error(`世界书“${name}”的备份条目标识、名称或启用状态无效，原有记录未修改。`);
+      }
+    }
+    return { name, entries };
+  });
+}
+
+export async function loadWorldbookArchive(): Promise<StoredWorldbook[]> {
+  const books = await transact<unknown[]>('readonly', '备份读取', (store, result) => {
+    store.getAll().onsuccess = event => result((event.target as IDBRequest<unknown[]>).result);
+  });
+  return validateWorldbookArchive(books).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function replaceWorldbookArchive(books: StoredWorldbook[]): Promise<void> {
+  const saved = validateWorldbookArchive(books);
+  await transact<void>('readwrite', '恢复', store => {
+    const registry = store.transaction.objectStore(namesStoreName);
+    store.clear();
+    for (const book of saved) {
+      store.put(book);
+      // Restore explicit backup names while retaining reservations from older uploads.
+      registry.put(true, book.name);
+    }
+  });
+  notify();
 }
 
 /** Lists only books imported into this plugin's browser storage. */
