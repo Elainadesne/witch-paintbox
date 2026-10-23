@@ -8,7 +8,7 @@ export function defaultModelSettings() {
         mode: 'tavern', url: '', key: '', model: '', models: [],
         maxTokens: 2048, temperature: 1, transport: 'compatible',
         head: [], tail: [], enabledLayers: [...builtinLayerIds], presetName: '', parseImageMarkers: true,
-        hideImageContext: true, promptOrder: createPromptOrder([], []), worldbooks: [],
+        hideImageContext: true, promptOrder: createPromptOrder([], []), worldbookSource: 'uploads', worldbooks: [],
     };
 }
 function invalid() { throw new Error('模型配置格式无效，请检查填写内容。'); }
@@ -86,7 +86,10 @@ export function validateModelSettings(value) {
         || enabledLayers.some(id => !promptOrder.includes(`layer:${id}`))
         || promptOrder.some(key => key !== 'input' && !promptKeys.has(key) && !/^layer:[a-z0-9][a-z0-9._-]{0,127}$/i.test(key)))
         invalid();
-    const books = source.worldbooks === undefined ? [] : source.worldbooks;
+    if (source.worldbookSource !== undefined && source.worldbookSource !== 'uploads')
+        invalid();
+    // Native Tavern selections from the previous version must never match an uploaded book by accident.
+    const books = source.worldbookSource === 'uploads' ? source.worldbooks ?? [] : [];
     if (!Array.isArray(books) || books.length > 100)
         invalid();
     const worldbooks = books.map(raw => {
@@ -103,7 +106,7 @@ export function validateModelSettings(value) {
         model: text(source.model, 512), models: stringList(source.models, 10_000),
         maxTokens: number(source.maxTokens, 1, 65_536, true), temperature: number(source.temperature, 0, 2),
         transport: source.transport, head, tail,
-        enabledLayers, promptOrder, worldbooks,
+        enabledLayers, promptOrder, worldbookSource: 'uploads', worldbooks,
         presetName: source.presetName === undefined ? '' : text(source.presetName, 256),
         parseImageMarkers: source.parseImageMarkers === undefined ? true : source.parseImageMarkers,
         hideImageContext: source.hideImageContext === undefined ? true : source.hideImageContext,
@@ -131,6 +134,16 @@ export function loadModelSettings() {
     return raw === null ? defaultModelSettings() : parse(raw);
 }
 export function hasSavedModelSettings() { return stored().raw !== null; }
+/** Remove only this book's saved attachment, without saving unrelated editor drafts. */
+export function detachStoredWorldbook(name) {
+    if (!hasSavedModelSettings())
+        return;
+    const settings = loadModelSettings();
+    if (!settings.worldbooks.some(book => book.name === name))
+        return;
+    settings.worldbooks = settings.worldbooks.filter(book => book.name !== name);
+    saveModelSettings(settings);
+}
 export function saveModelSettings(settings) {
     const value = validateModelSettings(settings);
     const { storage, raw: previous } = stored();

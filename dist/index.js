@@ -17,6 +17,7 @@ function mount() {
     let settings = readSettings(context);
     let page = 'guide';
     let connectionPage = 'image-api';
+    let featureTab = 'anchors';
     const imageConfig = new ImageConfig();
     const modelConfig = new ModelConfig();
     const anchorConfig = new AnchorConfig();
@@ -67,11 +68,13 @@ function mount() {
         panel.showModal();
         content.focus({ preventScroll: true });
     }
-    function navigate(next, focus = true) {
+    function navigate(next, focus = true, nextFeatureTab) {
         imageConfig.unmount();
         modelConfig.unmount();
         anchorConfig.unmount();
         page = next;
+        if (page === 'features' && nextFeatureTab)
+            featureTab = nextFeatureTab;
         const isConnection = page === 'image-api' || page === 'model-api';
         if (isConnection)
             connectionPage = page;
@@ -84,13 +87,17 @@ function mount() {
             else
                 button.removeAttribute('aria-current');
         });
-        content.innerHTML = pageView(page, settings);
-        if (page === 'image-api')
-            imageConfig.mount(content.querySelector('[data-image-settings]'));
-        if (page === 'features')
-            anchorConfig.mount(content.querySelector('[data-anchor-settings]'));
+        content.innerHTML = pageView(page, settings, featureTab);
+        const imageContainer = content.querySelector('[data-image-settings]');
+        const anchorContainer = content.querySelector('[data-anchor-settings]');
+        const modelContainer = content.querySelector('[data-model-settings]');
+        if (page === 'image-api' && imageContainer)
+            imageConfig.mount(imageContainer);
+        if (page === 'features' && anchorContainer)
+            anchorConfig.mount(anchorContainer);
         if (page === 'model-api' || page === 'features') {
-            modelConfig.mount(content.querySelector('[data-model-settings]'), page === 'features' ? 'features' : 'model');
+            if (modelContainer)
+                modelConfig.mount(modelContainer, page === 'model-api' ? 'model' : featureTab === 'worldbook' ? 'worldbook' : 'features');
         }
         content.scrollTop = 0;
         settings.lastPage = page;
@@ -115,7 +122,11 @@ function mount() {
             const button = target.closest('button');
             if (!button)
                 return;
-            if (isPageId(button.dataset.page))
+            const nextFeatureTab = button.dataset.featureTab;
+            if ((nextFeatureTab === 'anchors' || nextFeatureTab === 'worldbook') && (!button.dataset.page || button.dataset.page === 'features')) {
+                navigate('features', true, nextFeatureTab);
+            }
+            else if (isPageId(button.dataset.page))
                 navigate(button.dataset.page);
             if (button.classList.contains('close-button'))
                 panel.close();
@@ -123,7 +134,7 @@ function mount() {
                 settings = defaultSettings();
                 floating.reset();
                 persist();
-                content.innerHTML = pageView(page, settings);
+                content.innerHTML = pageView(page, settings, featureTab);
                 content.querySelector('[data-feedback]').textContent = '已恢复默认偏好。';
                 content.querySelector('[data-action="reset-preferences"]').focus();
             }

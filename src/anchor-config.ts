@@ -153,8 +153,6 @@ export class AnchorConfig {
     if (!this.container) return;
     this.releaseUrls();
     this.container.innerHTML = `<div class="image-settings anchor-settings">
-      <header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
-        <h2 class="section-title">标签锚定</h2><p class="section-description">把喜欢的外貌留下，为角色搭配不同服装。</p></header>
       <nav class="anchor-tabs" aria-label="标签锚定页面">
         <button type="button" data-anchor-tab="round" aria-pressed="${this.tab === 'round'}">本轮生图</button>
         <button type="button" data-anchor-tab="anchors" aria-pressed="${this.tab === 'anchors'}">锚定配置</button>

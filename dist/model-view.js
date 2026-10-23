@@ -21,31 +21,36 @@ function promptEditor(entry) {
     ${entry.marker ? '<p class="config-status">酒馆占位标记，保留供查看，不会发送。</p>' : ''}
   </div>`;
 }
-export function worldbookSettingsView(settings, state) {
+export function worldbookSettingsView(settings, state, manage = false) {
     const book = state?.book ?? '';
     const selected = settings.worldbooks.find(item => item.name === book)?.entries ?? [];
     const entries = state?.entries ?? [];
     const names = [...new Set([...(state?.names ?? []), ...settings.worldbooks.map(item => item.name), ...(book ? [book] : [])])];
     const stale = !state?.loading && !state?.error ? selected.filter(id => !entries.some(entry => entry.id === id)) : [];
     const count = settings.worldbooks.reduce((total, item) => total + item.entries.length, 0);
+    const unavailable = state?.loading || state?.busy;
+    const preview = entries.find(entry => entry.id === state?.previewId);
     return `<div class="worldbook-settings" data-worldbook-settings>
     <div class="worldbook-choice-line">
-      <label class="config-field"><span>世界书</span><select data-worldbook-name${state?.loading ? ' disabled' : ''}>${options([
-        { value: '', label: '选择世界书' }, ...names.map(name => ({ value: name, label: name })),
+      <label class="config-field"><span>已上传的世界书</span><select data-worldbook-name${unavailable ? ' disabled' : ''}>${options([
+        { value: '', label: names.length ? '选择世界书' : '请先上传世界书' }, ...names.map(name => ({ value: name, label: name })),
     ], book)}</select></label>
-      <button type="button" class="text-button" data-model-action="refresh-worldbooks"${state?.loading ? ' disabled' : ''}>${state?.loading ? '读取中…' : '刷新'}</button>
+      <button type="button" class="text-button" data-model-action="refresh-worldbooks"${unavailable ? ' disabled' : ''}>${state?.loading ? '读取中…' : '刷新'}</button>
     </div>
     <p class="config-status">勾选后固定随预设发送，不依赖关键词触发。已挂载 ${count} 条，来自 ${settings.worldbooks.filter(item => item.entries.length).length} 本世界书。</p>
+    ${manage ? '' : '<button type="button" class="text-button model-feature-link" data-page="features" data-feature-tab="worldbook">上传与管理世界书 →</button>'}
     ${state?.error ? `<p class="config-status is-error" role="status">${escape(state.error)}</p>` : ''}
-    ${book ? `<div class="worldbook-toolbar"><span>${escape(book)}</span><button type="button" class="text-button" data-model-action="select-worldbook"${state?.loading || !entries.some(entry => entry.enabled) ? ' disabled' : ''}>全选可用</button><button type="button" class="text-button" data-model-action="clear-worldbook"${selected.length ? '' : ' disabled'}>清空本书</button></div>
+    ${book ? `<div class="worldbook-toolbar"><span>${escape(book)}</span><button type="button" class="text-button" data-model-action="select-worldbook"${unavailable || !entries.some(entry => entry.enabled && entry.content.trim()) ? ' disabled' : ''}>全选可用</button><button type="button" class="text-button" data-model-action="clear-worldbook"${unavailable || !selected.length ? ' disabled' : ''}>清空挂载</button>${manage ? `<button type="button" class="text-button worldbook-danger" data-model-action="delete-worldbook"${unavailable || !state?.names.includes(book) ? ' disabled' : ''}>删除世界书</button>` : ''}</div>
     <div class="worldbook-entry-list" aria-label="世界书条目">
       ${entries.map(entry => {
         const checked = selected.includes(entry.id);
-        return `<label class="worldbook-entry"><input type="checkbox" data-worldbook-entry="${escape(entry.id)}" data-worldbook-name="${escape(book)}"${checked ? ' checked' : ''}${state?.loading || (!entry.enabled && !checked) ? ' disabled' : ''}><span>${escape(entry.name || '未命名条目')}${entry.enabled ? '' : '<small>已禁用，不会发送</small>'}</span></label>`;
+        const status = !entry.enabled ? '已禁用，不会发送' : !entry.content.trim() ? '内容为空，不会发送' : '';
+        return `<div class="worldbook-entry-row"><label class="worldbook-entry"><input type="checkbox" data-worldbook-entry="${escape(entry.id)}" data-worldbook-name="${escape(book)}"${checked ? ' checked' : ''}${unavailable || ((!entry.enabled || !entry.content.trim()) && !checked) ? ' disabled' : ''}><span>${escape(entry.name || '未命名条目')}${status ? `<small>${status}</small>` : ''}</span></label>${manage ? `<button type="button" class="text-button" data-model-action="preview-worldbook-entry" data-entry-id="${escape(entry.id)}" aria-label="查看${escape(entry.name)}内容" aria-pressed="${preview?.id === entry.id}"${unavailable ? ' disabled' : ''}>查看</button>` : ''}</div>`;
     }).join('')}
-      ${stale.map(id => `<label class="worldbook-entry is-unavailable"><input type="checkbox" data-worldbook-entry="${escape(id)}" data-worldbook-name="${escape(book)}" checked><span>条目 ${escape(id)}<small>已失效，可取消挂载</small></span></label>`).join('')}
+      ${stale.map(id => `<label class="worldbook-entry is-unavailable"><input type="checkbox" data-worldbook-entry="${escape(id)}" data-worldbook-name="${escape(book)}" checked${state?.busy ? ' disabled' : ''}><span>条目 ${escape(id)}<small>已失效，可取消挂载</small></span></label>`).join('')}
       ${entries.length || stale.length ? '' : `<p class="config-status">${state?.loading ? '正在读取条目…' : state?.error ? '读取成功后显示条目。' : '这本世界书暂无可用条目。'}</p>`}
     </div>` : ''}
+    ${manage && preview ? `<div class="worldbook-preview"><h3 class="subsection-title">${escape(preview.name)}</h3><textarea class="preset-layer-preview" rows="9" readonly aria-label="世界书条目原文" spellcheck="false">${escape(preview.content)}</textarea></div>` : ''}
   </div>`;
 }
 export function presetWorkspaceView(settings, state) {
@@ -58,7 +63,7 @@ export function presetWorkspaceView(settings, state) {
     let detail = current ? promptEditor(current) : selected === 'input'
         ? '<p class="preset-description">自动读取当前聊天的最新 AI 正文，并标注可插入配图的行间位置。正文在请求时更新，无需在这里填写。</p>'
         : `${selected === 'layer:worldbook' ? worldbookSettingsView(settings, state.worldbook) : ''}
-      ${selected === 'layer:anchors' ? '<p class="preset-description">从标签锚定读取角色外貌与服装，按“人物名称{组成 tag}”展示发送内容。</p><button type="button" class="text-button model-feature-link" data-page="features">前往标签锚定配置 →</button>' : ''}
+      ${selected === 'layer:anchors' ? '<p class="preset-description">从标签锚定读取角色外貌与服装，按“人物名称{组成 tag}”展示发送内容。</p><button type="button" class="text-button model-feature-link" data-page="features" data-feature-tab="anchors">前往标签锚定配置 →</button>' : ''}
       <div class="preset-preview-heading"><h4>发送内容预览</h4><button type="button" class="text-button" data-model-action="refresh-layer"${preview?.loading ? ' disabled' : ''}>${preview?.loading ? '读取中…' : '刷新预览'}</button></div>
       <textarea class="preset-layer-preview" data-layer-preview="${escape(selected ?? '')}" aria-label="功能层发送内容预览" rows="10" readonly spellcheck="false" placeholder="${preview?.loading ? '正在读取…' : '暂无内容，可刷新预览。'}">${escape(preview?.text ?? '')}</textarea>
       ${preview?.error ? `<p class="config-status is-error" role="status">${escape(preview.error)}</p>` : '<p class="config-status">请求前会重新读取所选内容。</p>'}`;

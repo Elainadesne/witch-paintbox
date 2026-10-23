@@ -8,7 +8,7 @@ import { registerBuiltinLayers } from './builtin-layers.js';
 import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName, type PageId } from './pages.js';
 import { defaultSettings, extensionId, readSettings, saveSettings, type TavernContext } from './settings.js';
-import { navigationView, pageView } from './views.js';
+import { navigationView, pageView, type FeatureTab } from './views.js';
 
 declare const SillyTavern: { getContext(): TavernContext };
 declare const $: (ready: () => void) => void;
@@ -20,6 +20,7 @@ function mount() {
   let settings = readSettings(context);
   let page: PageId = 'guide';
   let connectionPage: PageId = 'image-api';
+  let featureTab: FeatureTab = 'anchors';
   const imageConfig = new ImageConfig();
   const modelConfig = new ModelConfig();
   const anchorConfig = new AnchorConfig();
@@ -72,11 +73,12 @@ function mount() {
     content.focus({ preventScroll: true });
   }
 
-  function navigate(next: PageId, focus = true) {
+  function navigate(next: PageId, focus = true, nextFeatureTab?: FeatureTab) {
     imageConfig.unmount();
     modelConfig.unmount();
     anchorConfig.unmount();
     page = next;
+    if (page === 'features' && nextFeatureTab) featureTab = nextFeatureTab;
     const isConnection = page === 'image-api' || page === 'model-api';
     if (isConnection) connectionPage = page;
     sidebar.innerHTML = navigationView(page);
@@ -86,11 +88,14 @@ function mount() {
       if (button.dataset.page === page) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
     });
-    content.innerHTML = pageView(page, settings);
-    if (page === 'image-api') imageConfig.mount(content.querySelector<HTMLElement>('[data-image-settings]')!);
-    if (page === 'features') anchorConfig.mount(content.querySelector<HTMLElement>('[data-anchor-settings]')!);
+    content.innerHTML = pageView(page, settings, featureTab);
+    const imageContainer = content.querySelector<HTMLElement>('[data-image-settings]');
+    const anchorContainer = content.querySelector<HTMLElement>('[data-anchor-settings]');
+    const modelContainer = content.querySelector<HTMLElement>('[data-model-settings]');
+    if (page === 'image-api' && imageContainer) imageConfig.mount(imageContainer);
+    if (page === 'features' && anchorContainer) anchorConfig.mount(anchorContainer);
     if (page === 'model-api' || page === 'features') {
-      modelConfig.mount(content.querySelector<HTMLElement>('[data-model-settings]')!, page === 'features' ? 'features' : 'model');
+      if (modelContainer) modelConfig.mount(modelContainer, page === 'model-api' ? 'model' : featureTab === 'worldbook' ? 'worldbook' : 'features');
     }
     content.scrollTop = 0;
     settings.lastPage = page;
@@ -119,13 +124,16 @@ function mount() {
       if (!(target instanceof Element)) return;
       const button = target.closest<HTMLButtonElement>('button');
       if (!button) return;
-      if (isPageId(button.dataset.page)) navigate(button.dataset.page);
+      const nextFeatureTab = button.dataset.featureTab;
+      if ((nextFeatureTab === 'anchors' || nextFeatureTab === 'worldbook') && (!button.dataset.page || button.dataset.page === 'features')) {
+        navigate('features', true, nextFeatureTab);
+      } else if (isPageId(button.dataset.page)) navigate(button.dataset.page);
       if (button.classList.contains('close-button')) panel.close();
       if (button.dataset.action === 'reset-preferences') {
         settings = defaultSettings();
         floating.reset();
         persist();
-        content.innerHTML = pageView(page, settings);
+        content.innerHTML = pageView(page, settings, featureTab);
         content.querySelector<HTMLElement>('[data-feedback]')!.textContent = '已恢复默认偏好。';
         content.querySelector<HTMLButtonElement>('[data-action="reset-preferences"]')!.focus();
       }

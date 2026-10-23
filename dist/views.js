@@ -46,7 +46,21 @@ function preferencesView(settings) {
       <p class="muted" role="status" data-feedback>更改会自动保存。</p>
     </div>`;
 }
-export function pageView(page, settings) {
+function featureView(tab) {
+    return `<div class="image-settings feature-settings">
+    <header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
+      <nav class="feature-tabs" aria-label="插件功能">
+        <button type="button" data-feature-tab="anchors" aria-pressed="${tab === 'anchors'}">标签锚定</button>
+        <button type="button" data-feature-tab="worldbook" aria-pressed="${tab === 'worldbook'}">世界书</button>
+      </nav>
+      <p class="section-description">${tab === 'anchors' ? '把喜欢的外貌留下，为角色搭配不同服装。' : '上传世界书，将需要的条目挂入生图预设。'}</p>
+    </header>
+    ${tab === 'anchors'
+        ? '<div data-anchor-settings></div><details class="feature-provider-settings"><summary>预设功能接入</summary><div data-model-settings></div></details>'
+        : '<div data-model-settings></div>'}
+  </div>`;
+}
+export function pageView(page, settings, featureTab = 'anchors') {
     const heading = `<header class="page-heading">
     <p class="eyebrow">${page === 'guide' ? '从这里开始' : pluginName}</p>
     <h2>${pages[page].title}</h2><p>${pages[page].description}</p>
@@ -55,7 +69,7 @@ export function pageView(page, settings) {
         case 'guide': return heading + guideView();
         case 'image-api': return '<div data-image-settings></div>';
         case 'model-api': return '<div data-model-settings></div>';
-        case 'features': return '<div data-anchor-settings></div><details class="feature-provider-settings"><summary>预设功能接入</summary><div data-model-settings></div></details>';
+        case 'features': return featureView(featureTab);
         case 'preferences': return heading + preferencesView(settings);
     }
 }
