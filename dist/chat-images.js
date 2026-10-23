@@ -4,6 +4,8 @@ import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
 import { generateImage } from './novelai.js';
 import { createChatImageView } from './chat-image-view.js';
+import { createImageGallery } from './image-gallery.js';
+import { loadImageHistory, saveImageHistory, deleteImageHistory } from './image-history.js';
 /** Hidden or transformed markers must not suppress the other buttons in a floor. */
 function prepareImageDisplay(message, entries) {
     let prefix;
@@ -88,7 +90,7 @@ export function bindChatImages(signal) {
     }
     function sameMessage(a, b) {
         return a.scope === b.scope && a.chatId === b.chatId && a.messageId === b.messageId
-            && (a.swipeId ?? 0) === (b.swipeId ?? 0);
+            && (a.swipeId ?? 0) === (b.swipeId ?? 0) && a.historyId === b.historyId;
     }
     function markerEntries(message) {
         const markers = parseImageMarkers(message.text);
@@ -99,8 +101,11 @@ export function bindChatImages(signal) {
             const occurrence = occurrences.get(marker.raw) ?? 0;
             occurrences.set(marker.raw, occurrence + 1);
             // If identical blocks are inserted/deleted, their old positions are ambiguous.
-            return { marker, key: JSON.stringify([message.scope, message.chatId, message.messageId, message.swipeId ?? 0,
-                    marker.raw, counts.get(marker.raw), occurrence]) };
+            const markerId = [marker.raw, counts.get(marker.raw), occurrence];
+            return { marker,
+                key: JSON.stringify([message.scope, message.chatId, message.messageId, message.swipeId ?? 0, ...markerId]),
+                historyKey: message.historyId === null ? null : JSON.stringify([message.scope, message.chatId, message.historyId, ...markerId]),
+            };
         });
     }
     function isCurrent(message, key) {
@@ -118,12 +123,83 @@ export function bindChatImages(signal) {
         images.forEach(control => control.dispose());
         images.clear();
     }
-    function imageSlot(marker, message, key) {
+    function imageSlot(marker, message, key, historyKey) {
         const controls = new AbortController();
-        const { slot, button, cancel, status, canvas, preview, image, placeholder, download, closePreview } = createChatImageView(marker.summary, controls.signal);
+        const { slot, root, button, buttonLabel, cancel, status, canvas, preview, image, placeholder, download, refreshTheme } = createChatImageView(marker.summary, controls.signal);
         let request = null;
-        let url = '';
+        let history = [];
+        const saves = new Map();
+        let selectedId = null;
         let phase = 'queued';
+        const gallery = createImageGallery(marker.summary, controls.signal, {
+            onSelect(id) { selectedId = id; showSelected(); },
+            async onDelete(id) {
+                const index = history.findIndex(item => item.entry.id === id);
+                if (index < 0)
+                    return;
+                await saves.get(id)?.catch(() => { });
+                // A save can time out after committing; deleting a missing record is safe.
+                if (historyKey)
+                    await deleteImageHistory(id);
+                if (controls.signal.aborted)
+                    return;
+                const removed = history.find(item => item.entry.id === id);
+                history = history.filter(item => item.entry.id !== id);
+                if (selectedId === id)
+                    selectedId = history[Math.min(index, history.length - 1)]?.entry.id ?? null;
+                showSelected();
+                if (removed)
+                    URL.revokeObjectURL(removed.url);
+                if (!request) {
+                    status.dataset.error = 'false';
+                    status.textContent = history.length ? `已删除图片 · 剩余 ${history.length} 张` : '图片已删除，可重新生成。';
+                }
+            },
+        });
+        root.append(gallery.element);
+        function showSelected() {
+            const selected = history.find(item => item.entry.id === selectedId);
+            preview.hidden = download.hidden = !selected;
+            placeholder.hidden = Boolean(selected);
+            canvas.hidden = !selected && !request;
+            if (selected) {
+                image.src = download.href = selected.url;
+                image.title = `种子 ${selected.entry.seed}`;
+                download.download = `witch-paintbox-${selected.entry.seed}.png`;
+                slot.style.setProperty('--image-ratio', String(selected.entry.parameters.width / selected.entry.parameters.height));
+            }
+            else {
+                image.removeAttribute('src');
+                download.removeAttribute('href');
+            }
+            if (!request)
+                buttonLabel.textContent = history.length ? '再绘一张' : '生成图片';
+            gallery.setImages(history, selectedId);
+        }
+        button.disabled = true;
+        status.textContent = '正在读取图片历史…';
+        const historyReady = (historyKey ? loadImageHistory(historyKey) : Promise.resolve([])).then(entries => {
+            if (controls.signal.aborted)
+                return;
+            history = entries.map(entry => ({ entry, url: URL.createObjectURL(entry.blob) }));
+            selectedId = history.at(-1)?.entry.id ?? null;
+            showSelected();
+            if (!request)
+                status.textContent = historyKey
+                    ? history.length ? `已恢复 ${history.length} 张图片 · 点击查看历史` : ''
+                    : '本楼层缺少唯一时间标识，图片仅保留在当前页面，可下载保存。';
+        }).catch(error => {
+            if (controls.signal.aborted)
+                return;
+            status.dataset.error = 'true';
+            status.textContent = error instanceof Error ? error.message : '图片历史读取失败。';
+        }).finally(() => { button.disabled = Boolean(request); });
+        preview.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (history.length)
+                gallery.open();
+        }, { signal: controls.signal });
         cancel.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();
@@ -144,12 +220,18 @@ export function bindChatImages(signal) {
             status.textContent = '正在加入队列…';
             try {
                 const settings = loadImageSettings();
-                if (!url)
+                // The model contributes only the scene. Artist positives and negatives belong to the plugin.
+                const positive = [marker.prompt, settings.positive].filter(text => text.trim()).join(', ');
+                await historyReady;
+                controller.signal.throwIfAborted();
+                if (!isCurrent(message, key)) {
+                    controller.abort();
+                    controller.signal.throwIfAborted();
+                }
+                if (!history.length)
                     slot.style.setProperty('--image-ratio', String(settings.parameters.width / settings.parameters.height));
                 canvas.hidden = false;
                 canvas.dataset.busy = 'true';
-                // The model contributes only the scene. Artist positives and negatives belong to the plugin.
-                const positive = [marker.prompt, settings.positive].filter(text => text.trim()).join(', ');
                 const result = await generateImage(settings.connection, settings.parameters, positive, settings.negative, controller.signal, progress => {
                     if (controls.signal.aborted || controller.signal.aborted)
                         return;
@@ -159,24 +241,41 @@ export function bindChatImages(signal) {
                     }
                     phase = progress.state;
                     canvas.dataset.phase = phase;
-                    button.textContent = phase === 'queued' ? '已加入队列' : '正在绘制…';
+                    buttonLabel.textContent = phase === 'queued' ? '已加入队列' : '正在绘制…';
                     cancel.textContent = phase === 'queued' ? '取消排队' : '取消等待';
                     status.textContent = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…';
                 });
                 // A native re-render can temporarily detach the slot without invalidating its request.
                 if (controller.signal.aborted || controls.signal.aborted || !isCurrent(message, key))
                     return;
-                const nextUrl = URL.createObjectURL(result.blob);
-                if (url)
-                    URL.revokeObjectURL(url);
-                url = nextUrl;
-                image.src = download.href = url;
-                slot.style.setProperty('--image-ratio', String(settings.parameters.width / settings.parameters.height));
-                preview.hidden = download.hidden = false;
-                placeholder.hidden = true;
-                download.download = `witch-paintbox-${result.seed}.png`;
-                status.textContent = '绘制完成 · 点击图片放大';
-                image.title = `种子 ${result.seed}`;
+                const entry = {
+                    id: `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`,
+                    markerKey: historyKey ?? key, blob: result.blob, createdAt: Date.now(),
+                    parameters: { ...settings.parameters, seed: result.seed }, positive, negative: settings.negative, seed: result.seed,
+                };
+                const saving = historyKey ? saveImageHistory(entry) : Promise.resolve();
+                saves.set(entry.id, saving);
+                history.push({ entry, url: URL.createObjectURL(result.blob) });
+                selectedId = entry.id;
+                showSelected();
+                cancel.hidden = true;
+                status.textContent = '绘制完成，正在保存图片历史…';
+                try {
+                    await saving;
+                    if (!controls.signal.aborted)
+                        status.textContent = historyKey
+                            ? `已保存 ${history.length} 张图片 · 点击查看历史`
+                            : '本楼层缺少唯一时间标识，图片仅保留在当前页面，可下载保存。';
+                }
+                catch (error) {
+                    if (!controls.signal.aborted) {
+                        status.dataset.error = 'true';
+                        status.textContent = `图片已生成，但历史未保存：${error instanceof Error ? error.message : '浏览器存储不可用。'}`;
+                    }
+                }
+                finally {
+                    saves.delete(entry.id);
+                }
             }
             catch (error) {
                 if (controls.signal.aborted)
@@ -189,18 +288,17 @@ export function bindChatImages(signal) {
             finally {
                 request = null;
                 button.disabled = false;
-                button.textContent = url ? '重新绘制' : '生成图片';
+                buttonLabel.textContent = history.length ? '再绘一张' : '生成图片';
                 cancel.hidden = true;
                 canvas.dataset.busy = 'false';
                 delete canvas.dataset.phase;
-                if (!url)
+                if (!history.length)
                     canvas.hidden = true;
             }
         }, { signal: controls.signal });
         return {
-            message, slot, closePreview,
-            dispose() { controls.abort(); request?.abort(); if (url)
-                URL.revokeObjectURL(url); },
+            message, slot, closePreview: gallery.close, refreshTheme,
+            dispose() { controls.abort(); request?.abort(); history.forEach(item => URL.revokeObjectURL(item.url)); history = []; },
         };
     }
     function render() {
@@ -298,10 +396,10 @@ export function bindChatImages(signal) {
             else
                 warnings.delete(element);
             // Validate every placeholder before moving any existing controls into the new display.
-            display.slots.forEach(({ marker, key, placeholder }) => {
+            display.slots.forEach(({ marker, key, historyKey, placeholder }) => {
                 let control = images.get(key);
                 if (!control) {
-                    control = imageSlot(marker, message, key);
+                    control = imageSlot(marker, message, key, historyKey);
                     images.set(key, control);
                 }
                 control.closePreview();
@@ -309,6 +407,7 @@ export function bindChatImages(signal) {
                 state.slots.push(control.slot);
             });
             element.replaceChildren(...Array.from(display.formatted.childNodes));
+            display.slots.forEach(({ key }) => images.get(key)?.refreshTheme());
             rendered.set(element, state);
         }
     }
@@ -324,6 +423,10 @@ export function bindChatImages(signal) {
     catch { /* The DOM observer can still follow native re-renders. */ }
     const observer = new MutationObserver(schedule);
     observer.observe(document.getElementById('chat') ?? document.body, { childList: true, subtree: true, characterData: true });
+    const themeObserver = new MutationObserver(() => images.forEach(control => control.refreshTheme()));
+    for (const element of [document.documentElement, document.body]) {
+        themeObserver.observe(element, { attributes: true, attributeFilter: ['class', 'style'] });
+    }
     window.addEventListener('witch-paintbox:model-settings-changed', schedule, { signal });
     window.addEventListener('storage', schedule, { signal });
     schedule();
@@ -333,6 +436,7 @@ export function bindChatImages(signal) {
         stopped = true;
         clearTimeout(timer);
         observer.disconnect();
+        themeObserver.disconnect();
         stopWatching();
         let current = [];
         try {

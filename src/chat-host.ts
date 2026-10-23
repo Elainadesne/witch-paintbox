@@ -242,16 +242,45 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, nextText: 
   }
 }
 
-export function readAssistantMessages(): Array<{ scope: string; chatId: string; messageId: number; swipeId: number | null; text: string }> {
+function historyIdentities(messages: ChatMessage[]): Map<number, string> {
+  const counts = new Map<string, number>();
+  const current = new Map<number, string>();
+  messages.forEach((message, messageId) => {
+    if (!message || message.is_user || message.is_system) return;
+    const active = message.swipe_id ?? 0;
+    const versions = Array.isArray(message.swipes) && message.swipes.length ? message.swipes.length : 1;
+    const info = Array.isArray(message.swipe_info) ? message.swipe_info : [];
+    for (let version = 0; version < versions; version++) {
+      // A floor's array index changes when earlier floors are deleted. Native
+      // timestamps identify a reply version without writing IDs into the chat.
+      const value = version === active ? message.send_date ?? info[version]?.send_date : info[version]?.send_date;
+      const timestamp = value instanceof Date && Number.isFinite(value.getTime()) ? value.toISOString()
+        : typeof value === 'number' && Number.isFinite(value) ? String(value)
+          : typeof value === 'string' ? value.trim() : '';
+      if (!timestamp) continue;
+      const parsed = Date.parse(timestamp);
+      const date = typeof value === 'number' ? value : Number.isFinite(parsed) ? parsed : timestamp;
+      const id = JSON.stringify([date, message.name ?? '', typeof message.original_avatar === 'string' ? message.original_avatar : '']);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+      if (version === active) current.set(messageId, id);
+    }
+  });
+  // Imported replies can share a timestamp. Do not guess which history belongs
+  // to them or fall back to a mutable floor/swipe index.
+  return new Map([...current].filter(([, id]) => counts.get(id) === 1));
+}
+
+export function readAssistantMessages(): Array<{ scope: string; chatId: string; messageId: number; swipeId: number | null; historyId: string | null; text: string }> {
   const context = host();
   const id = chatId(context);
   const scope = context.groupId !== undefined && context.groupId !== null && context.groupId !== ''
     ? JSON.stringify(['group', String(context.groupId)])
     : JSON.stringify(['character', context.characters[Number(context.characterId)]?.avatar ?? context.characterId]);
+  const identities = historyIdentities(context.chat);
   return context.chat.flatMap((message, messageId) => {
     if (!message || message.is_user || message.is_system || typeof message.mes !== 'string') return [];
     try {
-      return [{ scope, chatId: id, messageId, swipeId: currentSwipe(message), text: message.mes }];
+      return [{ scope, chatId: id, messageId, swipeId: currentSwipe(message), historyId: identities.get(messageId) ?? null, text: message.mes }];
     } catch {
       // A swipe being created may not have its text yet; other floors can still render.
       return [];
