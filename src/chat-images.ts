@@ -16,14 +16,82 @@ interface ImageControl {
   dispose(): void;
 }
 
+/** Hidden or transformed markers must not suppress the other buttons in a floor. */
+function prepareImageDisplay(message: AssistantMessage, entries: Array<{ marker: ImageMarker; key: string }>) {
+  let prefix: string;
+  do { prefix = `WITCHPAINTBOX${crypto.getRandomValues(new Uint32Array(2)).join('X')}MARK`; }
+  while (message.text.includes(prefix));
+  let candidates = entries.map(entry => ({ ...entry, token: `${prefix}${entry.marker.start}END` }));
+  while (candidates.length) {
+    let cursor = 0;
+    const parts: string[] = [];
+    for (const { marker, token } of candidates) {
+      parts.push(message.text.slice(cursor, marker.start), token);
+      cursor = marker.end;
+    }
+    parts.push(message.text.slice(cursor));
+    const formatted = document.createElement('div');
+    formatted.innerHTML = formatChatText(parts.join(''), message.messageId);
+    const html = formatted.innerHTML;
+    const placements = candidates.flatMap(entry => {
+      const walker = document.createTreeWalker(formatted, NodeFilter.SHOW_TEXT);
+      let found: Text | null = null;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.textContent?.includes(entry.token)) continue;
+        if (found || node.parentElement?.closest('code, pre, a, button, textarea, select, option, script, style')) return [];
+        found = node as Text;
+      }
+      if (!found) return [];
+      const offset = found.data.indexOf(entry.token);
+      if (found.data.indexOf(entry.token, offset + entry.token.length) !== -1) return [];
+      // A beautifier may also copy its content into attributes or comments.
+      // Only commit a token which occurs exactly once in the complete display.
+      if (html.split(entry.token).length !== 2) return [];
+      return [{ ...entry, node: found, offset }];
+    });
+    if (placements.length !== candidates.length) {
+      // Reformat with unsuccessful markers left as their original text. This
+      // preserves native hidden/code displays and never leaves tokens on screen.
+      candidates = placements;
+      continue;
+    }
+    // Work backwards so splitting one text node does not shift later offsets.
+    const slots = placements.map(placement => ({ ...placement, placeholder: document.createElement('span') }));
+    const byNode = new Map<Text, typeof slots>();
+    for (const slot of slots) {
+      const group = byNode.get(slot.node) ?? [];
+      group.push(slot);
+      byNode.set(slot.node, group);
+    }
+    for (const group of byNode.values()) {
+      for (const { node, offset, token, placeholder } of group.sort((a, b) => b.offset - a.offset)) {
+        const trailing = node.splitText(offset);
+        trailing.splitText(token.length);
+        trailing.replaceWith(placeholder);
+      }
+    }
+    return { formatted, slots };
+  }
+  return null;
+}
+
 /** Render-only controls: stored chat text always contains the original literal markers. */
 export function bindChatImages(signal: AbortSignal): () => void {
   if (signal.aborted) return () => {};
   const rendered = new Map<HTMLElement, RenderedMessage>();
   // Keep requests and images across native DOM replacement and streamed text appends.
   const images = new Map<string, ImageControl>();
+  const warnings = new WeakMap<HTMLElement, { text: string; reason: string }>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
+
+  function warnRendering(element: HTMLElement, message: AssistantMessage, reason: string): void {
+    const previous = warnings.get(element);
+    if (previous?.text === message.text && previous.reason === reason) return;
+    warnings.set(element, { text: message.text, reason });
+    // Do not print chat content, image prompts, or connection settings.
+    console.warn(`[魔女画匣] 第 ${message.messageId + 1} 楼：${reason}`);
+  }
 
   function sameMessage(a: AssistantMessage, b: AssistantMessage): boolean {
     return a.scope === b.scope && a.chatId === b.chatId && a.messageId === b.messageId
@@ -159,7 +227,8 @@ export function bindChatImages(signal: AbortSignal): () => void {
       }
     }
     if (!enabled) return;
-    for (const block of Array.from(document.querySelectorAll<HTMLElement>('#chat > .mes[mesid]'))) {
+    for (const block of Array.from(document.querySelectorAll<HTMLElement>('#chat .mes[mesid]'))) {
+      if (!block.isConnected || block.parentElement?.closest('.mes')) continue;
       const element = block.querySelector<HTMLElement>('.mes_text');
       if (!element) continue;
       const messageId = Number(block.getAttribute('mesid'));
@@ -170,59 +239,35 @@ export function bindChatImages(signal: AbortSignal): () => void {
         && previous.slots.every(slot => slot.isConnected && element.contains(slot))) continue;
       if (previous) rendered.delete(element);
       const entries = entriesFor(message);
-      if (!entries.length) continue;
-      const state: RenderedMessage = { ...message, slots: [] };
-      let prefix: string;
-      do { prefix = `WITCHPAINTBOX${crypto.getRandomValues(new Uint32Array(2)).join('X')}MARK`; }
-      while (message.text.includes(prefix));
-      let cursor = 0;
-      const parts: string[] = [];
-      const tokens = entries.map(({ marker }, index) => {
-        const token = `${prefix}${index}END`;
-        parts.push(message.text.slice(cursor, marker.start), token);
-        cursor = marker.end;
-        return token;
-      });
-      parts.push(message.text.slice(cursor));
-      const formatted = document.createElement('div');
-      try { formatted.innerHTML = formatChatText(parts.join(''), messageId); }
-      catch { continue; }
-      let valid = true;
-      const placeholders: HTMLElement[] = [];
-      for (let index = 0; index < tokens.length; index++) {
-        const walker = document.createTreeWalker(formatted, NodeFilter.SHOW_TEXT);
-        let found: Text | null = null;
-        let node: Node | null;
-        while ((node = walker.nextNode())) {
-          if (node.textContent?.includes(tokens[index])) {
-            if (found) { valid = false; break; }
-            found = node as Text;
-          }
-        }
-        if (!valid || !found || found.parentElement?.closest('code, pre, a, button, textarea, select, option, script, style')) {
-          valid = false;
-          break;
-        }
-        const offset = found.data.indexOf(tokens[index]);
-        if (found.data.indexOf(tokens[index], offset + tokens[index].length) !== -1) { valid = false; break; }
-        const trailing = found.splitText(offset);
-        trailing.splitText(tokens[index].length);
-        const placeholder = document.createElement('span');
-        trailing.replaceWith(placeholder);
-        placeholders.push(placeholder);
+      if (!entries.length) {
+        if (/<img\s*>/i.test(message.text)) warnRendering(element, message, '未解析到有效图片标记；请检查标记格式或其所在的代码/HTML 区域。');
+        continue;
       }
-      if (!valid) continue;
+      const state: RenderedMessage = { ...message, slots: [] };
+      let display: ReturnType<typeof prepareImageDisplay>;
+      try { display = prepareImageDisplay(message, entries); }
+      catch {
+        warnRendering(element, message, `已识别 ${entries.length} 个图片标记，但酒馆格式化或按钮定位失败。`);
+        continue;
+      }
+      if (!display) {
+        warnRendering(element, message, `已识别 ${entries.length} 个图片标记，但在酒馆格式化结果中找不到可挂载按钮的位置。`);
+        continue;
+      }
+      if (display.slots.length < entries.length) {
+        warnRendering(element, message, `已挂载 ${display.slots.length}/${entries.length} 个图片按钮；其余标记被显示规则隐藏、复制或转换。`);
+      } else warnings.delete(element);
       // Validate every placeholder before moving any existing controls into the new display.
-      entries.forEach(({ marker, key }, index) => {
+      display.slots.forEach(({ marker, key, placeholder }) => {
         let control = images.get(key);
         if (!control) {
           control = imageSlot(marker, message, key);
           images.set(key, control);
         }
-        placeholders[index].replaceWith(control.slot);
+        placeholder.replaceWith(control.slot);
         state.slots.push(control.slot);
       });
-      element.replaceChildren(...Array.from(formatted.childNodes));
+      element.replaceChildren(...Array.from(display.formatted.childNodes));
       rendered.set(element, state);
     }
   }
