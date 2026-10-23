@@ -118,7 +118,7 @@ export function importModelPreset(source: string, fallbackName: string): Importe
     }
     head = ordered.slice(0, boundary);
     tail = ordered.slice(boundary);
-    if (!ordered.some(item => item.section)) warnings.push('预设未声明头尾位置，已完整放入头部；可用“功能层插入位置”调整。');
+    if (!ordered.some(item => item.section)) warnings.push('预设未声明头尾位置，已保留原顺序；可在左侧移动功能层与最新正文条目。');
   }
   return { presetName, head: head.map(item => item.entry), tail: tail.map(item => item.entry), warnings };
 }

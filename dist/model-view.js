@@ -1,3 +1,4 @@
+import { listFeatureLayers } from './feature-layers.js';
 function escape(value) {
     return String(value).replace(/[&<>"']/g, character => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -6,33 +7,83 @@ function escape(value) {
 function options(items, selected) {
     return items.map(item => `<option value="${escape(item.value)}"${item.value === selected ? ' selected' : ''}>${escape(item.label)}</option>`).join('');
 }
-function promptSection(section, title, entries, offset = 0) {
-    return `<details class="prompt-section" data-section="${section}">
-    <summary><span>${title}</span><span class="prompt-count">${entries.length} 条</span></summary>
-    <div class="prompt-list">
-      ${entries.map((entry, index) => `<div class="prompt-entry" data-entry-id="${escape(entry.id)}" data-section="${section}">
-        <label class="config-field"><span>第 ${offset + index + 1} 条 · 名称</span><textarea data-prompt-field="name" rows="1" maxlength="256">${escape(entry.name)}</textarea></label>
-        <div class="prompt-entry-toolbar">
-          <label class="config-field"><span>角色</span>
-            <select data-prompt-field="role">${options([
+function promptEditor(entry) {
+    return `<div class="preset-editor-fields" data-entry-id="${escape(entry.id)}">
+    <div class="preset-entry-fields">
+      <label class="config-field"><span>条目名称</span><input type="text" data-prompt-field="name" value="${escape(entry.name)}" maxlength="256"></label>
+      <label class="config-field"><span>消息角色</span><select data-prompt-field="role">${options([
         { value: 'system', label: '系统 · system' },
         { value: 'user', label: '用户 · user' },
         { value: 'assistant', label: '助手 · assistant' },
-    ], entry.role)}</select>
-          </label>
-          <label class="prompt-enable"><input type="checkbox" data-prompt-field="enabled"${entry.enabled ? ' checked' : ''}${entry.marker ? ' disabled' : ''}>启用</label>
-          <button type="button" class="text-button" data-model-action="remove-entry" data-entry-id="${escape(entry.id)}" data-section="${section}" aria-label="删除${title}第 ${index + 1} 条">删除</button>
-        </div>
-        <label class="config-field"><span>正文</span><textarea data-prompt-field="content" rows="4" maxlength="65536" spellcheck="false">${escape(entry.content)}</textarea></label>
-        ${entry.marker ? '<p class="config-status">酒馆占位标记，保留供查看，不会发送。</p>' : ''}
-      </div>`).join('')}
-      ${entries.length ? '' : '<p class="config-status">暂未添加，可留空。</p>'}
-      <button type="button" class="text-button prompt-add" data-model-action="add-${section}">添加条目</button>
+    ], entry.role)}</select></label>
     </div>
-  </details>`;
+    <label class="config-field preset-content"><span>提示词内容</span><textarea data-prompt-field="content" rows="15" maxlength="65536" spellcheck="false">${escape(entry.content)}</textarea></label>
+    ${entry.marker ? '<p class="config-status">酒馆占位标记，保留供查看，不会发送。</p>' : ''}
+  </div>`;
+}
+export function worldbookSettingsView(settings, state) {
+    const book = state?.book ?? '';
+    const selected = settings.worldbooks.find(item => item.name === book)?.entries ?? [];
+    const entries = state?.entries ?? [];
+    const names = [...new Set([...(state?.names ?? []), ...settings.worldbooks.map(item => item.name), ...(book ? [book] : [])])];
+    const stale = !state?.loading && !state?.error ? selected.filter(id => !entries.some(entry => entry.id === id)) : [];
+    const count = settings.worldbooks.reduce((total, item) => total + item.entries.length, 0);
+    return `<div class="worldbook-settings" data-worldbook-settings>
+    <div class="worldbook-choice-line">
+      <label class="config-field"><span>世界书</span><select data-worldbook-name${state?.loading ? ' disabled' : ''}>${options([
+        { value: '', label: '选择世界书' }, ...names.map(name => ({ value: name, label: name })),
+    ], book)}</select></label>
+      <button type="button" class="text-button" data-model-action="refresh-worldbooks"${state?.loading ? ' disabled' : ''}>${state?.loading ? '读取中…' : '刷新'}</button>
+    </div>
+    <p class="config-status">勾选后固定随预设发送，不依赖关键词触发。已挂载 ${count} 条，来自 ${settings.worldbooks.filter(item => item.entries.length).length} 本世界书。</p>
+    ${state?.error ? `<p class="config-status is-error" role="status">${escape(state.error)}</p>` : ''}
+    ${book ? `<div class="worldbook-toolbar"><span>${escape(book)}</span><button type="button" class="text-button" data-model-action="select-worldbook"${state?.loading || !entries.some(entry => entry.enabled) ? ' disabled' : ''}>全选可用</button><button type="button" class="text-button" data-model-action="clear-worldbook"${selected.length ? '' : ' disabled'}>清空本书</button></div>
+    <div class="worldbook-entry-list" aria-label="世界书条目">
+      ${entries.map(entry => {
+        const checked = selected.includes(entry.id);
+        return `<label class="worldbook-entry"><input type="checkbox" data-worldbook-entry="${escape(entry.id)}" data-worldbook-name="${escape(book)}"${checked ? ' checked' : ''}${state?.loading || (!entry.enabled && !checked) ? ' disabled' : ''}><span>${escape(entry.name || '未命名条目')}${entry.enabled ? '' : '<small>已禁用，不会发送</small>'}</span></label>`;
+    }).join('')}
+      ${stale.map(id => `<label class="worldbook-entry is-unavailable"><input type="checkbox" data-worldbook-entry="${escape(id)}" data-worldbook-name="${escape(book)}" checked><span>条目 ${escape(id)}<small>已失效，可取消挂载</small></span></label>`).join('')}
+      ${entries.length || stale.length ? '' : `<p class="config-status">${state?.loading ? '正在读取条目…' : state?.error ? '读取成功后显示条目。' : '这本世界书暂无可用条目。'}</p>`}
+    </div>` : ''}
+  </div>`;
+}
+export function presetWorkspaceView(settings, state) {
+    const entries = new Map([...settings.head, ...settings.tail].map(entry => [`prompt:${entry.id}`, entry]));
+    const layers = new Map(listFeatureLayers().map(layer => [`layer:${layer.id}`, layer.title]));
+    const selected = settings.promptOrder.includes(state.selectedKey ?? '') ? state.selectedKey : settings.promptOrder[0];
+    const titleFor = (key) => entries.has(key) ? entries.get(key).name || '未命名条目' : key === 'input' ? '最新正文' : layers.get(key) ?? '功能层暂不可用';
+    const current = entries.get(selected);
+    const preview = state.layerPreview?.key === selected ? state.layerPreview : undefined;
+    let detail = current ? promptEditor(current) : selected === 'input'
+        ? '<p class="preset-description">自动读取当前聊天的最新 AI 正文，并标注可插入配图的行间位置。正文在请求时更新，无需在这里填写。</p>'
+        : `${selected === 'layer:worldbook' ? worldbookSettingsView(settings, state.worldbook) : ''}
+      ${selected === 'layer:anchors' ? '<p class="preset-description">从标签锚定读取角色外貌与服装，按“人物名称{组成 tag}”展示发送内容。</p><button type="button" class="text-button model-feature-link" data-page="features">前往标签锚定配置 →</button>' : ''}
+      <div class="preset-preview-heading"><h4>发送内容预览</h4><button type="button" class="text-button" data-model-action="refresh-layer"${preview?.loading ? ' disabled' : ''}>${preview?.loading ? '读取中…' : '刷新预览'}</button></div>
+      <textarea class="preset-layer-preview" data-layer-preview="${escape(selected ?? '')}" aria-label="功能层发送内容预览" rows="10" readonly spellcheck="false" placeholder="${preview?.loading ? '正在读取…' : '暂无内容，可刷新预览。'}">${escape(preview?.text ?? '')}</textarea>
+      ${preview?.error ? `<p class="config-status is-error" role="status">${escape(preview.error)}</p>` : '<p class="config-status">请求前会重新读取所选内容。</p>'}`;
+    if (!selected)
+        detail = '<p class="config-status">选择左侧条目查看内容。</p>';
+    return `<div class="preset-index">
+    <div class="preset-index-heading"><h3>条目顺序</h3><button type="button" class="text-button" data-model-action="add-entry">＋ 新增条目</button></div>
+    <ol class="preset-entry-list" data-preset-list aria-label="预设发送顺序">${settings.promptOrder.map((key, index) => {
+        const entry = entries.get(key);
+        const enabled = entry ? entry.enabled : key === 'input' || settings.enabledLayers.includes(key.slice(6));
+        const title = titleFor(key);
+        return `<li class="preset-row${selected === key ? ' is-selected' : ''}" data-preset-key="${escape(key)}">
+        <button type="button" class="preset-select" data-model-action="select-preset" data-preset-key="${escape(key)}" aria-pressed="${selected === key}" title="${escape(title)}"><span class="preset-number">${String(index + 1).padStart(2, '0')}</span><span class="preset-entry-name"><span data-preset-title="${escape(key)}">${escape(title)}</span>${entry ? '' : `<small>${key === 'input' ? '自动读取' : '功能层'}</small>`}</span></button>
+        <div class="preset-row-actions">
+          <label title="${enabled ? '关闭' : '启用'}${escape(title)}"><input type="checkbox" data-preset-enabled="${escape(key)}" aria-label="启用${escape(title)}"${enabled ? ' checked' : ''}${entry?.marker || key === 'input' ? ' disabled' : ''}></label>
+          <button type="button" data-model-action="move-up" data-preset-key="${escape(key)}" aria-label="上移${escape(title)}"${index === 0 ? ' disabled' : ''}>↑</button>
+          <button type="button" data-model-action="move-down" data-preset-key="${escape(key)}" aria-label="下移${escape(title)}"${index === settings.promptOrder.length - 1 ? ' disabled' : ''}>↓</button>
+          ${entry ? `<button type="button" data-model-action="remove-entry" data-preset-key="${escape(key)}" aria-label="删除${escape(title)}">×</button>` : '<span class="preset-action-spacer" aria-hidden="true"></span>'}
+        </div>
+      </li>`;
+    }).join('')}</ol>
+  </div>
+  <div class="preset-detail"><header class="preset-detail-heading"><h3>${current ? '编辑条目' : escape(titleFor(selected))}</h3>${current ? '' : '<span>自动读取</span>'}</header>${detail}</div>`;
 }
 export function modelSettingsView(settings, state) {
-    const entries = [...settings.head, ...settings.tail];
     return `<div class="image-settings model-settings">
     <section class="config-section" aria-labelledby="model-connection-heading">
       <header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
@@ -81,29 +132,19 @@ export function modelSettingsView(settings, state) {
 
     <section class="config-section" aria-labelledby="model-prompts-heading">
       <header class="section-heading"><span class="section-index" aria-hidden="true">02</span>
-        <h2 class="section-title" id="model-prompts-heading">预设编排</h2><p class="section-description">导入预设，按头部、功能层、尾部的顺序组织内容。</p></header>
+        <h2 class="section-title" id="model-prompts-heading">预设编排</h2><p class="section-description">左侧调整发送顺序，右侧编辑内容或挂载功能层。</p></header>
       <div class="artist-fields">
         <label class="config-field"><span>导入 JSON 预设</span><input type="file" data-preset-file accept=".json,application/json"></label>
         <p class="config-status${state.importError ? ' is-error' : ''}" data-preset-status role="status">${escape(state.importNotice ?? '导入后替换当前预设草稿，点击保存配置才会保留。')}</p>
         <label class="config-field"><span>预设名称</span><textarea data-model-field="presetName" rows="1" maxlength="256">${escape(settings.presetName)}</textarea></label>
       </div>
-      <div class="parameter-group"><h3 class="subsection-title">发送顺序</h3>
-        <label class="config-field"><span>功能层插入位置</span>
-          <select data-insertion-index>${Array.from({ length: entries.length + 1 }, (_, index) => `<option value="${index}"${index === settings.head.length ? ' selected' : ''}>${index === 0 ? '0 · 全部条目之前' : escape(`${index} · 第 ${index} 条之后：${entries[index - 1].name || entries[index - 1].id}`)}</option>`).join('')}</select>
-        </label>
-      <div class="prompt-sections">
-        ${promptSection('head', '头部', settings.head)}
-        <details class="prompt-section prompt-middle">
-          <summary><span>中部 · 功能层</span><span class="prompt-count">${settings.enabledLayers.length} 项启用</span></summary>
-          <p class="config-status">此处放入已启用的功能层内容和带行间插入点的正文副本。</p>
-        </details>
-        ${promptSection('tail', '尾部', settings.tail, settings.head.length)}
-      </div>
-      <button type="button" class="text-button model-feature-link" data-page="features">前往功能层配置 →</button>
-      </div>
+      <div class="preset-workspace" data-preset-workspace>${presetWorkspaceView(settings, state)}</div>
       <div class="parameter-group marker-settings"><h3 class="subsection-title">标记解析</h3>
         <label class="prompt-enable"><input type="checkbox" data-model-field="parseImageMarkers"${settings.parseImageMarkers ? ' checked' : ''}>解析配图标记</label>
         <p class="config-status">完整闭合的标记会在楼层中显示为生成图片按钮。</p>
+        <label class="prompt-enable"><input type="checkbox" data-model-field="hideImageContext"${settings.hideImageContext ? ' checked' : ''}>从 AI 上下文隐藏配图标记</label>
+        <p class="config-status">过滤完整的 &lt;img&gt;…&lt;/img&gt; 块，仅隐藏发送给 AI 的内容，保留楼层原文和生图按钮。</p>
+        <p class="config-status${state.filterStatus?.error ? ' is-error' : ''}" data-context-filter-status role="status">${escape(state.filterStatus?.error || (state.filterStatus?.active ? '上下文过滤已启用。' : ''))}</p>
         <details class="prompt-section format-reference">
           <summary><span>查看配图标记与 AI 返回格式</span></summary>
           <code class="marker-format">&lt;img&gt;\n[图片内容概括]\n该场景的生图提示词\n&lt;/img&gt;</code>

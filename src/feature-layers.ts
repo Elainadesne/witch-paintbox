@@ -1,10 +1,12 @@
 import type { ModelMessage } from './model-types.js';
-import type { ModelSettings, PromptEntry } from './model-settings.js';
+import type { ModelSettings } from './model-settings.js';
+import { stripImageBlocks } from './context-filter.js';
 
 export interface FeatureContext {
   messages: readonly ModelMessage[];
   data?: unknown;
   signal?: AbortSignal;
+  settings?: Readonly<ModelSettings>;
 }
 
 export interface FeatureLayer {
@@ -51,23 +53,35 @@ function copyMessages(messages: readonly ModelMessage[]): ModelMessage[] {
   });
 }
 
-function presetMessages(entries: PromptEntry[]): ModelMessage[] {
-  return copyMessages(entries.filter(entry => entry.enabled && !entry.marker && entry.content.trim()));
+export async function featureLayerMessages(id: string, settings: ModelSettings, context: FeatureContext): Promise<ModelMessage[]> {
+  const layer = layers.get(id);
+  if (!layer) throw new Error('功能层当前不可用，请关闭此条目或重新加载对应功能。');
+  context.signal?.throwIfAborted();
+  const messages = await layer.messages({ ...context, settings, messages: copyMessages(context.messages) });
+  context.signal?.throwIfAborted();
+  return copyMessages(messages);
 }
 
-/** Exact order: preset head → enabled providers → caller input → preset tail. No automatic prompts. */
+/** Follow the visible entry order. Provider data is read afresh; no automatic instructions. */
 export async function buildModelMessages(settings: ModelSettings, context: FeatureContext): Promise<ModelMessage[]> {
+  settings = structuredClone(settings);
   context.signal?.throwIfAborted();
-  const input = copyMessages(context.messages);
-  const output = presetMessages(settings.head);
-  for (const id of settings.enabledLayers) {
-    const layer = layers.get(id);
-    if (!layer) throw new Error('已启用的功能层当前不可用，请在功能层配置中关闭它或重新加载对应功能。');
-    const messages = await layer.messages({ ...context, messages: copyMessages(input) });
-    context.signal?.throwIfAborted();
-    output.push(...copyMessages(messages));
+  const input = copyMessages(context.messages).map(message => ({ ...message,
+    content: settings.hideImageContext ? stripImageBlocks(message.content) : message.content,
+  }));
+  const entries = new Map([...settings.head, ...settings.tail].map(entry => [`prompt:${entry.id}`, entry]));
+  const output: ModelMessage[] = [];
+  for (const key of settings.promptOrder) {
+    if (key === 'input') output.push(...copyMessages(input));
+    else if (key.startsWith('layer:')) {
+      const id = key.slice(6);
+      if (settings.enabledLayers.includes(id)) output.push(...await featureLayerMessages(id, settings, { ...context, messages: input }));
+    } else {
+      const entry = entries.get(key);
+      if (!entry) throw new Error('预设排序引用了不存在的条目，请重新保存预设。');
+      if (entry.enabled && !entry.marker && entry.content.trim()) output.push(...copyMessages([entry]));
+    }
   }
-  output.push(...input, ...presetMessages(settings.tail));
   if (!output.some(message => message.content.trim())) throw new Error('当前没有可发送的内容。');
   return output;
 }

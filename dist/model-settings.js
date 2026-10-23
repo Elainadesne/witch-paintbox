@@ -1,9 +1,14 @@
 const storageKey = 'witch-paintbox:model-settings:v1';
+export const builtinLayerIds = ['worldbook', 'anchors'];
+export function createPromptOrder(head, tail, layers = builtinLayerIds) {
+    return [...head.map(entry => `prompt:${entry.id}`), ...layers.map(id => `layer:${id}`), 'input', ...tail.map(entry => `prompt:${entry.id}`)];
+}
 export function defaultModelSettings() {
     return {
         mode: 'tavern', url: '', key: '', model: '', models: [],
         maxTokens: 2048, temperature: 1, transport: 'compatible',
-        head: [], tail: [], enabledLayers: [], presetName: '', parseImageMarkers: true,
+        head: [], tail: [], enabledLayers: [...builtinLayerIds], presetName: '', parseImageMarkers: true,
+        hideImageContext: true, promptOrder: createPromptOrder([], []), worldbooks: [],
     };
 }
 function invalid() { throw new Error('模型配置格式无效，请检查填写内容。'); }
@@ -63,19 +68,45 @@ export function validateModelSettings(value) {
         invalid();
     if (source.parseImageMarkers !== undefined && typeof source.parseImageMarkers !== 'boolean')
         invalid();
+    if (source.hideImageContext !== undefined && typeof source.hideImageContext !== 'boolean')
+        invalid();
     const head = entries(source.head);
     const tail = entries(source.tail);
     const all = [...head, ...tail];
     if (all.length > 200 || new Set(all.map(entry => entry.id)).size !== all.length)
+        invalid();
+    const legacyLayers = stringList(source.enabledLayers, 100);
+    const enabledLayers = source.promptOrder === undefined ? [...new Set([...legacyLayers, ...builtinLayerIds])] : legacyLayers;
+    const promptOrder = source.promptOrder === undefined
+        ? createPromptOrder(head, tail, enabledLayers)
+        : stringList(source.promptOrder, 301);
+    const promptKeys = new Set(all.map(entry => `prompt:${entry.id}`));
+    if (promptOrder.filter(key => key === 'input').length !== 1
+        || [...promptKeys].some(key => !promptOrder.includes(key))
+        || enabledLayers.some(id => !promptOrder.includes(`layer:${id}`))
+        || promptOrder.some(key => key !== 'input' && !promptKeys.has(key) && !/^layer:[a-z0-9][a-z0-9._-]{0,127}$/i.test(key)))
+        invalid();
+    const books = source.worldbooks === undefined ? [] : source.worldbooks;
+    if (!Array.isArray(books) || books.length > 100)
+        invalid();
+    const worldbooks = books.map(raw => {
+        const book = record(raw);
+        const name = text(book.name, 512);
+        if (!name.trim())
+            invalid();
+        return { name, entries: stringList(book.entries, 10_000) };
+    });
+    if (new Set(worldbooks.map(book => book.name)).size !== worldbooks.length)
         invalid();
     return {
         mode: source.mode, url: text(source.url, 8192), key: text(source.key, 16_384),
         model: text(source.model, 512), models: stringList(source.models, 10_000),
         maxTokens: number(source.maxTokens, 1, 65_536, true), temperature: number(source.temperature, 0, 2),
         transport: source.transport, head, tail,
-        enabledLayers: stringList(source.enabledLayers, 100),
+        enabledLayers, promptOrder, worldbooks,
         presetName: source.presetName === undefined ? '' : text(source.presetName, 256),
         parseImageMarkers: source.parseImageMarkers === undefined ? true : source.parseImageMarkers,
+        hideImageContext: source.hideImageContext === undefined ? true : source.hideImageContext,
     };
 }
 function stored() {

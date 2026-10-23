@@ -4,12 +4,15 @@ import { bindChatImages } from './chat-images.js';
 import { ImageConfig } from './image-config.js';
 import { ModelConfig } from './model-config.js';
 import { AnchorConfig } from './anchor-config.js';
+import { registerBuiltinLayers } from './builtin-layers.js';
+import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName } from './pages.js';
 import { defaultSettings, extensionId, readSettings, saveSettings } from './settings.js';
 import { navigationView, pageView } from './views.js';
 function mount() {
     if (document.getElementById(extensionId))
         return;
+    const unregisterLayers = registerBuiltinLayers();
     const context = SillyTavern.getContext();
     let settings = readSettings(context);
     let page = 'guide';
@@ -19,6 +22,8 @@ function mount() {
     const anchorConfig = new AnchorConfig();
     const controller = new AbortController();
     const { signal } = controller;
+    signal.addEventListener('abort', unregisterLayers, { once: true });
+    bindContextFilter(signal);
     const host = document.createElement('div');
     host.id = extensionId;
     const root = host.attachShadow({ mode: 'open' });
