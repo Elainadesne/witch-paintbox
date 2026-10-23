@@ -4,30 +4,30 @@ export function createImageGallery(summary, signal, handlers) {
     element.className = 'wp-gallery';
     element.setAttribute('aria-label', `${summary} · 图片查看器`);
     element.innerHTML = `<style>
-    .wp-gallery { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: #19181d; color: #eae7f0; font: 14px/1.5 system-ui, sans-serif; color-scheme: dark; }
+    .wp-gallery { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: #fdfaf2; color: #3c3931; font: 14px/1.5 system-ui, sans-serif; color-scheme: light; }
     .wp-gallery, .wp-gallery * { box-sizing: border-box; }
     .wp-gallery[open] { display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
     .wp-gallery:not([open]), .wp-gallery [hidden] { display: none; }
-    .wp-gallery::backdrop { background: #111; }
+    .wp-gallery::backdrop { background: #fdfaf2; }
     .wp-gallery button, .wp-gallery a { color: inherit; font: inherit; }
     .wp-gallery button, .wp-gallery-action { min-height: 38px; padding: 8px 10px; border: 0; border-radius: 0; background: transparent; box-shadow: none; text-decoration: none; cursor: pointer; white-space: nowrap; }
-    .wp-gallery button:hover:not(:disabled), .wp-gallery-action:hover:not([aria-disabled="true"]) { background: #ffffff0a; }
+    .wp-gallery button:hover:not(:disabled), .wp-gallery-action:hover:not([aria-disabled="true"]) { background: #89682f12; }
     .wp-gallery button:disabled, .wp-gallery [aria-disabled="true"] { opacity: .4; cursor: default; }
-    .wp-gallery :focus-visible { outline: 2px solid #c7b1f0; outline-offset: 2px; }
+    .wp-gallery :focus-visible { outline: 2px solid #89682f; outline-offset: 2px; }
     .wp-gallery-header { display: grid; min-width: 0; min-height: 0; max-height: 32vh; max-height: 32dvh; gap: 6px; padding: 10px 20px 8px; overflow-y: auto; }
     .wp-gallery-caption { display: grid; gap: 3px; min-width: 0; text-align: center; }
-    .wp-gallery-caption-label { color: #aaa2b4; font-size: 11px; letter-spacing: .16em; }
+    .wp-gallery-caption-label { color: #756b5b; font-size: 11px; letter-spacing: .16em; }
     .wp-gallery-title { min-width: 0; margin: 0; font-size: 16px; font-weight: 550; overflow-wrap: anywhere; }
-    .wp-gallery-tools { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 2px; min-width: 0; color: #c6bfce; font-size: 13px; }
-    .wp-gallery-status { margin: 0; color: #aaa2b4; font-size: 12px; overflow-wrap: anywhere; }
+    .wp-gallery-tools { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 2px; min-width: 0; color: #675b48; font-size: 13px; }
+    .wp-gallery-status { margin: 0; color: #756b5b; font-size: 12px; overflow-wrap: anywhere; }
     .wp-gallery-status:empty { display: none; }
-    .wp-gallery-status[data-error="true"] { color: #efa0aa; }
+    .wp-gallery-status[data-error="true"] { color: #a3463e; }
     .wp-gallery-history { min-width: 0; padding: 0 20px 10px; }
-    .wp-gallery-counter { margin: 0 0 7px; text-align: center; font-size: 13px; color: #b9afc6; font-variant-numeric: tabular-nums; }
+    .wp-gallery-counter { margin: 0 0 7px; text-align: center; font-size: 13px; color: #756b5b; font-variant-numeric: tabular-nums; }
     .wp-gallery-thumbnails { display: flex; gap: 10px; max-width: 100%; padding: 3px 2px 7px; overflow-x: auto; overscroll-behavior: contain; scrollbar-width: thin; }
     .wp-gallery-thumbnails:empty { display: none; }
     .wp-gallery .wp-gallery-thumb { flex: 0 0 64px; width: 64px; height: 64px; min-height: 0; padding: 0 0 4px; border-bottom: 2px solid transparent; opacity: .55; }
-    .wp-gallery .wp-gallery-thumb[aria-current="true"] { border-bottom-color: #c7b1f0; opacity: 1; }
+    .wp-gallery .wp-gallery-thumb[aria-current="true"] { border-bottom-color: #89682f; opacity: 1; }
     .wp-gallery .wp-gallery-thumb:hover { opacity: 1; }
     .wp-gallery-thumb img { display: block; width: 100%; height: 100%; margin: 0; object-fit: cover; }
     .wp-gallery-workspace { display: grid; grid-template-rows: minmax(0, 1fr) 0px; min-width: 0; min-height: 0; overflow: hidden; transition: grid-template-rows .18s ease; }
@@ -35,18 +35,18 @@ export function createImageGallery(summary, signal, handlers) {
     .wp-gallery-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
     .wp-gallery-image-frame { position: absolute; inset: 12px 20px 20px; display: grid; place-items: center; min-width: 0; min-height: 0; }
     .wp-gallery-image { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; max-height: none; margin: 0; object-fit: contain; }
-    .wp-gallery-empty { margin: 0; color: #aaa2b4; }
-    .wp-gallery-drawer { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: hidden; border-top: 1px solid #48414f; background: #242128; transform: translateY(100%); visibility: hidden; transition: transform .18s ease, visibility .18s; }
+    .wp-gallery-empty { margin: 0; color: #756b5b; }
+    .wp-gallery-drawer { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: hidden; border-top: 1px solid #d8cfbd; background: #f6f0e2; transform: translateY(100%); visibility: hidden; transition: transform .18s ease, visibility .18s; }
     .wp-gallery-workspace[data-drawer="open"] .wp-gallery-drawer { transform: translateY(0); visibility: visible; }
     .wp-gallery-drawer-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 0 18px; }
-    .wp-gallery-drawer-header h3 { margin: 0; color: #d8cbe7; font-size: 13px; font-weight: 500; }
+    .wp-gallery-drawer-header h3 { margin: 0; color: #89682f; font-size: 13px; font-weight: 500; }
     .wp-gallery-drawer-body { min-height: 0; padding: 8px 20px 20px; overflow-y: auto; overscroll-behavior: contain; }
     .wp-gallery-properties { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 22px; margin: 0; }
     .wp-gallery-properties div { min-width: 0; }
-    .wp-gallery-properties dt { margin-bottom: 3px; color: #aaa2b4; font-size: 11px; }
+    .wp-gallery-properties dt { margin-bottom: 3px; color: #756b5b; font-size: 11px; }
     .wp-gallery-properties dd { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
     .wp-gallery-prompt { margin-top: 18px; }
-    .wp-gallery-prompt h4 { margin: 0 0 6px; font-size: 12px; font-weight: 500; color: #b9afc6; }
+    .wp-gallery-prompt h4 { margin: 0 0 6px; font-size: 12px; font-weight: 500; color: #756b5b; }
     .wp-gallery-prompt pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 system-ui, sans-serif; color: inherit; background: transparent; border: 0; padding: 0; }
     @media (max-width: 640px) {
       .wp-gallery-header { gap: 4px; padding: 6px 12px; }
