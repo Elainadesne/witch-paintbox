@@ -9,11 +9,25 @@ export interface ImageHistoryEntry {
   positive: string;
   negative: string;
   seed: number;
+  /** Original scene tags before anchor expansion and artist additions. Older entries omit this. */
+  scenePrompt?: string;
 }
 
 const databaseName = 'witch-paintbox-image-history';
 const storeName = 'images';
 let connection: Promise<IDBDatabase> | null = null;
+const changeListeners = new Set<() => void>();
+
+export function onImageHistoryChanged(callback: () => void): () => void {
+  changeListeners.add(callback);
+  return () => { changeListeners.delete(callback); };
+}
+
+function notifyChanged(): void {
+  for (const listener of changeListeners) {
+    try { listener(); } catch { /* View failures must not undo committed image history. */ }
+  }
+}
 
 function database(): Promise<IDBDatabase> {
   if (connection) return connection;
@@ -111,6 +125,7 @@ function snapshot(value: unknown): ImageHistoryEntry {
     || !Number.isFinite(entry.createdAt) || entry.createdAt < 0
     || !Number.isInteger(entry.seed) || entry.seed < 0 || entry.seed > 4_294_967_295
     || typeof entry.positive !== 'string' || typeof entry.negative !== 'string'
+    || (entry.scenePrompt !== undefined && typeof entry.scenePrompt !== 'string')
     || !parameters || typeof parameters.model !== 'string' || typeof parameters.sampler !== 'string'
     || typeof parameters.noiseSchedule !== 'string' || typeof parameters.sm !== 'boolean' || typeof parameters.smDyn !== 'boolean'
     || ![parameters.width, parameters.height, parameters.steps, parameters.scale, parameters.cfgRescale].every(Number.isFinite)) {
@@ -126,6 +141,7 @@ function snapshot(value: unknown): ImageHistoryEntry {
       sm: parameters.sm, smDyn: parameters.smDyn,
     },
     positive: entry.positive, negative: entry.negative, seed: entry.seed,
+    ...(entry.scenePrompt === undefined ? {} : { scenePrompt: entry.scenePrompt }),
   };
 }
 
@@ -138,9 +154,11 @@ export async function loadImageHistory(markerKey: string): Promise<ImageHistoryE
 export async function saveImageHistory(entry: ImageHistoryEntry): Promise<void> {
   const saved = snapshot(entry);
   await transact('readwrite', '保存', store => store.put(saved));
+  notifyChanged();
 }
 
 export async function deleteImageHistory(id: string): Promise<void> {
   if (typeof id !== 'string' || !id) throw new Error('图片历史标识无效，无法删除。');
   await transact('readwrite', '删除', store => store.delete(id));
+  notifyChanged();
 }

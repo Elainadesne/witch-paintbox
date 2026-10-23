@@ -1,11 +1,12 @@
 import { formatChatText, readAssistantMessages, watchChatRendering } from './chat-host.js';
-import { parseImageMarkers } from './image-markers.js';
 import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
 import { generateImage } from './novelai.js';
 import { createChatImageView } from './chat-image-view.js';
 import { createImageGallery } from './image-gallery.js';
 import { loadImageHistory, saveImageHistory, deleteImageHistory } from './image-history.js';
+import { markerEntries } from './image-marker-history.js';
+import { resolveStoredAnchorPrompt } from './anchor-resolver.js';
 /** Hidden or transformed markers must not suppress the other buttons in a floor. */
 function prepareImageDisplay(message, entries) {
     let prefix;
@@ -91,22 +92,6 @@ export function bindChatImages(signal) {
     function sameMessage(a, b) {
         return a.scope === b.scope && a.chatId === b.chatId && a.messageId === b.messageId
             && (a.swipeId ?? 0) === (b.swipeId ?? 0) && a.historyId === b.historyId;
-    }
-    function markerEntries(message) {
-        const markers = parseImageMarkers(message.text);
-        const counts = new Map();
-        markers.forEach(marker => counts.set(marker.raw, (counts.get(marker.raw) ?? 0) + 1));
-        const occurrences = new Map();
-        return markers.map(marker => {
-            const occurrence = occurrences.get(marker.raw) ?? 0;
-            occurrences.set(marker.raw, occurrence + 1);
-            // If identical blocks are inserted/deleted, their old positions are ambiguous.
-            const markerId = [marker.raw, counts.get(marker.raw), occurrence];
-            return { marker,
-                key: JSON.stringify([message.scope, message.chatId, message.messageId, message.swipeId ?? 0, ...markerId]),
-                historyKey: message.historyId === null ? null : JSON.stringify([message.scope, message.chatId, message.historyId, ...markerId]),
-            };
-        });
     }
     function isCurrent(message, key) {
         try {
@@ -220,8 +205,10 @@ export function bindChatImages(signal) {
             status.textContent = '正在加入队列…';
             try {
                 const settings = loadImageSettings();
+                const scene = await resolveStoredAnchorPrompt(marker.prompt);
+                controller.signal.throwIfAborted();
                 // The model contributes only the scene. Artist positives and negatives belong to the plugin.
-                const positive = [marker.prompt, settings.positive].filter(text => text.trim()).join(', ');
+                const positive = [scene, settings.positive].filter(text => text.trim()).join(', ');
                 await historyReady;
                 controller.signal.throwIfAborted();
                 if (!isCurrent(message, key)) {
@@ -252,6 +239,7 @@ export function bindChatImages(signal) {
                     id: `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`,
                     markerKey: historyKey ?? key, blob: result.blob, createdAt: Date.now(),
                     parameters: { ...settings.parameters, seed: result.seed }, positive, negative: settings.negative, seed: result.seed,
+                    scenePrompt: marker.prompt,
                 };
                 const saving = historyKey ? saveImageHistory(entry) : Promise.resolve();
                 saves.set(entry.id, saving);

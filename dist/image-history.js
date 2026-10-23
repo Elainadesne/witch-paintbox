@@ -1,6 +1,19 @@
 const databaseName = 'witch-paintbox-image-history';
 const storeName = 'images';
 let connection = null;
+const changeListeners = new Set();
+export function onImageHistoryChanged(callback) {
+    changeListeners.add(callback);
+    return () => { changeListeners.delete(callback); };
+}
+function notifyChanged() {
+    for (const listener of changeListeners) {
+        try {
+            listener();
+        }
+        catch { /* View failures must not undo committed image history. */ }
+    }
+}
 function database() {
     if (connection)
         return connection;
@@ -126,6 +139,7 @@ function snapshot(value) {
         || !Number.isFinite(entry.createdAt) || entry.createdAt < 0
         || !Number.isInteger(entry.seed) || entry.seed < 0 || entry.seed > 4_294_967_295
         || typeof entry.positive !== 'string' || typeof entry.negative !== 'string'
+        || (entry.scenePrompt !== undefined && typeof entry.scenePrompt !== 'string')
         || !parameters || typeof parameters.model !== 'string' || typeof parameters.sampler !== 'string'
         || typeof parameters.noiseSchedule !== 'string' || typeof parameters.sm !== 'boolean' || typeof parameters.smDyn !== 'boolean'
         || ![parameters.width, parameters.height, parameters.steps, parameters.scale, parameters.cfgRescale].every(Number.isFinite)) {
@@ -141,6 +155,7 @@ function snapshot(value) {
             sm: parameters.sm, smDyn: parameters.smDyn,
         },
         positive: entry.positive, negative: entry.negative, seed: entry.seed,
+        ...(entry.scenePrompt === undefined ? {} : { scenePrompt: entry.scenePrompt }),
     };
 }
 export async function loadImageHistory(markerKey) {
@@ -152,9 +167,11 @@ export async function loadImageHistory(markerKey) {
 export async function saveImageHistory(entry) {
     const saved = snapshot(entry);
     await transact('readwrite', '保存', store => store.put(saved));
+    notifyChanged();
 }
 export async function deleteImageHistory(id) {
     if (typeof id !== 'string' || !id)
         throw new Error('图片历史标识无效，无法删除。');
     await transact('readwrite', '删除', store => store.delete(id));
+    notifyChanged();
 }

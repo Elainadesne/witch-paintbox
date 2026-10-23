@@ -3,6 +3,7 @@ import { bindLauncherMenu } from './launcher-menu.js';
 import { bindChatImages } from './chat-images.js';
 import { ImageConfig } from './image-config.js';
 import { ModelConfig } from './model-config.js';
+import { AnchorConfig } from './anchor-config.js';
 import { isPageId, pluginName } from './pages.js';
 import { defaultSettings, extensionId, readSettings, saveSettings } from './settings.js';
 import { navigationView, pageView } from './views.js';
@@ -15,6 +16,7 @@ function mount() {
     let connectionPage = 'image-api';
     const imageConfig = new ImageConfig();
     const modelConfig = new ModelConfig();
+    const anchorConfig = new AnchorConfig();
     const controller = new AbortController();
     const { signal } = controller;
     const host = document.createElement('div');
@@ -63,6 +65,7 @@ function mount() {
     function navigate(next, focus = true) {
         imageConfig.unmount();
         modelConfig.unmount();
+        anchorConfig.unmount();
         page = next;
         const isConnection = page === 'image-api' || page === 'model-api';
         if (isConnection)
@@ -79,6 +82,8 @@ function mount() {
         content.innerHTML = pageView(page, settings);
         if (page === 'image-api')
             imageConfig.mount(content.querySelector('[data-image-settings]'));
+        if (page === 'features')
+            anchorConfig.mount(content.querySelector('[data-anchor-settings]'));
         if (page === 'model-api' || page === 'features') {
             modelConfig.mount(content.querySelector('[data-model-settings]'), page === 'features' ? 'features' : 'model');
         }
@@ -145,6 +150,7 @@ function mount() {
         controller.abort();
         imageConfig.destroy();
         modelConfig.destroy();
+        anchorConfig.destroy();
         host.remove();
     }, { once: true, signal });
     window.addEventListener('pagehide', event => {
@@ -155,6 +161,7 @@ function mount() {
         controller.abort();
         imageConfig.destroy();
         modelConfig.destroy();
+        anchorConfig.destroy();
         host.remove();
     }, { signal });
     host.hidden = true;

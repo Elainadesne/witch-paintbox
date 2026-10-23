@@ -94,7 +94,7 @@ export class ModelConfig {
             ...registered,
             ...unavailable.map(id => ({ id, title: `${id}（当前不可用）` })),
         ].map(layer => `<label class="feature-layer-row"><span>${escape(layer.title)}</span><input type="checkbox" data-layer-id="${escape(layer.id)}"${this.settings.enabledLayers.includes(layer.id) ? ' checked' : ''}></label>`).join('')}</div>`
-            : '<p class="config-status">目前还没有接入的功能。世界书等内容将通过这里的接口加入。</p>'}
+            : '<p class="config-status">当前没有向预设提供内容的功能。标签锚定在发送生图请求时生效，无需在此启用。</p>'}
       </section>
       <button type="button" class="text-button model-feature-link" data-page="model-api">返回模型 API 预设 →</button>
       <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status"></p></div>

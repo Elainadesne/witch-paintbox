@@ -55,7 +55,7 @@ export function pageView(page, settings) {
         case 'guide': return heading + guideView();
         case 'image-api': return '<div data-image-settings></div>';
         case 'model-api': return '<div data-model-settings></div>';
-        case 'features': return '<div data-model-settings></div>';
+        case 'features': return '<div data-anchor-settings></div><details class="feature-provider-settings"><summary>预设功能接入</summary><div data-model-settings></div></details>';
         case 'preferences': return heading + preferencesView(settings);
     }
 }
