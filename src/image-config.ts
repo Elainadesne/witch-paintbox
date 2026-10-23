@@ -20,6 +20,7 @@ export class ImageConfig {
   private imageSeed = 0;
   private generationMessage = '';
   private generationFailed = false;
+  private generationPhase: 'queued' | 'generating' = 'queued';
 
   constructor() {
     try {
@@ -341,11 +342,17 @@ export class ImageConfig {
     }
     const request = new AbortController();
     this.request = request;
-    this.generationMessage = '正在生成图片…';
+    this.generationPhase = 'queued';
+    this.generationMessage = '正在加入队列…';
     this.syncGeneration();
     const snapshot = structuredClone(this.settings!);
     try {
-      const result = await generateImage(snapshot.connection, snapshot.parameters, snapshot.positive, snapshot.negative, request.signal);
+      const result = await generateImage(snapshot.connection, snapshot.parameters, snapshot.positive, snapshot.negative, request.signal, progress => {
+        if (request.signal.aborted) return;
+        this.generationPhase = progress.state;
+        this.generationMessage = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在生成图片…';
+        this.syncGeneration();
+      });
       if (request.signal.aborted) return;
       const url = URL.createObjectURL(result.blob);
       if (this.imageUrl) URL.revokeObjectURL(this.imageUrl);
@@ -353,8 +360,10 @@ export class ImageConfig {
       this.imageSeed = result.seed;
       this.generationMessage = `生成完成 · 种子 ${result.seed}`;
     } catch (error) {
-      this.generationFailed = true;
-      this.generationMessage = request.signal.aborted ? '已取消等待。' : (error as Error).message;
+      this.generationFailed = !request.signal.aborted;
+      this.generationMessage = request.signal.aborted
+        ? this.generationPhase === 'queued' ? '已取消排队。' : '已取消等待，服务端任务可能仍在继续。'
+        : (error as Error).message;
     } finally {
       this.request = null;
       this.syncGeneration();
@@ -366,8 +375,10 @@ export class ImageConfig {
     const busy = this.request !== null;
     const button = this.container.querySelector<HTMLButtonElement>('[data-action="generate"]')!;
     button.disabled = busy;
-    button.querySelector('strong')!.textContent = busy ? '正在生成…' : this.imageUrl ? '再次生成图片' : '点击生成图片';
-    this.container.querySelector<HTMLButtonElement>('[data-action="cancel-generation"]')!.hidden = !busy;
+    button.querySelector('strong')!.textContent = busy ? this.generationPhase === 'queued' ? '已加入队列' : '正在生成…' : this.imageUrl ? '再次生成图片' : '点击生成图片';
+    const cancel = this.container.querySelector<HTMLButtonElement>('[data-action="cancel-generation"]')!;
+    cancel.hidden = !busy;
+    cancel.textContent = this.generationPhase === 'queued' ? '取消排队' : '取消等待';
     const message = this.container.querySelector<HTMLElement>('[data-generation-status]')!;
     message.textContent = this.generationMessage;
     message.classList.toggle('is-error', this.generationFailed);

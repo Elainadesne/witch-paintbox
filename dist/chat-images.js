@@ -3,6 +3,7 @@ import { parseImageMarkers } from './image-markers.js';
 import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
 import { generateImage } from './novelai.js';
+import { createChatImageView } from './chat-image-view.js';
 /** Hidden or transformed markers must not suppress the other buttons in a floor. */
 function prepareImageDisplay(message, entries) {
     let prefix;
@@ -118,27 +119,16 @@ export function bindChatImages(signal) {
         images.clear();
     }
     function imageSlot(marker, message, key) {
-        const slot = document.createElement('span');
-        slot.className = 'witch-paintbox-image';
-        slot.contentEditable = 'false';
-        const shadow = slot.attachShadow({ mode: 'open' });
-        shadow.innerHTML = `<style>
-      :host { display: inline-grid; max-width: 100%; margin: .5em 0; vertical-align: middle; }
-      button { padding: .65em .8em; border: 0; border-bottom: 1px solid #a88bc7; border-radius: 0; background: #302837; color: #eadcff; cursor: pointer; font: inherit; text-align: left; white-space: normal; overflow-wrap: anywhere; }
-      button:disabled { opacity: .6; cursor: wait; } button:focus-visible, a:focus-visible { outline: 2px solid #c7b1f0; outline-offset: 2px; }
-      p { margin: .4em 0; font-size: .85em; overflow-wrap: anywhere; } p:empty { display: none; }
-      img { max-width: 100%; max-height: 640px; object-fit: contain; } a { color: #c7b1f0; font-size: .85em; }
-      [hidden] { display: none; }
-    </style><button type="button"></button><p role="status"></p><img hidden><a hidden>保存图片</a>`;
-        const button = shadow.querySelector('button');
-        const status = shadow.querySelector('p');
-        const image = shadow.querySelector('img');
-        const download = shadow.querySelector('a');
-        button.textContent = `生成图片 · ${marker.summary}`;
-        image.alt = marker.summary;
+        const controls = new AbortController();
+        const { slot, button, cancel, status, canvas, preview, image, placeholder, download, closePreview } = createChatImageView(marker.summary, controls.signal);
         let request = null;
         let url = '';
-        const controls = new AbortController();
+        let phase = 'queued';
+        cancel.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            request?.abort();
+        }, { signal: controls.signal });
         button.addEventListener('click', async (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -148,12 +138,31 @@ export function bindChatImages(signal) {
             const controller = new AbortController();
             request = controller;
             button.disabled = true;
-            status.textContent = '正在生成图片…';
+            cancel.hidden = false;
+            phase = 'queued';
+            status.dataset.error = 'false';
+            status.textContent = '正在加入队列…';
             try {
                 const settings = loadImageSettings();
+                if (!url)
+                    slot.style.setProperty('--image-ratio', String(settings.parameters.width / settings.parameters.height));
+                canvas.hidden = false;
+                canvas.dataset.busy = 'true';
                 // The model contributes only the scene. Artist positives and negatives belong to the plugin.
                 const positive = [marker.prompt, settings.positive].filter(text => text.trim()).join(', ');
-                const result = await generateImage(settings.connection, settings.parameters, positive, settings.negative, controller.signal);
+                const result = await generateImage(settings.connection, settings.parameters, positive, settings.negative, controller.signal, progress => {
+                    if (controls.signal.aborted || controller.signal.aborted)
+                        return;
+                    if (!isCurrent(message, key)) {
+                        controller.abort();
+                        return;
+                    }
+                    phase = progress.state;
+                    canvas.dataset.phase = phase;
+                    button.textContent = phase === 'queued' ? '已加入队列' : '正在绘制…';
+                    cancel.textContent = phase === 'queued' ? '取消排队' : '取消等待';
+                    status.textContent = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…';
+                });
                 // A native re-render can temporarily detach the slot without invalidating its request.
                 if (controller.signal.aborted || controls.signal.aborted || !isCurrent(message, key))
                     return;
@@ -162,22 +171,34 @@ export function bindChatImages(signal) {
                     URL.revokeObjectURL(url);
                 url = nextUrl;
                 image.src = download.href = url;
-                image.hidden = download.hidden = false;
+                slot.style.setProperty('--image-ratio', String(settings.parameters.width / settings.parameters.height));
+                preview.hidden = download.hidden = false;
+                placeholder.hidden = true;
                 download.download = `witch-paintbox-${result.seed}.png`;
-                button.textContent = `再次生成 · ${marker.summary}`;
-                status.textContent = `生成完成 · 种子 ${result.seed}`;
+                status.textContent = '绘制完成 · 点击图片放大';
+                image.title = `种子 ${result.seed}`;
             }
             catch (error) {
-                if (!controller.signal.aborted)
-                    status.textContent = error instanceof Error ? error.message : '生图未完成，请稍后重试。';
+                if (controls.signal.aborted)
+                    return;
+                status.dataset.error = String(!controller.signal.aborted);
+                status.textContent = controller.signal.aborted
+                    ? phase === 'queued' ? '已取消排队。' : '已取消等待，服务端任务可能仍在继续。'
+                    : error instanceof Error ? error.message : '生图未完成，请稍后重试。';
             }
             finally {
                 request = null;
                 button.disabled = false;
+                button.textContent = url ? '重新绘制' : '生成图片';
+                cancel.hidden = true;
+                canvas.dataset.busy = 'false';
+                delete canvas.dataset.phase;
+                if (!url)
+                    canvas.hidden = true;
             }
         }, { signal: controls.signal });
         return {
-            message, slot,
+            message, slot, closePreview,
             dispose() { controls.abort(); request?.abort(); if (url)
                 URL.revokeObjectURL(url); },
         };
@@ -283,6 +304,7 @@ export function bindChatImages(signal) {
                     control = imageSlot(marker, message, key);
                     images.set(key, control);
                 }
+                control.closePreview();
                 placeholder.replaceWith(control.slot);
                 state.slots.push(control.slot);
             });

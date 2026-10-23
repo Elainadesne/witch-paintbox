@@ -1,4 +1,5 @@
 import { ImageResponseError, readImageResponse, requireImageSupport } from './image-response.js';
+import { queueImageGeneration } from './image-queue.js';
 // Official model catalog: https://docs.novelai.net/en/image/models/
 export const NAI_MODELS = [
     { value: 'nai-diffusion-5-full', label: 'NAI Diffusion V5 Full' },
@@ -106,11 +107,12 @@ function abortError() {
     error.name = 'AbortError';
     return error;
 }
-/** One request per click; never automatically repeat a billable generation. */
-export async function generateImage(connection, params, positive, negative, signal) {
+/** Freeze each click before joining the shared queue; never repeat a billable request. */
+export async function generateImage(connection, params, positive, negative, signal, onProgress) {
     if (signal.aborted)
         throw abortError();
     const configured = validateImageConnection(connection);
+    params = { ...params };
     validateParameters(params);
     if (typeof positive !== 'string' || !positive.trim() || typeof negative !== 'string') {
         fail('请填写正面提示词。');
@@ -146,6 +148,10 @@ export async function generateImage(connection, params, positive, negative, sign
         parameters.reference_information_extracted_multiple = [];
         parameters.reference_strength_multiple = [];
     }
+    const body = JSON.stringify({ input: positive, model: params.model, action: 'generate', parameters });
+    return queueImageGeneration(() => requestImage(configured, body, seed, signal), signal, onProgress);
+}
+async function requestImage(configured, body, seed, signal) {
     const controller = new AbortController();
     let interruption;
     const interrupt = (error) => {
@@ -168,7 +174,7 @@ export async function generateImage(connection, params, positive, negative, sign
         const response = await fetch(configured.channel === 'official' ? OFFICIAL_ENDPOINT : configured.url, {
             method: 'POST', mode: 'cors', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
             headers: { Authorization: `Bearer ${configured.key}`, 'Content-Type': 'application/json', Accept: 'application/zip' },
-            body: JSON.stringify({ input: positive, model: params.model, action: 'generate', parameters }),
+            body,
             signal: controller.signal,
         });
         ensureActive();
