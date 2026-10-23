@@ -110,12 +110,18 @@ export function bindChatImages(signal) {
     }
     function imageSlot(marker, message, key, historyKey) {
         const controls = new AbortController();
-        const { slot, root, button, buttonLabel, cancel, status, canvas, preview, image, placeholder, download, refreshTheme } = createChatImageView(marker.summary, controls.signal);
+        const { slot, root, button, buttonLabel, regenerate, cancel, status, canvas, preview, image, placeholder, download, refreshTheme, setImageSize } = createChatImageView(marker.summary, controls.signal);
+        try {
+            const { width, height } = loadImageSettings().parameters;
+            setImageSize(width, height);
+        }
+        catch { /* A saved image can still provide its own dimensions. */ }
         let request = null;
         let history = [];
         const saves = new Map();
         let selectedId = null;
         let phase = 'queued';
+        let historyLoaded = false;
         const gallery = createImageGallery(marker.summary, controls.signal, {
             onSelect(id) { selectedId = id; showSelected(); },
             async onDelete(id) {
@@ -142,6 +148,16 @@ export function bindChatImages(signal) {
             },
         });
         root.append(gallery.element);
+        function syncGenerationButtons() {
+            const busy = Boolean(request);
+            button.disabled = regenerate.disabled = !historyLoaded || busy;
+            slot.dataset.busy = String(busy);
+            buttonLabel.textContent = busy ? phase === 'queued' ? '已加入队列' : '正在绘制…'
+                : history.length ? '再绘一张' : '生成图片';
+            regenerate.textContent = !historyLoaded ? '读取中…' : busy ? phase === 'queued' ? '排队中' : '绘制中'
+                : history.length ? '再次生图' : '生成图片';
+            regenerate.setAttribute('aria-label', `${regenerate.textContent}：${marker.summary}`);
+        }
         function showSelected() {
             const selected = history.find(item => item.entry.id === selectedId);
             preview.hidden = download.hidden = !selected;
@@ -151,17 +167,16 @@ export function bindChatImages(signal) {
                 image.src = download.href = selected.url;
                 image.title = `种子 ${selected.entry.seed}`;
                 download.download = `witch-paintbox-${selected.entry.seed}.png`;
-                slot.style.setProperty('--image-ratio', String(selected.entry.parameters.width / selected.entry.parameters.height));
+                setImageSize(selected.entry.parameters.width, selected.entry.parameters.height);
             }
             else {
                 image.removeAttribute('src');
                 download.removeAttribute('href');
             }
-            if (!request)
-                buttonLabel.textContent = history.length ? '再绘一张' : '生成图片';
+            syncGenerationButtons();
             gallery.setImages(history, selectedId);
         }
-        button.disabled = true;
+        syncGenerationButtons();
         status.textContent = '正在读取图片历史…';
         const historyReady = (historyKey ? loadImageHistory(historyKey) : Promise.resolve([])).then(entries => {
             if (controls.signal.aborted)
@@ -178,7 +193,7 @@ export function bindChatImages(signal) {
                 return;
             status.dataset.error = 'true';
             status.textContent = error instanceof Error ? error.message : '图片历史读取失败。';
-        }).finally(() => { button.disabled = Boolean(request); });
+        }).finally(() => { historyLoaded = true; syncGenerationButtons(); });
         preview.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();
@@ -190,7 +205,7 @@ export function bindChatImages(signal) {
             event.stopPropagation();
             request?.abort();
         }, { signal: controls.signal });
-        button.addEventListener('click', async (event) => {
+        async function requestGeneration(event) {
             event.preventDefault();
             event.stopPropagation();
             if (request || !slot.isConnected || !isCurrent(message, key)
@@ -198,9 +213,9 @@ export function bindChatImages(signal) {
                 return;
             const controller = new AbortController();
             request = controller;
-            button.disabled = true;
             cancel.hidden = false;
             phase = 'queued';
+            syncGenerationButtons();
             status.dataset.error = 'false';
             status.textContent = '正在加入队列…';
             try {
@@ -216,7 +231,7 @@ export function bindChatImages(signal) {
                     controller.signal.throwIfAborted();
                 }
                 if (!history.length)
-                    slot.style.setProperty('--image-ratio', String(settings.parameters.width / settings.parameters.height));
+                    setImageSize(settings.parameters.width, settings.parameters.height);
                 canvas.hidden = false;
                 canvas.dataset.busy = 'true';
                 const result = await generateImage(settings.connection, settings.parameters, positive, settings.negative, controller.signal, progress => {
@@ -228,7 +243,7 @@ export function bindChatImages(signal) {
                     }
                     phase = progress.state;
                     canvas.dataset.phase = phase;
-                    buttonLabel.textContent = phase === 'queued' ? '已加入队列' : '正在绘制…';
+                    syncGenerationButtons();
                     cancel.textContent = phase === 'queued' ? '取消排队' : '取消等待';
                     status.textContent = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…';
                 });
@@ -275,15 +290,16 @@ export function bindChatImages(signal) {
             }
             finally {
                 request = null;
-                button.disabled = false;
-                buttonLabel.textContent = history.length ? '再绘一张' : '生成图片';
+                syncGenerationButtons();
                 cancel.hidden = true;
                 canvas.dataset.busy = 'false';
                 delete canvas.dataset.phase;
                 if (!history.length)
                     canvas.hidden = true;
             }
-        }, { signal: controls.signal });
+        }
+        button.addEventListener('click', requestGeneration, { signal: controls.signal });
+        regenerate.addEventListener('click', requestGeneration, { signal: controls.signal });
         return {
             message, slot, closePreview: gallery.close, refreshTheme,
             dispose() { controls.abort(); request?.abort(); history.forEach(item => URL.revokeObjectURL(item.url)); history = []; },
