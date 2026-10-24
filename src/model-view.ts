@@ -122,7 +122,7 @@ export function presetWorkspaceView(settings: ModelSettings, state: ModelViewSta
   let detail = current ? promptEditor(current) : selected === 'input'
     ? '<p class="preset-description">自动读取当前聊天的最新 AI 正文，并标注可插入配图的行间位置。正文在请求时更新，无需在这里填写。</p>'
     : `${selected === 'layer:worldbook' ? worldbookSettingsView(settings, state.worldbook) : ''}
-      ${selected === 'layer:anchors' ? '<p class="preset-description">从标签锚定读取角色外貌与服装，按“人物名称{组成 tag}”展示发送内容。</p><button type="button" class="text-button model-feature-link" data-page="features" data-feature-tab="anchors">前往标签锚定配置 →</button>' : ''}
+      ${selected === 'layer:anchors' ? '<p class="preset-description">按 INI 分段发送角色名与别名、固定外貌（base）、默认服装（default）和完整服装库；通用服装单独列在末尾。未选默认服装时，default 留空。</p><p class="config-status">场景提示词可写 @角色、@角色:服装或 #通用服装名。展开与默认服装避让由插件处理；此处说明不会发送给模型。</p><button type="button" class="text-button model-feature-link" data-page="features" data-feature-tab="anchors">前往标签锚定配置 →</button>' : ''}
       <div class="preset-preview-heading"><h4>发送内容预览</h4><button type="button" class="text-button" data-model-action="refresh-layer"${preview?.loading ? ' disabled' : ''}>${preview?.loading ? '读取中…' : '刷新预览'}</button></div>
       <textarea class="preset-layer-preview" data-layer-preview="${escape(selected ?? '')}" aria-label="功能层发送内容预览" rows="10" readonly spellcheck="false" placeholder="${preview?.loading ? '正在读取…' : '暂无内容，可刷新预览。'}">${escape(preview?.text ?? '')}</textarea>
       ${preview?.error ? `<p class="config-status is-error" role="status">${escape(preview.error)}</p>` : '<p class="config-status">请求前会重新读取所选内容。</p>'}`;

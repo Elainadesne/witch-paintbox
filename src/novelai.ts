@@ -1,5 +1,6 @@
 import { ImageResponseError, readImageResponse, requireImageSupport } from './image-response.js';
 import { queueImageGeneration, type ImageGenerationProgress } from './image-queue.js';
+import type { CharacterPrompt } from './image-prompt.js';
 
 export type { ImageGenerationProgress } from './image-queue.js';
 
@@ -126,6 +127,21 @@ function abortError(): Error {
   return error;
 }
 
+function snapshotCharacters(characters: readonly CharacterPrompt[], model: string): CharacterPrompt[] {
+  if (!Array.isArray(characters)) fail('角色分栏格式无效，请使用角色提示词列表。');
+  if (characters.length && model === 'nai-diffusion-3') fail('NAI V3 不支持角色分栏，请选择 V4、V4.5 或 V5。');
+  const limit = model.startsWith('nai-diffusion-5') ? 22 : 6;
+  if (characters.length > limit) fail(`当前模型最多支持 ${limit} 个角色分栏。`);
+  return Array.from(characters, (character, index) => {
+    if (!character || typeof character !== 'object' || Array.isArray(character)
+      || typeof character.positive !== 'string' || !character.positive.trim()
+      || typeof character.negative !== 'string') {
+      fail(`第 ${index + 1} 个角色分栏无效：正面提示词不能为空，负面提示词须为文本。`);
+    }
+    return { positive: character.positive, negative: character.negative };
+  });
+}
+
 /** Freeze each click before joining the shared queue; never repeat a billable request. */
 export async function generateImage(
   connection: ImageConnection,
@@ -134,6 +150,7 @@ export async function generateImage(
   negative: string,
   signal: AbortSignal,
   onProgress?: (progress: ImageGenerationProgress) => void,
+  characters: readonly CharacterPrompt[] = [],
 ): Promise<{ blob: Blob; seed: number }> {
   if (signal.aborted) throw abortError();
   const configured = validateImageConnection(connection);
@@ -142,6 +159,7 @@ export async function generateImage(
   if (typeof positive !== 'string' || !positive.trim() || typeof negative !== 'string') {
     fail('请填写正面提示词。');
   }
+  const characterSnapshot = snapshotCharacters(characters, params.model);
   requireImageSupport();
   const seed = params.seed === -1 ? crypto.getRandomValues(new Uint32Array(1))[0] : params.seed;
   const isV5 = params.model.startsWith('nai-diffusion-5');
@@ -162,13 +180,27 @@ export async function generateImage(
   };
   if (isV5 || params.model.startsWith('nai-diffusion-4')) {
     parameters.v4_prompt = {
-      caption: { base_caption: positive, char_captions: [] }, use_coords: false, use_order: true,
+      caption: {
+        base_caption: positive,
+        char_captions: characterSnapshot.map(character => ({
+          char_caption: character.positive, centers: [{ x: 0.5, y: 0.5 }],
+        })),
+      },
+      use_coords: false, use_order: true,
     };
     parameters.v4_negative_prompt = {
-      caption: { base_caption: negative, char_captions: [] }, legacy_uc: false,
+      caption: {
+        base_caption: negative,
+        char_captions: characterSnapshot.map(character => ({
+          char_caption: character.negative, centers: [{ x: 0.5, y: 0.5 }],
+        })),
+      },
+      legacy_uc: false,
     };
     parameters.use_coords = false;
-    parameters.characterPrompts = [];
+    parameters.characterPrompts = characterSnapshot.map(character => ({
+      prompt: character.positive, uc: character.negative, center: { x: 0.5, y: 0.5 },
+    }));
     parameters.reference_image_multiple = [];
     parameters.reference_information_extracted_multiple = [];
     parameters.reference_strength_multiple = [];

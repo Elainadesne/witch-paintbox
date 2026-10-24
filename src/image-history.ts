@@ -1,4 +1,5 @@
 import type { ImageParameters } from './novelai.js';
+import type { CharacterPrompt } from './image-prompt.js';
 
 export interface ImageHistoryEntry {
   id: string;
@@ -8,9 +9,17 @@ export interface ImageHistoryEntry {
   parameters: ImageParameters;
   positive: string;
   negative: string;
+  /** Actual character captions in request order; older and single-string entries omit this. */
+  characters?: CharacterPrompt[];
   seed: number;
   /** Original scene tags before anchor expansion and artist additions. Older entries omit this. */
   scenePrompt?: string;
+}
+
+/** Positive tags for display and manual character selection, not for recreating a request. */
+export function imageHistoryPositive(entry: ImageHistoryEntry): string {
+  return [entry.positive, ...(entry.characters ?? []).map(character => character.positive)]
+    .filter(Boolean).join(',\n');
 }
 
 const databaseName = 'witch-paintbox-image-history';
@@ -131,6 +140,20 @@ function snapshot(value: unknown): ImageHistoryEntry {
     || ![parameters.width, parameters.height, parameters.steps, parameters.scale, parameters.cfgRescale].every(Number.isFinite)) {
     throw new Error('图片历史记录格式无效，原有记录未修改。');
   }
+  let characters: CharacterPrompt[] | undefined;
+  if (entry.characters !== undefined) {
+    if (!Array.isArray(entry.characters) || entry.characters.length > 22) {
+      throw new Error('图片历史的角色分栏格式无效，原有记录未修改。');
+    }
+    characters = [];
+    for (const character of entry.characters) {
+      if (!character || typeof character.positive !== 'string' || !character.positive.trim()
+        || typeof character.negative !== 'string') {
+        throw new Error('图片历史的角色分栏格式无效，原有记录未修改。');
+      }
+      characters.push({ positive: character.positive, negative: character.negative });
+    }
+  }
   // Copy only image metadata: connection credentials and arbitrary extra fields never enter this store.
   return {
     id: entry.id, markerKey: entry.markerKey, blob: entry.blob, createdAt: entry.createdAt,
@@ -141,6 +164,7 @@ function snapshot(value: unknown): ImageHistoryEntry {
       sm: parameters.sm, smDyn: parameters.smDyn,
     },
     positive: entry.positive, negative: entry.negative, seed: entry.seed,
+    ...(characters === undefined ? {} : { characters }),
     ...(entry.scenePrompt === undefined ? {} : { scenePrompt: entry.scenePrompt }),
   };
 }

@@ -1,3 +1,8 @@
+/** Positive tags for display and manual character selection, not for recreating a request. */
+export function imageHistoryPositive(entry) {
+    return [entry.positive, ...(entry.characters ?? []).map(character => character.positive)]
+        .filter(Boolean).join(',\n');
+}
 const databaseName = 'witch-paintbox-image-history';
 const storeName = 'images';
 let connection = null;
@@ -145,6 +150,20 @@ function snapshot(value) {
         || ![parameters.width, parameters.height, parameters.steps, parameters.scale, parameters.cfgRescale].every(Number.isFinite)) {
         throw new Error('图片历史记录格式无效，原有记录未修改。');
     }
+    let characters;
+    if (entry.characters !== undefined) {
+        if (!Array.isArray(entry.characters) || entry.characters.length > 22) {
+            throw new Error('图片历史的角色分栏格式无效，原有记录未修改。');
+        }
+        characters = [];
+        for (const character of entry.characters) {
+            if (!character || typeof character.positive !== 'string' || !character.positive.trim()
+                || typeof character.negative !== 'string') {
+                throw new Error('图片历史的角色分栏格式无效，原有记录未修改。');
+            }
+            characters.push({ positive: character.positive, negative: character.negative });
+        }
+    }
     // Copy only image metadata: connection credentials and arbitrary extra fields never enter this store.
     return {
         id: entry.id, markerKey: entry.markerKey, blob: entry.blob, createdAt: entry.createdAt,
@@ -155,6 +174,7 @@ function snapshot(value) {
             sm: parameters.sm, smDyn: parameters.smDyn,
         },
         positive: entry.positive, negative: entry.negative, seed: entry.seed,
+        ...(characters === undefined ? {} : { characters }),
         ...(entry.scenePrompt === undefined ? {} : { scenePrompt: entry.scenePrompt }),
     };
 }

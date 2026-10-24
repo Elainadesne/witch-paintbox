@@ -1,6 +1,7 @@
 import { defaultImageSettings, loadImageSettings, saveImageSettings, validateImageSettings, type ImageSettings } from './image-settings.js';
 import { defaultModelSettings, loadModelSettings, saveModelSettings, validateModelSettings, type ModelSettings } from './model-settings.js';
 import { loadAnchors, replaceAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT, type CharacterAnchor } from './anchor-store.js';
+import { loadSharedOutfits, replaceSharedOutfits, validateSharedOutfits, type SharedOutfit } from './shared-outfit-store.js';
 import { loadWorldbookArchive, replaceWorldbookArchive, validateWorldbookArchive, type StoredWorldbook } from './worldbook-source.js';
 import { readSettings, saveSettings, type Settings, type TavernContext } from './settings.js';
 import { isPageId } from './pages.js';
@@ -16,6 +17,7 @@ interface CompleteSettings {
   model: ModelSettings;
   preferences: Settings;
   anchors: CharacterAnchor[];
+  sharedOutfits: SharedOutfit[];
   worldbooks: StoredWorldbook[];
 }
 interface Envelope {
@@ -165,14 +167,16 @@ export function parseArchive(source: string): ParsedArchive {
   } else if (raw.kind === 'worldbooks') {
     result = { ...base, kind: 'worldbooks', data: worldbookSettings(data) };
   } else {
-    fields(data, ['image', 'model', 'preferences', 'anchors', 'worldbooks'], '完整配置');
+    const required = ['image', 'model', 'preferences', 'anchors', 'worldbooks'];
+    fields(data, Object.hasOwn(data, 'sharedOutfits') ? [...required, 'sharedOutfits'] : required, '完整配置');
     const image = validateImageSettings(data.image);
     const modelRaw = object(data.model, '模型配置');
     if (modelRaw.worldbookSource !== 'uploads') throw new Error('配置文件的世界书来源不受支持。');
     const model = validateModelSettings(modelRaw);
     const worldbooks = validateWorldbookArchive(data.worldbooks);
     checkWorldbookLinks(model.worldbooks, worldbooks);
-    result = { ...base, kind: 'all', data: { image, model, worldbooks, anchors: anchors(data.anchors), preferences: preferences(data.preferences) } };
+    const sharedOutfits = validateSharedOutfits(Object.hasOwn(data, 'sharedOutfits') ? data.sharedOutfits : []);
+    result = { ...base, kind: 'all', data: { image, model, worldbooks, anchors: anchors(data.anchors), sharedOutfits, preferences: preferences(data.preferences) } };
   }
   if (!result.includesKeys && archiveKeyCount(result)) throw new Error('文件标记为不含密钥，但实际包含密钥，已停止导入。');
   return result;
@@ -202,7 +206,7 @@ export async function exportArchive(kind: ArchiveKind, includeKeys: boolean, con
     }
     const portable: PortableAnchor[] = [];
     for (const character of characters) portable.push({ ...character, portrait: await encodePortrait(character.portrait) });
-    data = { image, model, preferences: readSettings(context), anchors: portable, worldbooks };
+    data = { image, model, preferences: readSettings(context), anchors: portable, sharedOutfits: loadSharedOutfits(), worldbooks };
   }
   const blob = new Blob([JSON.stringify({ ...envelope, data }, null, 2)], { type: 'application/json' });
   if (blob.size > MAX_ARCHIVE_BYTES) throw new Error('配置文件超过 128 MiB，请先减少角色图或世界书体积。');
@@ -222,10 +226,11 @@ export function summarizeArchive(archive: ParsedArchive): ArchiveSummary[] {
   const image = archive.kind === 'all' ? archive.data.image : archive.data.artists;
   const rows = [{ title: '画师串', detail: `${image.artists.length} 个命名配置及当前正、负面提示词。${image.artists.map(item => item.name).join('、')}` }];
   if (archive.kind === 'all') {
-    const { model, anchors, worldbooks } = archive.data;
+    const { model, anchors, sharedOutfits, worldbooks } = archive.data;
     rows.unshift({ title: '生图 API', detail: `${archive.data.image.connectionProfiles.length} 个保存连接；模型 ${archive.data.image.parameters.model}，${archive.data.image.parameters.width} × ${archive.data.image.parameters.height}，含全部生图参数。` },
       { title: '模型 API 与预设', detail: `${model.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.model || '未选模型'}`}；预设“${model.presetName || '未命名'}”，${model.head.length + model.tail.length} 个文本条目，含编排、功能层选择和标记设置。` });
     rows.push({ title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` },
+      { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装；完整导入将替换当前通用服装库。${sharedOutfits.map(outfit => outfit.name).join('、')}` },
       { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含挂载关系。${worldbooks.map(book => book.name).join('、')}` },
       { title: '使用偏好', detail: '页面记忆、悬浮球位置及位置记忆。' });
   }
@@ -264,11 +269,14 @@ export async function applyArchive(archive: ParsedArchive, context: TavernContex
   }
   const image = loadImageSettings();
   const model = loadModelSettings(), previousPreferences = readSettings(context);
+  const previousSharedOutfits = loadSharedOutfits();
   const [previousAnchors, previousBooks] = await Promise.all([loadAnchors(), loadWorldbookArchive()]);
   const undo: (() => void | Promise<void>)[] = [];
   try {
     await replaceAnchors(archive.data.anchors);
     undo.push(() => replaceAnchors(previousAnchors));
+    undo.push(() => replaceSharedOutfits(previousSharedOutfits));
+    replaceSharedOutfits(archive.data.sharedOutfits);
     await replaceWorldbookArchive(archive.data.worldbooks);
     undo.push(() => replaceWorldbookArchive(previousBooks));
     undo.push(() => saveImageSettings(image));

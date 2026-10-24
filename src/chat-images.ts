@@ -7,7 +7,7 @@ import { createChatImageView } from './chat-image-view.js';
 import { createImageGallery, type GalleryImage } from './image-gallery.js';
 import { loadImageHistory, saveImageHistory, deleteImageHistory, type ImageHistoryEntry } from './image-history.js';
 import { markerEntries, type MarkerEntry } from './image-marker-history.js';
-import { resolveStoredAnchorPrompt } from './anchor-resolver.js';
+import { prepareImagePrompt } from './image-prompt.js';
 
 type AssistantMessage = ReturnType<typeof readAssistantMessages>[number];
 
@@ -222,17 +222,15 @@ export function bindChatImages(signal: AbortSignal): () => void {
       status.textContent = '正在加入队列…';
       try {
         const settings = loadImageSettings();
-        const scene = await resolveStoredAnchorPrompt(marker.prompt);
+        const { positive, negative, characters } = await prepareImagePrompt(marker.prompt, settings.negative, settings.positive);
         controller.signal.throwIfAborted();
-        // The model contributes only the scene. Artist positives and negatives belong to the plugin.
-        const positive = [scene, settings.positive].filter(text => text.trim()).join(', ');
         await historyReady;
         controller.signal.throwIfAborted();
         if (!isCurrent(message, key)) { controller.abort(); controller.signal.throwIfAborted(); }
         if (!history.length) setImageSize(settings.parameters.width, settings.parameters.height);
         canvas.hidden = false;
         canvas.dataset.busy = 'true';
-        const result = await generateImage(settings.connection, settings.parameters, positive, settings.negative, controller.signal, progress => {
+        const result = await generateImage(settings.connection, settings.parameters, positive, negative, controller.signal, progress => {
           if (controls.signal.aborted || controller.signal.aborted) return;
           if (!isCurrent(message, key)) { controller.abort(); return; }
           phase = progress.state;
@@ -240,14 +238,15 @@ export function bindChatImages(signal: AbortSignal): () => void {
           syncGenerationButtons();
           cancel.textContent = phase === 'queued' ? '取消排队' : '取消等待';
           status.textContent = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…';
-        });
+        }, characters);
         // A native re-render can temporarily detach the slot without invalidating its request.
         if (controller.signal.aborted || controls.signal.aborted || !isCurrent(message, key)) return;
         const entry: ImageHistoryEntry = {
           id: `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`,
           markerKey: historyKey ?? key, blob: result.blob, createdAt: Date.now(),
-          parameters: { ...settings.parameters, seed: result.seed }, positive, negative: settings.negative, seed: result.seed,
+          parameters: { ...settings.parameters, seed: result.seed }, positive, negative, seed: result.seed,
           scenePrompt: marker.prompt,
+          ...(characters.length ? { characters } : {}),
         };
         const saving = historyKey ? saveImageHistory(entry) : Promise.resolve();
         saves.set(entry.id, saving);

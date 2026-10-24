@@ -1,5 +1,6 @@
 import { loadAnchors } from './anchor-store.js';
-import { resolveAnchorPrompt } from './anchor-resolver.js';
+import { formatAnchorCatalog } from './anchor-catalog.js';
+import { loadSharedOutfits } from './shared-outfit-store.js';
 import { registerFeatureLayer } from './feature-layers.js';
 import { readWorldbook } from './worldbook-source.js';
 import { isWorldbookEntryActive } from './worldbook-activation.js';
@@ -29,9 +30,10 @@ export function registerBuiltinLayers(): () => void {
     registerFeatureLayer({
       id: 'anchors', title: '标签锚定',
       async messages(context) {
+        const sharedOutfits = loadSharedOutfits();
         const anchors = await loadAnchors();
         context.signal?.throwIfAborted();
-        const content = anchors.map(anchor => `${anchor.name}{${resolveAnchorPrompt(anchor.name, anchors)}}`).join('\n');
+        const content = formatAnchorCatalog(anchors, sharedOutfits);
         return content ? [{ role: 'system', content }] : [];
       },
     }),

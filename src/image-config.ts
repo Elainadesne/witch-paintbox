@@ -1,7 +1,7 @@
 import { loadImageSettings, saveImageSettings, type ImageSettings } from './image-settings.js';
 import { imageSettingsView } from './image-view.js';
 import { generateImage, NAI_SIZE_PRESETS, validateImageConnection, type ImageConnection } from './novelai.js';
-import { resolveStoredAnchorPrompt } from './anchor-resolver.js';
+import { prepareImagePrompt } from './image-prompt.js';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
@@ -364,14 +364,14 @@ export class ImageConfig {
     this.syncGeneration();
     const snapshot = structuredClone(this.settings!);
     try {
-      const positive = await resolveStoredAnchorPrompt(snapshot.positive);
+      const { positive, negative, characters } = await prepareImagePrompt(snapshot.positive, snapshot.negative);
       request.signal.throwIfAborted();
-      const result = await generateImage(snapshot.connection, snapshot.parameters, positive, snapshot.negative, request.signal, progress => {
+      const result = await generateImage(snapshot.connection, snapshot.parameters, positive, negative, request.signal, progress => {
         if (request.signal.aborted) return;
         this.generationPhase = progress.state;
         this.generationMessage = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在生成图片…';
         this.syncGeneration();
-      });
+      }, characters);
       if (request.signal.aborted) return;
       const url = URL.createObjectURL(result.blob);
       if (this.imageUrl) URL.revokeObjectURL(this.imageUrl);

@@ -5,6 +5,7 @@ import { modelSettingsView, presetWorkspaceView, worldbookSettingsView, type Mod
 import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './preset-import.js';
 import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook } from './worldbook-source.js';
 import { onAnchorsChanged } from './anchor-store.js';
+import { onSharedOutfitsChanged } from './shared-outfit-store.js';
 import { getContextFilterStatus, onContextFilterStatusChanged } from './context-filter.js';
 import { assertChatSnapshot, captureLatestAssistant } from './chat-host.js';
 
@@ -41,6 +42,7 @@ export class ModelConfig {
     this.unsubscribe = [
       onFeatureLayersChanged(() => { this.ensureLayerSlots(); this.render(); }),
       onAnchorsChanged(() => { if (this.selectedKey === 'layer:anchors') void this.refreshPreview(); }),
+      onSharedOutfitsChanged(() => { if (this.selectedKey === 'layer:anchors') void this.refreshPreview(); }),
       onWorldbooksChanged(() => {
         this.booksLoaded = false;
         if (this.worldbook.busy) return;
@@ -89,7 +91,7 @@ export class ModelConfig {
     container.addEventListener('input', event => this.edit(event), { signal });
     container.addEventListener('change', event => {
       if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-preset-file')) void this.importPresetFile(event.target);
-      if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-worldbook-file')) void this.importWorldbookFile(event.target);
+      if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-worldbook-file')) void this.importWorldbookFiles(event.target);
     }, { signal });
     container.addEventListener('click', event => this.click(event), { signal });
     this.render();
@@ -138,8 +140,8 @@ export class ModelConfig {
     if (this.page === 'worldbook') {
       this.container.innerHTML = `<div class="image-settings model-settings worldbook-library">
         <section class="config-section">
-          <label class="config-field"><span>上传世界书 · JSON</span><input type="file" data-worldbook-file accept=".json,application/json"${this.worldbook.busy ? ' disabled' : ''}></label>
-          <p class="config-status">支持世界书 JSON 与 character_book 条目，最大 20 MiB。上传后保存在当前浏览器，同名书另存一份。</p>
+          <label class="config-field"><span>上传世界书 · JSON · 可多选</span><input type="file" data-worldbook-file accept=".json,application/json" multiple${this.worldbook.busy ? ' disabled' : ''}></label>
+          <p class="config-status">可一次选择多个世界书 JSON，支持 character_book 条目，每个文件最大 20 MiB。上传后保存在当前浏览器，同名书另存一份。</p>
           <p class="config-status${this.worldbookError ? ' is-error' : ''}" data-worldbook-status role="status">${escape(this.worldbookNotice)}</p>
         </section>
         <section class="config-section">${worldbookSettingsView(this.settings, this.worldbook, true)}</section>
@@ -449,27 +451,44 @@ export class ModelConfig {
     if (input) input.disabled = Boolean(this.worldbook.busy);
   }
 
-  private async importWorldbookFile(input: HTMLInputElement): Promise<void> {
-    const file = input.files?.[0]; input.value = '';
-    if (!file || !this.settings || this.worldbook.busy) return;
+  private async importWorldbookFiles(input: HTMLInputElement): Promise<void> {
+    const files = Array.from(input.files ?? []); input.value = '';
+    if (!files.length || !this.settings || this.worldbook.busy) return;
     const signal = this.listeners?.signal;
+    const imported: string[] = [], failures: string[] = [];
+    this.bookRequest?.abort(); this.bookRequest = null;
+    this.worldbook.loading = false;
     this.worldbook.busy = true;
-    this.worldbookMessage('正在上传世界书…'); this.renderSources();
+    this.worldbookMessage(`准备导入 ${files.length} 个世界书文件…`); this.renderSources();
     try {
-      if (file.size > 20 * 1024 * 1024) throw new Error('世界书文件不能超过 20 MiB。');
-      const source = await file.text();
-      if (signal?.aborted) { this.worldbookMessage('上传已取消，请重新选择文件。'); return; }
-      let value: unknown;
-      try { value = JSON.parse(source.replace(/^\uFEFF/, '')); }
-      catch { throw new Error('文件不是有效的 JSON。'); }
-      const name = await importWorldbook(value, file.name);
-      if (!signal?.aborted) { this.worldbook.book = name; this.worldbook.previewId = undefined; }
-      this.worldbookMessage(`已上传“${name}”。勾选要挂载的条目，再保存配置。`);
-    } catch (error) {
-      this.worldbookMessage(`上传失败：${error instanceof Error ? error.message : '无法读取文件。'}`, true);
+      // Read and store one book at a time; a bad file does not discard successful imports.
+      for (const [index, file] of files.entries()) {
+        if (signal?.aborted) break;
+        this.worldbookMessage(`正在导入 ${index + 1}/${files.length}：“${file.name}”…`);
+        try {
+          if (file.size > 20 * 1024 * 1024) throw new Error('世界书文件不能超过 20 MiB。');
+          const source = await file.text();
+          if (signal?.aborted) break;
+          let value: unknown;
+          try { value = JSON.parse(source.replace(/^\uFEFF/, '')); }
+          catch { throw new Error('文件不是有效的 JSON。'); }
+          // An in-progress write finishes even if the page closes; count it once confirmed.
+          imported.push(await importWorldbook(value, file.name));
+        } catch (error) {
+          failures.push(`“${file.name}”：${error instanceof Error ? error.message : '无法读取文件。'}`);
+        }
+      }
     } finally {
+      if (!signal?.aborted && imported.length) {
+        this.worldbook.book = imported.at(-1)!; this.worldbook.previewId = undefined;
+      }
+      const remaining = files.length - imported.length - failures.length;
+      const summary = `${remaining ? '导入已停止' : '导入完成'}：成功 ${imported.length} 本，失败 ${failures.length} 个文件。`
+        + (remaining ? `另有 ${remaining} 个文件未导入，可重新选择。` : '')
+        + (imported.length ? `已导入：${imported.map(name => `“${name}”`).join('、')}。选择要挂载的世界书或条目，再保存配置。` : '')
+        + (failures.length ? `失败详情：${failures.join('；')}` : '');
       this.worldbook.busy = false; this.booksLoaded = false;
-      this.worldbookMessage(this.worldbookNotice, this.worldbookError);
+      this.worldbookMessage(summary, failures.length > 0);
       this.loadSelectedSource();
     }
   }

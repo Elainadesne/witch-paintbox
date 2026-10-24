@@ -92,8 +92,7 @@ export function createImageGallery(summary, signal, handlers) {
       <header class="wp-gallery-drawer-header"><h3>生成属性</h3><button type="button" data-gallery-drawer-close aria-label="收起生成属性">收起</button></header>
       <div class="wp-gallery-drawer-body">
         <dl class="wp-gallery-properties"></dl>
-        <section class="wp-gallery-prompt"><h4>正面提示词</h4><pre data-gallery-positive></pre></section>
-        <section class="wp-gallery-prompt"><h4>负面提示词</h4><pre data-gallery-negative></pre></section>
+        <div data-gallery-prompts></div>
       </div>
     </section>
   </div>`;
@@ -111,8 +110,7 @@ export function createImageGallery(summary, signal, handlers) {
     const drawer = element.querySelector('.wp-gallery-drawer');
     const drawerClose = element.querySelector('[data-gallery-drawer-close]');
     const properties = element.querySelector('.wp-gallery-properties');
-    const positive = element.querySelector('[data-gallery-positive]');
-    const negative = element.querySelector('[data-gallery-negative]');
+    const prompts = element.querySelector('[data-gallery-prompts]');
     const thumbnailButtons = new Map();
     let items = [];
     let selectedId = null;
@@ -150,7 +148,7 @@ export function createImageGallery(summary, signal, handlers) {
             download.setAttribute('aria-disabled', 'true');
             download.tabIndex = -1;
             properties.replaceChildren();
-            positive.textContent = negative.textContent = '';
+            prompts.replaceChildren();
             setDrawer(false);
             if (element.open)
                 closeButton.focus({ preventScroll: true });
@@ -185,8 +183,25 @@ export function createImageGallery(summary, signal, handlers) {
             field.append(name, detail);
             return field;
         }));
-        positive.textContent = entry.positive || '（空）';
-        negative.textContent = entry.negative || '（空）';
+        const characterPrompts = entry.characters ?? [];
+        const promptFields = [
+            [characterPrompts.length ? '全局正面提示词' : '正面提示词', entry.positive],
+            [characterPrompts.length ? '全局负面提示词' : '负面提示词', entry.negative],
+        ];
+        characterPrompts.forEach((character, index) => {
+            promptFields.push([`角色 ${index + 1} · 正面提示词`, character.positive]);
+            promptFields.push([`角色 ${index + 1} · 负面提示词`, character.negative]);
+        });
+        prompts.replaceChildren(...promptFields.map(([label, value]) => {
+            const section = document.createElement('section');
+            section.className = 'wp-gallery-prompt';
+            const heading = document.createElement('h4');
+            const content = document.createElement('pre');
+            heading.textContent = label;
+            content.textContent = value || '（空）';
+            section.append(heading, content);
+            return section;
+        }));
     }
     function revealSelected() {
         if (selectedId && element.open)

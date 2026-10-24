@@ -591,6 +591,13 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .anchor-library { display: grid; gap: 20px; }
 .anchor-record { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 5px; background: var(--anchor-card); box-shadow: 0 2px 6px #38291408; }
 .anchor-record:focus-within { border-color: var(--section-accent); }
+.shared-outfit-record { display: grid; gap: 12px; width: 100%; text-align: left; }
+.shared-outfit-record:hover, .shared-outfit-record:focus-visible { border-color: var(--section-accent); }
+.shared-outfit-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
+.shared-outfit-heading > strong { min-width: 0; color: var(--heading); font: 600 19px/1.5 var(--serif); overflow-wrap: anywhere; }
+.shared-outfit-heading > .anchor-edit-label { flex-shrink: 0; margin: 0; }
+.shared-outfit-call { padding-top: 10px; border-top: 1px solid #96723b26; color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
+.shared-outfit-editor > .config-field + .config-field { margin-top: 18px; }
 .anchor-character { display: grid; grid-template-columns: 80px minmax(0, 1fr) auto; align-items: center; gap: 18px; width: 100%; padding: 0 0 16px; border: 0; border-bottom: 1px solid #96723b26; background: transparent; text-align: left; }
 .anchor-character > span { min-width: 0; }
 .anchor-portrait { width: 80px; height: 100px; display: block; object-fit: cover; border-radius: 3px; background: var(--surface); }
@@ -635,8 +642,9 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .anchor-outfit-fields > .text-button { justify-self: start; margin-left: -12px; }
 .image-settings .anchor-danger { color: var(--danger); }
 .anchor-usage { margin-top: 24px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.anchor-usage > p { margin: 8px 0; }
 .anchor-save-line { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
-.anchor-delete-confirm { margin-top: 16px; padding-left: 12px; border-left: 2px solid var(--danger); font-size: 13px; }
+.anchor-delete-confirm, .shared-outfit-delete-confirm { margin-top: 16px; padding-left: 12px; border-left: 2px solid var(--danger); font-size: 13px; }
 .feature-provider-settings { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--border); }
 .feature-provider-settings > summary { padding: 8px 0; color: var(--muted); font-size: 12px; cursor: pointer; }
 .feature-provider-settings > div { padding-top: 22px; }
