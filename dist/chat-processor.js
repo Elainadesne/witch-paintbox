@@ -39,8 +39,8 @@ export class ChatProcessor {
                 throw new Error('AI 未返回配图数据，原文未变。');
             this.committing = true;
             this.report('正在按插入点保存配图标记…', true, false, false);
-            await replaceAssistantMessage(snapshot, result.text, controller.signal);
-            this.report(`已插入 ${result.added.length} 处配图标记，原正文保持不变。`, false);
+            await replaceAssistantMessage(snapshot, result, controller.signal);
+            this.report(`已保存 ${result.added.length} 处配图标记，原正文与 HTML 前端已保留。`, false);
         }
         catch (error) {
             this.report(controller.signal.aborted ? '已取消 AI 处理。' : error.message, false, !controller.signal.aborted);

@@ -1,7 +1,7 @@
-import type { PromptEntry } from './model-settings.js';
+import { MAX_PRESET_ENTRIES, type PromptEntry } from './model-settings.js';
 
 export const MAX_PRESET_BYTES = 2 * 1024 * 1024;
-export const MAX_PRESET_ENTRIES = 200;
+export { MAX_PRESET_ENTRIES };
 
 export interface ImportedModelPreset {
   presetName: string;
@@ -26,7 +26,7 @@ function text(value: unknown, label: string, max: number): string {
 }
 
 function list(value: unknown): unknown[] {
-  if (!Array.isArray(value) || value.length > MAX_PRESET_ENTRIES) throw new Error('预设列表无效，最多支持 200 条。');
+  if (!Array.isArray(value) || value.length > MAX_PRESET_ENTRIES) throw new Error(`预设列表无效，最多支持 ${MAX_PRESET_ENTRIES} 条。`);
   return value;
 }
 
@@ -51,7 +51,7 @@ function parseEntry(value: unknown, index: number, warnings: string[]): Imported
 }
 
 function unique(entries: ImportedEntry[]): void {
-  if (entries.length > MAX_PRESET_ENTRIES) throw new Error('预设最多支持 200 条。');
+  if (entries.length > MAX_PRESET_ENTRIES) throw new Error(`预设最多支持 ${MAX_PRESET_ENTRIES} 条。`);
   if (new Set(entries.map(item => item.entry.id)).size !== entries.length) throw new Error('预设包含重复的条目标识，未导入。');
 }
 

@@ -105,7 +105,10 @@ export function applyImageInsertions(plan, response) {
     const added = [];
     for (const insertion of [...insertions].reverse()) {
         for (const marker of insertion.markers) {
-            added.push({ ...marker, start: marker.start + insertion.offset + shift, end: marker.end + insertion.offset + shift });
+            added.push({
+                ...marker, start: marker.start + insertion.offset + shift, end: marker.end + insertion.offset + shift,
+                sourceOffset: insertion.offset,
+            });
         }
         shift += insertion.content.length;
     }

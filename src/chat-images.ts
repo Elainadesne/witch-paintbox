@@ -1,4 +1,5 @@
-import { formatChatText, readAssistantMessages, watchChatRendering } from './chat-host.js';
+import { readAssistantMessages, watchChatRendering, type ImageDisplayChange } from './chat-host.js';
+import { locateImageMarkers, locateImageInsertionPoints } from './chat-image-placement.js';
 import type { ImageMarker } from './image-markers.js';
 import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
@@ -11,10 +12,6 @@ import { prepareImagePrompt } from './image-prompt.js';
 
 type AssistantMessage = ReturnType<typeof readAssistantMessages>[number];
 
-interface RenderedMessage extends AssistantMessage {
-  slots: HTMLElement[];
-}
-
 interface ImageControl {
   message: AssistantMessage;
   slot: HTMLElement;
@@ -23,71 +20,20 @@ interface ImageControl {
   dispose(): void;
 }
 
-/** Hidden or transformed markers must not suppress the other buttons in a floor. */
-function prepareImageDisplay(message: AssistantMessage, entries: MarkerEntry[]) {
-  let prefix: string;
-  do { prefix = `WITCHPAINTBOX${crypto.getRandomValues(new Uint32Array(2)).join('X')}MARK`; }
-  while (message.text.includes(prefix));
-  let candidates = entries.map(entry => ({ ...entry, token: `${prefix}${entry.marker.start}END` }));
-  while (candidates.length) {
-    let cursor = 0;
-    const parts: string[] = [];
-    for (const { marker, token } of candidates) {
-      parts.push(message.text.slice(cursor, marker.start), token);
-      cursor = marker.end;
-    }
-    parts.push(message.text.slice(cursor));
-    const formatted = document.createElement('div');
-    formatted.innerHTML = formatChatText(parts.join(''), message.messageId);
-    const html = formatted.innerHTML;
-    const placements = candidates.flatMap(entry => {
-      const walker = document.createTreeWalker(formatted, NodeFilter.SHOW_TEXT);
-      let found: Text | null = null;
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        if (!node.textContent?.includes(entry.token)) continue;
-        if (found || node.parentElement?.closest('code, pre, a, button, textarea, select, option, script, style')) return [];
-        found = node as Text;
-      }
-      if (!found) return [];
-      const offset = found.data.indexOf(entry.token);
-      if (found.data.indexOf(entry.token, offset + entry.token.length) !== -1) return [];
-      // A beautifier may also copy its content into attributes or comments.
-      // Only commit a token which occurs exactly once in the complete display.
-      if (html.split(entry.token).length !== 2) return [];
-      return [{ ...entry, node: found, offset }];
-    });
-    if (placements.length !== candidates.length) {
-      // Reformat with unsuccessful markers left as their original text. This
-      // preserves native hidden/code displays and never leaves tokens on screen.
-      candidates = placements;
-      continue;
-    }
-    // Work backwards so splitting one text node does not shift later offsets.
-    const slots = placements.map(placement => ({ ...placement, placeholder: document.createElement('span') }));
-    const byNode = new Map<Text, typeof slots>();
-    for (const slot of slots) {
-      const group = byNode.get(slot.node) ?? [];
-      group.push(slot);
-      byNode.set(slot.node, group);
-    }
-    for (const group of byNode.values()) {
-      for (const { node, offset, token, placeholder } of group.sort((a, b) => b.offset - a.offset)) {
-        const trailing = node.splitText(offset);
-        trailing.splitText(token.length);
-        trailing.replaceWith(placeholder);
-      }
-    }
-    return { formatted, slots };
-  }
-  return null;
+interface PendingInsertion {
+  message: AssistantMessage;
+  previousText: string;
+  sourceOffset: number;
 }
 
 /** Render-only controls: stored chat text always contains the original literal markers. */
 export function bindChatImages(signal: AbortSignal): () => void {
   if (signal.aborted) return () => {};
-  const rendered = new Map<HTMLElement, RenderedMessage>();
+  const originals = new WeakMap<HTMLElement, DocumentFragment>();
   // Keep requests and images across native DOM replacement and streamed text appends.
   const images = new Map<string, ImageControl>();
+  const insertions = new Map<string, PendingInsertion>();
+  const pendingContainers = new Set<HTMLElement>();
   const warnings = new WeakMap<HTMLElement, { text: string; reason: string }>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
@@ -113,9 +59,140 @@ export function bindChatImages(signal: AbortSignal): () => void {
     } catch { return false; }
   }
 
+  function restoreSlot(slot: HTMLElement): void {
+    const original = originals.get(slot);
+    if (original) slot.replaceWith(original);
+    else slot.remove();
+    originals.delete(slot);
+  }
+
+  function cleanPendingContainers(): void {
+    for (const container of pendingContainers) {
+      if (!container.isConnected) pendingContainers.delete(container);
+      else if (!container.querySelector('.witch-paintbox-image')) {
+        container.firstElementChild?.remove();
+        // Disabling parsing restores only our literal fragments, never the full floor.
+        container.replaceWith(...Array.from(container.childNodes));
+        pendingContainers.delete(container);
+      }
+    }
+  }
+
   function clearImages(): void {
-    images.forEach(control => control.dispose());
+    images.forEach(control => { restoreSlot(control.slot); control.dispose(); });
     images.clear();
+    insertions.clear();
+    cleanPendingContainers();
+  }
+
+  function receiveInsertions(messageId: number, change: ImageDisplayChange): void {
+    // Bind the private notification to the complete current identity synchronously.
+    const message = readAssistantMessages().find(item => item.messageId === messageId && item.text === change.text);
+    if (!message) return;
+    const entries = markerEntries(message);
+    const keys = new Set(entries.map(entry => entry.key));
+    const addedStarts = new Set(change.added.map(marker => marker.start));
+    const before = markerEntries({ ...message, text: change.previousText });
+    const existing = entries.filter(entry => !addedStarts.has(entry.marker.start));
+    const replacement = before.length === existing.length && before.every((entry, i) => entry.marker.raw === existing[i].marker.raw)
+      ? new Map(before.map((entry, i) => [entry.key, existing[i]])) : new Map<string, MarkerEntry>();
+    // A known pure insertion preserves the old markers' order. If a duplicate
+    // changes their occurrence keys, keep each existing frame at its exact node.
+    for (const [key, control] of images) {
+      if (sameMessage(control.message, message) && !keys.has(key)) {
+        const nextEntry = replacement.get(key);
+        const pending = insertions.get(key);
+        if (nextEntry && pending) {
+          insertions.set(nextEntry.key, { ...pending, message });
+          insertions.delete(key);
+        }
+        if (nextEntry && control.slot.isConnected) {
+          const next = controlFor(nextEntry, message);
+          const original = originals.get(control.slot);
+          if (original) originals.set(next.slot, original);
+          control.slot.replaceWith(next.slot);
+          originals.delete(control.slot);
+          next.refreshTheme();
+        } else restoreSlot(control.slot);
+        control.dispose();
+        images.delete(key);
+      }
+    }
+    for (const marker of change.added) {
+      const entry = entries.find(item => item.marker.start === marker.start && item.marker.raw === marker.raw);
+      if (entry) insertions.set(entry.key, { message, previousText: change.previousText, sourceOffset: marker.sourceOffset });
+    }
+  }
+
+  function controlFor(entry: MarkerEntry, message: AssistantMessage): ImageControl {
+    let control = images.get(entry.key);
+    if (!control) {
+      control = imageSlot(entry.marker, message, entry.key, entry.historyKey);
+      images.set(entry.key, control);
+    }
+    return control;
+  }
+
+  function rememberInsertedText(entry: MarkerEntry, slot: HTMLElement): void {
+    if (originals.has(slot)) return;
+    const fragment = document.createDocumentFragment();
+    fragment.append(document.createTextNode(`\n\n${entry.marker.raw}\n\n`));
+    originals.set(slot, fragment);
+  }
+
+  function mountPendingInsertions(element: HTMLElement, message: AssistantMessage, entries: MarkerEntry[]): void {
+    const pending = entries.filter(entry => insertions.has(entry.key));
+    const groups = new Map<string, MarkerEntry[]>();
+    for (const entry of pending) {
+      const original = insertions.get(entry.key)!.previousText;
+      const group = groups.get(original) ?? [];
+      group.push(entry);
+      groups.set(original, group);
+    }
+    for (const [original, group] of groups) {
+      let points: ReturnType<typeof locateImageInsertionPoints> = [];
+      try {
+        points = locateImageInsertionPoints(element, message.messageId, original,
+          group.map(entry => insertions.get(entry.key)!.sourceOffset));
+      } catch { /* A changed or inaccessible display uses the local fallback below. */ }
+      for (const { offset, range } of points) {
+        const atPoint = group.filter(entry => insertions.get(entry.key)?.sourceOffset === offset);
+        const fragment = document.createDocumentFragment();
+        for (const entry of atPoint) {
+          const control = controlFor(entry, message);
+          rememberInsertedText(entry, control.slot);
+          fragment.append(control.slot);
+        }
+        try {
+          range.insertNode(fragment);
+          for (const entry of atPoint) {
+            insertions.delete(entry.key);
+            images.get(entry.key)?.refreshTheme();
+          }
+        } catch { /* The controls remain available to the fallback, including ongoing requests. */ }
+      }
+    }
+    const unresolved = pending.filter(entry => insertions.has(entry.key));
+    if (!unresolved.length) return;
+    let container = [...pendingContainers].find(item => item.parentElement === element);
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'witch-paintbox-pending';
+      const note = document.createElement('small');
+      note.textContent = '配图已保存 · 暂未定位到正文位置，可先在此生成图片。';
+      container.append(note);
+      element.append(container);
+      pendingContainers.add(container);
+    }
+    let previous: ChildNode | null = container.firstChild;
+    for (const entry of unresolved) {
+      const control = controlFor(entry, message);
+      rememberInsertedText(entry, control.slot);
+      const next = previous?.nextSibling ?? null;
+      if (next !== control.slot) container.insertBefore(control.slot, next);
+      previous = control.slot;
+      control.refreshTheme();
+    }
   }
 
   function imageSlot(marker: ImageMarker, message: AssistantMessage, key: string, historyKey: string | null): ImageControl {
@@ -298,8 +375,6 @@ export function bindChatImages(signal: AbortSignal): () => void {
       enabled = loadModelSettings().parseImageMarkers;
     } catch {
       clearImages();
-      rendered.forEach(state => state.slots.forEach(slot => slot.remove()));
-      rendered.clear();
       return;
     }
     const byId = new Map(messages.map(message => [message.messageId, message]));
@@ -312,25 +387,25 @@ export function bindChatImages(signal: AbortSignal): () => void {
       }
       return entries;
     };
+    for (const [key, pending] of insertions) {
+      const current = byId.get(pending.message.messageId);
+      if (!current || !sameMessage(current, pending.message) || !entriesFor(current).some(entry => entry.key === key)) {
+        insertions.delete(key);
+      }
+    }
     for (const [key, control] of images) {
       const current = byId.get(control.message.messageId);
       if (!enabled || !current || !sameMessage(current, control.message)
         || !entriesFor(current).some(entry => entry.key === key)) {
+        // Only restore a fragment while the original floor/marker is still current.
+        if (current && sameMessage(current, control.message)
+          && entriesFor(current).some(entry => entry.key === key)) restoreSlot(control.slot);
+        else { control.slot.remove(); originals.delete(control.slot); }
         control.dispose();
         images.delete(key);
       }
     }
-    for (const [element, state] of rendered) {
-      const current = byId.get(state.messageId);
-      if (!element.isConnected || !current || !sameMessage(current, state) || current.text !== state.text || !enabled
-        || state.slots.some(slot => !element.contains(slot))) {
-        rendered.delete(element);
-        if (element.isConnected && current && state.slots.some(slot => element.contains(slot))
-          && !element.closest('.mes')?.querySelector('textarea.edit_textarea')) {
-          try { element.innerHTML = formatChatText(current.text, current.messageId); } catch { /* Keep native display if unavailable. */ }
-        }
-      }
-    }
+    cleanPendingContainers();
     if (!enabled) return;
     for (const block of Array.from(document.querySelectorAll<HTMLElement>('#chat .mes[mesid]'))) {
       if (!block.isConnected || block.parentElement?.closest('.mes')) continue;
@@ -339,44 +414,52 @@ export function bindChatImages(signal: AbortSignal): () => void {
       const messageId = Number(block.getAttribute('mesid'));
       const message = byId.get(messageId);
       if (!message || block.querySelector('textarea.edit_textarea')) continue;
-      const previous = rendered.get(element);
-      if (previous?.text === message.text && sameMessage(previous, message)
-        && previous.slots.every(slot => slot.isConnected && element.contains(slot))) continue;
-      if (previous) rendered.delete(element);
       const entries = entriesFor(message);
       if (!entries.length) {
         if (/<img\s*>/i.test(message.text)) warnRendering(element, message, '未解析到有效图片标记；请检查标记格式或其所在的代码/HTML 区域。');
         continue;
       }
-      const state: RenderedMessage = { ...message, slots: [] };
-      let display: ReturnType<typeof prepareImageDisplay>;
-      try { display = prepareImageDisplay(message, entries); }
-      catch {
-        warnRendering(element, message, `已识别 ${entries.length} 个图片标记，但酒馆格式化或按钮定位失败。`);
-        continue;
-      }
-      if (!display) {
-        warnRendering(element, message, `已识别 ${entries.length} 个图片标记，但在酒馆格式化结果中找不到可挂载按钮的位置。`);
-        continue;
-      }
-      if (display.slots.length < entries.length) {
-        warnRendering(element, message, `已挂载 ${display.slots.length}/${entries.length} 个图片按钮；其余标记被显示规则隐藏、复制或转换。`);
-      } else warnings.delete(element);
-      // Validate every placeholder before moving any existing controls into the new display.
-      display.slots.forEach(({ marker, key, historyKey, placeholder }) => {
-        let control = images.get(key);
-        if (!control) {
-          control = imageSlot(marker, message, key, historyKey);
-          images.set(key, control);
-        }
-        control.closePreview();
-        placeholder.replaceWith(control.slot);
-        state.slots.push(control.slot);
+      const mounted = entries.flatMap(entry => {
+        const slot = images.get(entry.key)?.slot;
+        return slot && element.contains(slot) ? [slot] : [];
       });
-      element.replaceChildren(...Array.from(display.formatted.childNodes));
-      display.slots.forEach(({ key }) => images.get(key)?.refreshTheme());
-      rendered.set(element, state);
+      if (mounted.length === entries.length && !entries.some(entry => insertions.has(entry.key))) {
+        warnings.delete(element);
+        continue;
+      }
+      const pending = entries.filter(entry => {
+        const slot = images.get(entry.key)?.slot;
+        return !slot || !element.contains(slot) || insertions.has(entry.key);
+      });
+      let placements: ReturnType<typeof locateImageMarkers> = [];
+      try { placements = locateImageMarkers(element, messageId, pending); }
+      catch {
+        warnRendering(element, message, `已识别 ${entries.length} 个图片标记，但正文中的按钮定位失败。`);
+      }
+      for (const { entry, range } of placements) {
+        const control = controlFor(entry, message);
+        control.closePreview();
+        if (control.slot.isConnected) {
+          if (insertions.has(entry.key)) control.slot.remove();
+          else restoreSlot(control.slot);
+        }
+        // Keep every unrelated node (iframes, event handlers and widget state) intact.
+        const original = range.extractContents();
+        range.insertNode(control.slot);
+        originals.set(control.slot, original);
+        insertions.delete(entry.key);
+        control.refreshTheme();
+      }
+      mountPendingInsertions(element, message, entries);
+      const count = entries.filter(entry => {
+        const slot = images.get(entry.key)?.slot;
+        return slot && element.contains(slot);
+      }).length;
+      if (count < entries.length) {
+        warnRendering(element, message, `已挂载 ${count}/${entries.length} 个图片按钮；其余标记被显示规则隐藏、复制或转换。`);
+      } else warnings.delete(element);
     }
+    cleanPendingContainers();
   }
 
   function schedule(): void {
@@ -384,9 +467,17 @@ export function bindChatImages(signal: AbortSignal): () => void {
     timer = setTimeout(() => { timer = undefined; render(); }, 0);
   }
   let stopWatching = () => {};
-  try { stopWatching = watchChatRendering(schedule); } catch { /* The DOM observer can still follow native re-renders. */ }
+  try {
+    stopWatching = watchChatRendering((messageId, change) => {
+      try { if (messageId !== undefined && change) receiveInsertions(messageId, change); }
+      finally { schedule(); }
+    });
+  } catch { /* The DOM observer can still follow native re-renders. */ }
+  const chatElement = document.getElementById('chat') ?? document.body;
   const observer = new MutationObserver(schedule);
-  observer.observe(document.getElementById('chat') ?? document.body, { childList: true, subtree: true, characterData: true });
+  observer.observe(chatElement, { childList: true, subtree: true, characterData: true });
+  // Opening native details changes visibility without inserting any DOM nodes.
+  chatElement.addEventListener('toggle', schedule, true);
   const themeObserver = new MutationObserver(() => images.forEach(control => control.refreshTheme()));
   for (const element of [document.documentElement, document.body]) {
     themeObserver.observe(element, { attributes: true, attributeFilter: ['class', 'style'] });
@@ -399,19 +490,10 @@ export function bindChatImages(signal: AbortSignal): () => void {
     stopped = true;
     clearTimeout(timer);
     observer.disconnect();
+    chatElement.removeEventListener('toggle', schedule, true);
     themeObserver.disconnect();
     stopWatching();
-    let current: ReturnType<typeof readAssistantMessages> = [];
-    try { current = readAssistantMessages(); } catch { /* Host is already unloading. */ }
     clearImages();
-    for (const [element, state] of rendered) {
-      if (element.isConnected && !element.closest('.mes')?.querySelector('textarea.edit_textarea')
-        && current.some(message => sameMessage(message, state) && message.text === state.text)) {
-        try { element.innerHTML = formatChatText(state.text, state.messageId); }
-        catch { state.slots.forEach(slot => slot.remove()); }
-      }
-    }
-    rendered.clear();
   };
   signal.addEventListener('abort', stop, { once: true });
   return stop;

@@ -1,3 +1,5 @@
+import type { ImageInsertionResult } from './image-insertion.js';
+
 type ChatMessage = Record<string, unknown> & {
   mes: string;
   name?: string;
@@ -17,7 +19,6 @@ interface ChatHost {
   groups: Array<{ id: string | number; chat_id: string }>;
   getCurrentChatId?(): string | undefined;
   getRequestHeaders(): HeadersInit;
-  updateMessageBlock(id: number, message: ChatMessage, options?: { rerenderMessage: boolean }): void;
   messageFormatting(text: string, name: string, isSystem: boolean, isUser: boolean, id: number): string;
   eventTypes: Record<string, string>;
   eventSource: {
@@ -39,6 +40,12 @@ export interface ChatSnapshot {
   readonly text: string;
 }
 
+export interface ImageDisplayChange extends ImageInsertionResult {
+  previousText: string;
+}
+
+type ChatRenderListener = (messageId?: number, change?: ImageDisplayChange) => void;
+
 interface SnapshotState {
   chat: ChatMessage[];
   message: ChatMessage;
@@ -52,15 +59,14 @@ interface SnapshotState {
 
 class ChatHostError extends Error {}
 const snapshots = new WeakMap<ChatSnapshot, SnapshotState>();
-const renderListeners = new Set<(messageId?: number) => void>();
+const renderListeners = new Set<ChatRenderListener>();
 let saving = false;
 let nativePromise: Promise<{ main: NativeState; group: { is_group_generating?: boolean } }> | undefined;
 
 function host(): ChatHost {
   const root = globalThis as typeof globalThis & { SillyTavern?: { getContext(): unknown } };
   const value = root.SillyTavern?.getContext() as Partial<ChatHost> | undefined;
-  if (!value || !Array.isArray(value.chat) || typeof value.updateMessageBlock !== 'function'
-    || typeof value.getRequestHeaders !== 'function') {
+  if (!value || !Array.isArray(value.chat) || typeof value.getRequestHeaders !== 'function') {
     throw new ChatHostError('当前环境没有提供酒馆聊天接口。');
   }
   return value as ChatHost;
@@ -164,15 +170,19 @@ export async function assertChatSnapshot(snapshot: ChatSnapshot): Promise<void> 
   requireSnapshot(snapshot);
 }
 
-function notifyRendered(messageId?: number): void {
+function notifyRendered(messageId?: number, change?: ImageDisplayChange): void {
   for (const listener of renderListeners) {
-    try { listener(messageId); } catch { /* A view error must not undo a saved message. */ }
+    try { listener(messageId, change); } catch { /* A view error must not undo a saved message. */ }
   }
 }
 
-/** Replaces only the captured message and active swipe; failed writes never overwrite a later edit. */
-export async function replaceAssistantMessage(snapshot: ChatSnapshot, nextText: string, signal?: AbortSignal): Promise<ChatSnapshot> {
+/** Commit only after the host confirms storage; updating image controls never rebuilds the floor. */
+export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: ImageInsertionResult, signal?: AbortSignal): Promise<ChatSnapshot> {
+  const nextText = result.text;
   if (typeof nextText !== 'string' || !nextText.trim()) throw new ChatHostError('处理结果为空，原回复已保留。');
+  const change: ImageDisplayChange = {
+    previousText: snapshot.text, text: nextText, added: result.added.map(marker => ({ ...marker })),
+  };
   const state = await nativeState();
   signal?.throwIfAborted();
   requireIdle(state);
@@ -203,8 +213,6 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, nextText: 
   requireSnapshot(snapshot);
   signal?.throwIfAborted();
   saving = true;
-  saved.message.mes = nextText;
-  if (snapshot.swipeId !== null) saved.message.swipes![snapshot.swipeId] = nextText;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   let persisted = false;
@@ -215,27 +223,23 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, nextText: 
       method: 'POST', headers, body, credentials: 'same-origin', redirect: 'error', signal: controller.signal,
     });
     if (!response.ok) throw new ChatHostError('聊天保存失败，服务端状态待确认；请检查连接或重新打开聊天。');
-    const result = await response.json() as { ok?: boolean };
-    if (result.ok !== true) throw new ChatHostError('酒馆没有确认聊天已保存，服务端状态待确认。');
+    const confirmation = await response.json() as { ok?: boolean };
+    if (confirmation.ok !== true) throw new ChatHostError('酒馆没有确认聊天已保存，服务端状态待确认。');
     persisted = true;
-    const current = sameTarget(snapshot, nextText);
-    if (!current) throw new ChatHostError('结果已保存到原聊天；当前聊天或楼层已变化，请重新打开原聊天确认。');
-    renderMessage(current, snapshot.messageId, saved.message);
-    notifyRendered(snapshot.messageId);
-    return takeSnapshot(current, snapshot.messageId);
+    let current: ChatHost;
+    try { current = requireSnapshot(snapshot); }
+    catch { throw new ChatHostError('结果已保存到原聊天；当前聊天或楼层已变化，请重新打开原聊天确认。'); }
+    saved.message.mes = nextText;
+    if (snapshot.swipeId !== null) saved.message.swipes![snapshot.swipeId] = nextText;
+    // Capture the committed version before a view listener can change the active chat.
+    const committed = takeSnapshot(current, snapshot.messageId);
+    notifyRendered(snapshot.messageId, change);
+    return committed;
   } catch (error) {
-    if (!persisted) {
-      const current = sameTarget(snapshot, nextText);
-      if (current) {
-        saved.message.mes = snapshot.text;
-        if (snapshot.swipeId !== null) saved.message.swipes![snapshot.swipeId] = saved.swipeText!;
-        try { renderMessage(current, snapshot.messageId, saved.message); notifyRendered(snapshot.messageId); } catch { /* Preserve the restored raw text. */ }
-      }
-    }
     if (error instanceof ChatHostError) throw error;
     throw new ChatHostError(persisted
-      ? '结果已保存，但界面未能刷新，请重新打开聊天确认。'
-      : '聊天保存未获确认，服务端状态待确认；原回复在未被再次修改时已恢复。');
+      ? '结果已保存，但当前页面未能同步，请重新打开原聊天确认。'
+      : '聊天保存未获确认，服务端状态待确认；插件未改动当前正文和界面。');
   } finally {
     clearTimeout(timer);
     saving = false;
@@ -299,15 +303,7 @@ export function formatChatText(text: string, messageId: number): string {
   return context.messageFormatting(text, message.name ?? '', Boolean(message.is_system), Boolean(message.is_user), formattingId);
 }
 
-function renderMessage(context: ChatHost, messageId: number, message: ChatMessage): void {
-  // updateMessageBlock's default renderer can rewrite macros in message zero.
-  // Render through the side-effect-free path before refreshing its media/reasoning UI.
-  const element = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
-  if (element) element.innerHTML = formatChatText(message.mes, messageId);
-  context.updateMessageBlock(messageId, message, { rerenderMessage: false });
-}
-
-export function watchChatRendering(callback: (messageId?: number) => void): () => void {
+export function watchChatRendering(callback: ChatRenderListener): () => void {
   const context = host();
   renderListeners.add(callback);
   const subscriptions: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];

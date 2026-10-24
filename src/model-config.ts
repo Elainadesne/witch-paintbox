@@ -1,7 +1,7 @@
 import { fetchModelList } from './model-api.js';
 import { featureLayerMessages, listFeatureLayers, onFeatureLayersChanged } from './feature-layers.js';
 import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, loadModelSettings, saveModelSettings, type ModelSettings, type PromptEntry } from './model-settings.js';
-import { modelSettingsView, presetWorkspaceView, worldbookSettingsView, type ModelViewState } from './model-view.js';
+import { modelSettingsView, presetIndexView, presetWorkspaceView, worldbookSettingsView, PRESET_PAGE_SIZE, type ModelViewState } from './model-view.js';
 import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './preset-import.js';
 import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook } from './worldbook-source.js';
 import { onAnchorsChanged } from './anchor-store.js';
@@ -29,6 +29,7 @@ export class ModelConfig {
   private importNotice = '';
   private importError = false;
   private selectedKey = '';
+  private presetPage = 0;
   private preview: ModelViewState['layerPreview'];
   private worldbook: NonNullable<ModelViewState['worldbook']> = { names: [], book: '', entries: [], loading: false, error: '' };
   private booksLoaded = false;
@@ -59,7 +60,7 @@ export class ModelConfig {
     this.loadError = '';
     if (scope === 'all') { this.settings = null; this.saved = ''; }
     this.importNotice = ''; this.importError = false;
-    this.selectedKey = ''; this.preview = undefined;
+    this.selectedKey = ''; this.presetPage = 0; this.preview = undefined;
     if (scope !== 'presets') {
       this.worldbook = { names: [], book: '', entries: [], loading: false, error: '', busy: this.worldbook.busy };
       this.booksLoaded = false; this.worldbookNotice = ''; this.worldbookError = false;
@@ -127,8 +128,12 @@ export class ModelConfig {
   }
 
   private state(): ModelViewState {
-    if (!this.settings?.promptOrder.includes(this.selectedKey)) this.selectedKey = this.settings?.promptOrder[0] ?? '';
-    return { saved: this.isSaved(), refreshing: this.refresh !== null, selectedKey: this.selectedKey,
+    if (!this.settings?.promptOrder.includes(this.selectedKey)) {
+      this.selectedKey = this.settings?.promptOrder[0] ?? ''; this.presetPage = 0;
+    }
+    const lastPage = Math.max(0, Math.ceil((this.settings?.promptOrder.length ?? 0) / PRESET_PAGE_SIZE) - 1);
+    this.presetPage = Math.max(0, Math.min(this.presetPage, lastPage));
+    return { saved: this.isSaved(), refreshing: this.refresh !== null, selectedKey: this.selectedKey, presetPage: this.presetPage,
       layerPreview: this.preview, worldbook: this.worldbook, filterStatus: getContextFilterStatus(),
       importNotice: this.importNotice || undefined, importError: this.importError };
   }
@@ -166,14 +171,34 @@ export class ModelConfig {
     </div>`;
   }
 
-  private renderPreset(): void {
+  private showPresetKey(key = this.selectedKey): void {
+    const index = this.settings?.promptOrder.indexOf(key) ?? -1;
+    if (index >= 0) this.presetPage = Math.floor(index / PRESET_PAGE_SIZE);
+  }
+
+  private renderPresetIndex(): void {
+    const index = this.container?.querySelector<HTMLElement>('.preset-index');
+    if (this.settings && index) index.outerHTML = presetIndexView(this.settings, this.state());
+  }
+
+  private renderPreset(revealKey?: string): void {
     if (!this.settings || !this.container) return;
     const workspace = this.container.querySelector<HTMLElement>('[data-preset-workspace]');
     if (!workspace) return;
     const scroll = workspace.querySelector<HTMLElement>('[data-preset-list]')?.scrollTop ?? 0;
     this.preserveWorldbookFocus(() => { workspace.innerHTML = presetWorkspaceView(this.settings!, this.state()); });
     const list = workspace.querySelector<HTMLElement>('[data-preset-list]');
-    if (list) list.scrollTop = scroll;
+    if (list) {
+      list.scrollTop = scroll;
+      if (revealKey) {
+        const row = Array.from(list.querySelectorAll<HTMLElement>('.preset-row')).find(item => item.dataset.presetKey === revealKey);
+        if (row) {
+          const bounds = list.getBoundingClientRect(), rowBounds = row.getBoundingClientRect();
+          if (rowBounds.top < bounds.top) list.scrollTop -= bounds.top - rowBounds.top;
+          else if (rowBounds.bottom > bounds.bottom) list.scrollTop += rowBounds.bottom - bounds.bottom;
+        }
+      }
+    }
   }
 
   private renderSources(): void {
@@ -309,17 +334,20 @@ export class ModelConfig {
       } else if (action === 'save-model') {
         for (const field of Array.from(this.container!.querySelectorAll<HTMLInputElement>('input[type="number"]'))) if (!field.reportValidity()) return;
         saveModelSettings(this.settings); this.saved = JSON.stringify(this.settings); this.maskKey(); this.syncSave();
+      } else if (action === 'preset-page-previous' || action === 'preset-page-next') {
+        this.presetPage += action === 'preset-page-next' ? 1 : -1;
+        this.renderPresetIndex();
       } else if (action === 'select-preset') {
         this.selectedKey = button.dataset.presetKey!; this.previewRequest?.abort(); this.preview = undefined;
-        this.renderPreset(); this.loadSelectedSource();
+        this.showPresetKey(); this.renderPreset(this.selectedKey); this.loadSelectedSource();
       } else if (action === 'add-entry') {
-        if (this.settings.head.length + this.settings.tail.length >= MAX_PRESET_ENTRIES) throw new Error('最多保留 200 条预设。');
+        if (this.settings.head.length + this.settings.tail.length >= MAX_PRESET_ENTRIES) throw new Error(`最多保留 ${MAX_PRESET_ENTRIES} 条预设。`);
         const id = `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
         this.settings.head.push({ id, name: '新条目', role: 'system', content: '', enabled: true });
         const index = this.settings.promptOrder.indexOf(this.selectedKey);
         this.selectedKey = `prompt:${id}`;
         this.settings.promptOrder.splice(index < 0 ? this.settings.promptOrder.length : index + 1, 0, this.selectedKey);
-        this.draftRevision++; this.renderPreset(); this.syncSave();
+        this.showPresetKey(); this.draftRevision++; this.renderPreset(this.selectedKey); this.syncSave();
         this.container?.querySelector<HTMLElement>('[data-prompt-field="name"]')?.focus();
       } else if (action === 'move-up' || action === 'move-down' || action === 'remove-entry') {
         const key = button.dataset.presetKey!, order = this.settings.promptOrder;
@@ -330,13 +358,16 @@ export class ModelConfig {
           this.settings.head = this.settings.head.filter(item => `prompt:${item.id}` !== key);
           this.settings.tail = this.settings.tail.filter(item => `prompt:${item.id}` !== key);
           order.splice(index, 1);
-          if (this.selectedKey === key) this.selectedKey = order[Math.min(index, order.length - 1)];
+          if (this.selectedKey === key) {
+            this.selectedKey = order[Math.min(index, order.length - 1)]; this.showPresetKey();
+          }
         } else {
           const next = index + (action === 'move-up' ? -1 : 1);
           if (next < 0 || next >= order.length) return;
           [order[index], order[next]] = [order[next], order[index]];
+          this.showPresetKey(key);
         }
-        this.draftRevision++; this.renderPreset(); this.syncSave(); this.loadSelectedSource();
+        this.draftRevision++; this.renderPreset(action === 'remove-entry' ? this.selectedKey : key); this.syncSave(); this.loadSelectedSource();
       }
     } catch (error) { this.message((error as Error).message, true); }
   }
@@ -537,9 +568,11 @@ export class ModelConfig {
       const layers = settings.promptOrder.filter(key => key.startsWith('layer:')).map(key => key.slice(6));
       this.settings = { ...settings, presetName: imported.presetName, head: imported.head, tail: imported.tail,
         promptOrder: createPromptOrder(imported.head, imported.tail, layers) };
-      this.selectedKey = this.settings.promptOrder[0]; this.previewRequest?.abort(); this.preview = undefined;
+      this.selectedKey = this.settings.promptOrder[0]; this.presetPage = 0; this.previewRequest?.abort(); this.preview = undefined;
       this.draftRevision++;
-      this.importNotice = `已导入“${imported.presetName || '未命名预设'}”，共 ${imported.head.length + imported.tail.length} 条；点击保存配置才会保留。${imported.warnings.join(' ')}`;
+      const warnings = imported.warnings.slice(0, 5).join(' ');
+      const warningCount = imported.warnings.length > 5 ? `（共 ${imported.warnings.length} 条提示，以上仅展示前 5 条。）` : '';
+      this.importNotice = `已导入“${imported.presetName || '未命名预设'}”，共 ${imported.head.length + imported.tail.length} 条；点击保存配置才会保留。${warnings}${warningCount}`;
       this.importError = false; this.render(); this.syncSave(); this.loadSelectedSource();
     } catch (error) {
       if (request === this.importRequest && !signal?.aborted) this.presetMessage(`导入失败，原配置已保留：${error instanceof Error ? error.message : '无法读取文件。'}`, true);

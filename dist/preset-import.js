@@ -1,5 +1,6 @@
+import { MAX_PRESET_ENTRIES } from './model-settings.js';
 export const MAX_PRESET_BYTES = 2 * 1024 * 1024;
-export const MAX_PRESET_ENTRIES = 200;
+export { MAX_PRESET_ENTRIES };
 function record(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value))
         throw new Error('预设包含无效的对象。');
@@ -12,7 +13,7 @@ function text(value, label, max) {
 }
 function list(value) {
     if (!Array.isArray(value) || value.length > MAX_PRESET_ENTRIES)
-        throw new Error('预设列表无效，最多支持 200 条。');
+        throw new Error(`预设列表无效，最多支持 ${MAX_PRESET_ENTRIES} 条。`);
     return value;
 }
 function parseEntry(value, index, warnings) {
@@ -43,7 +44,7 @@ function parseEntry(value, index, warnings) {
 }
 function unique(entries) {
     if (entries.length > MAX_PRESET_ENTRIES)
-        throw new Error('预设最多支持 200 条。');
+        throw new Error(`预设最多支持 ${MAX_PRESET_ENTRIES} 条。`);
     if (new Set(entries.map(item => item.entry.id)).size !== entries.length)
         throw new Error('预设包含重复的条目标识，未导入。');
 }

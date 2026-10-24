@@ -1,4 +1,5 @@
 import { listFeatureLayers } from './feature-layers.js';
+export const PRESET_PAGE_SIZE = 100;
 function escape(value) {
     return String(value).replace(/[&<>"']/g, character => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -85,6 +86,33 @@ export function worldbookSettingsView(settings, state, manage = false) {
     <p class="config-status">挂载与条目选择的更改，点击“保存配置”后生效。</p>
   </div>`;
 }
+export function presetIndexView(settings, state) {
+    const entries = new Map([...settings.head, ...settings.tail].map(entry => [`prompt:${entry.id}`, entry]));
+    const layers = new Map(listFeatureLayers().map(layer => [`layer:${layer.id}`, layer.title]));
+    const selected = settings.promptOrder.includes(state.selectedKey ?? '') ? state.selectedKey : settings.promptOrder[0];
+    const pages = Math.max(1, Math.ceil(settings.promptOrder.length / PRESET_PAGE_SIZE));
+    const page = Math.min(Math.max(0, state.presetPage ?? 0), pages - 1);
+    const start = page * PRESET_PAGE_SIZE;
+    return `<div class="preset-index">
+    <div class="preset-index-heading"><h3>条目顺序</h3><button type="button" class="text-button" data-model-action="add-entry">＋ 新增条目</button></div>
+    <ol class="preset-entry-list" data-preset-list aria-label="预设发送顺序" start="${start + 1}">${settings.promptOrder.slice(start, start + PRESET_PAGE_SIZE).map((key, offset) => {
+        const index = start + offset;
+        const entry = entries.get(key);
+        const enabled = entry ? entry.enabled : key === 'input' || settings.enabledLayers.includes(key.slice(6));
+        const title = entry ? entry.name || '未命名条目' : key === 'input' ? '最新正文' : layers.get(key) ?? '功能层暂不可用';
+        return `<li class="preset-row${selected === key ? ' is-selected' : ''}" data-preset-key="${escape(key)}">
+        <button type="button" class="preset-select" data-model-action="select-preset" data-preset-key="${escape(key)}" aria-pressed="${selected === key}" title="${escape(title)}"><span class="preset-number">${String(index + 1).padStart(2, '0')}</span><span class="preset-entry-name"><span data-preset-title="${escape(key)}">${escape(title)}</span>${entry ? '' : `<small>${key === 'input' ? '自动读取' : '功能层'}</small>`}</span></button>
+        <div class="preset-row-actions">
+          <label title="${enabled ? '关闭' : '启用'}${escape(title)}"><input type="checkbox" data-preset-enabled="${escape(key)}" aria-label="启用${escape(title)}"${enabled ? ' checked' : ''}${entry?.marker || key === 'input' ? ' disabled' : ''}></label>
+          <button type="button" data-model-action="move-up" data-preset-key="${escape(key)}" aria-label="上移${escape(title)}"${index === 0 ? ' disabled' : ''}>↑</button>
+          <button type="button" data-model-action="move-down" data-preset-key="${escape(key)}" aria-label="下移${escape(title)}"${index === settings.promptOrder.length - 1 ? ' disabled' : ''}>↓</button>
+          ${entry ? `<button type="button" data-model-action="remove-entry" data-preset-key="${escape(key)}" aria-label="删除${escape(title)}">×</button>` : '<span class="preset-action-spacer" aria-hidden="true"></span>'}
+        </div>
+      </li>`;
+    }).join('')}</ol>
+    ${pages > 1 ? `<div class="preset-index-heading" aria-label="预设列表分页"><button type="button" class="text-button" data-model-action="preset-page-previous"${page === 0 ? ' disabled' : ''}>上一页</button><span class="config-status">${page + 1} / ${pages} 页 · 共 ${settings.promptOrder.length} 条</span><button type="button" class="text-button" data-model-action="preset-page-next"${page === pages - 1 ? ' disabled' : ''}>下一页</button></div>` : ''}
+  </div>`;
+}
 export function presetWorkspaceView(settings, state) {
     const entries = new Map([...settings.head, ...settings.tail].map(entry => [`prompt:${entry.id}`, entry]));
     const layers = new Map(listFeatureLayers().map(layer => [`layer:${layer.id}`, layer.title]));
@@ -101,24 +129,8 @@ export function presetWorkspaceView(settings, state) {
       ${preview?.error ? `<p class="config-status is-error" role="status">${escape(preview.error)}</p>` : '<p class="config-status">请求前会重新读取所选内容。</p>'}`;
     if (!selected)
         detail = '<p class="config-status">选择左侧条目查看内容。</p>';
-    return `<div class="preset-index">
-    <div class="preset-index-heading"><h3>条目顺序</h3><button type="button" class="text-button" data-model-action="add-entry">＋ 新增条目</button></div>
-    <ol class="preset-entry-list" data-preset-list aria-label="预设发送顺序">${settings.promptOrder.map((key, index) => {
-        const entry = entries.get(key);
-        const enabled = entry ? entry.enabled : key === 'input' || settings.enabledLayers.includes(key.slice(6));
-        const title = titleFor(key);
-        return `<li class="preset-row${selected === key ? ' is-selected' : ''}" data-preset-key="${escape(key)}">
-        <button type="button" class="preset-select" data-model-action="select-preset" data-preset-key="${escape(key)}" aria-pressed="${selected === key}" title="${escape(title)}"><span class="preset-number">${String(index + 1).padStart(2, '0')}</span><span class="preset-entry-name"><span data-preset-title="${escape(key)}">${escape(title)}</span>${entry ? '' : `<small>${key === 'input' ? '自动读取' : '功能层'}</small>`}</span></button>
-        <div class="preset-row-actions">
-          <label title="${enabled ? '关闭' : '启用'}${escape(title)}"><input type="checkbox" data-preset-enabled="${escape(key)}" aria-label="启用${escape(title)}"${enabled ? ' checked' : ''}${entry?.marker || key === 'input' ? ' disabled' : ''}></label>
-          <button type="button" data-model-action="move-up" data-preset-key="${escape(key)}" aria-label="上移${escape(title)}"${index === 0 ? ' disabled' : ''}>↑</button>
-          <button type="button" data-model-action="move-down" data-preset-key="${escape(key)}" aria-label="下移${escape(title)}"${index === settings.promptOrder.length - 1 ? ' disabled' : ''}>↓</button>
-          ${entry ? `<button type="button" data-model-action="remove-entry" data-preset-key="${escape(key)}" aria-label="删除${escape(title)}">×</button>` : '<span class="preset-action-spacer" aria-hidden="true"></span>'}
-        </div>
-      </li>`;
-    }).join('')}</ol>
-  </div>
-  <div class="preset-detail"><header class="preset-detail-heading"><h3>${current ? '编辑条目' : escape(titleFor(selected))}</h3>${current ? '' : '<span>自动读取</span>'}</header>${detail}</div>`;
+    return `${presetIndexView(settings, state)}
+    <div class="preset-detail"><header class="preset-detail-heading"><h3>${current ? '编辑条目' : escape(titleFor(selected))}</h3>${current ? '' : '<span>自动读取</span>'}</header>${detail}</div>`;
 }
 export function modelSettingsView(settings, state) {
     return `<div class="image-settings model-settings">

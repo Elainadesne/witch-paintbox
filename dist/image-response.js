@@ -105,23 +105,41 @@ export function requireImageSupport() {
         fail('当前浏览器不支持图片解压，请升级浏览器后再生成；尚未发送生图请求。');
     }
 }
-/** Read only ordinary single-disk ZIP archives; never extract names to the filesystem. */
+/** Read bounded, single-disk ZIP/ZIP64 archives; never extract names to the filesystem. */
 async function readSinglePngZip(bytes, signal, ensureActive) {
     const invalid = () => fail('NovelAI 返回的图片压缩包格式或校验无效。');
     if (bytes.length < 22 || bytes.length > MAX_IMAGE_BYTES)
         return invalid();
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const checkExtra = (start, length) => {
+    // Every supported size, offset and count fits the existing 32 MiB bound.
+    // Check the high word before converting ZIP64 integers to JavaScript numbers.
+    const uint64 = (at, limit = bytes.length) => {
+        if (at + 8 > limit || view.getUint32(at + 4, true))
+            return invalid();
+        const value = view.getUint32(at, true);
+        if (value > MAX_IMAGE_BYTES)
+            return invalid();
+        return value;
+    };
+    const readExtra = (start, length) => {
         const end = start + length;
         if (end > bytes.length)
             return invalid();
+        let zip64;
         for (let at = start; at < end;) {
-            if (at + 4 > end || view.getUint16(at, true) === 0x0001)
+            if (at + 4 > end)
                 return invalid();
-            at += 4 + view.getUint16(at + 2, true);
-            if (at > end)
+            const next = at + 4 + view.getUint16(at + 2, true);
+            if (next > end)
                 return invalid();
+            if (view.getUint16(at, true) === 0x0001) {
+                if (zip64)
+                    return invalid();
+                zip64 = { start: at + 4, end: next };
+            }
+            at = next;
         }
+        return zip64;
     };
     let end = -1;
     for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 22 - 65535); at--) {
@@ -130,12 +148,47 @@ async function readSinglePngZip(bytes, signal, ensureActive) {
             break;
         }
     }
-    if (end < 0 || view.getUint16(end + 4, true) || view.getUint16(end + 6, true))
+    if (end < 0)
         return invalid();
-    const count = view.getUint16(end + 10, true);
-    const directoryLength = view.getUint32(end + 12, true);
-    const directoryOffset = view.getUint32(end + 16, true);
-    if (!count || count > 16 || count !== view.getUint16(end + 8, true) || directoryOffset + directoryLength !== end)
+    let count = view.getUint16(end + 10, true);
+    let directoryLength = view.getUint32(end + 12, true);
+    let directoryOffset = view.getUint32(end + 16, true);
+    let directoryEnd = end;
+    const locator = end - 20;
+    if (locator >= 0 && view.getUint32(locator, true) === 0x07064b50) {
+        if (view.getUint32(locator + 4, true) || view.getUint32(locator + 16, true) !== 1)
+            return invalid();
+        const zip64 = uint64(locator + 8);
+        if (zip64 + 56 > locator ||
+            view.getUint32(zip64, true) !== 0x06064b50 ||
+            uint64(zip64 + 4) < 44 ||
+            zip64 + 12 + uint64(zip64 + 4) !== locator ||
+            view.getUint16(zip64 + 14, true) > 45 ||
+            view.getUint32(zip64 + 16, true) ||
+            view.getUint32(zip64 + 20, true))
+            return invalid();
+        const zip64Count = uint64(zip64 + 32);
+        const zip64Length = uint64(zip64 + 40);
+        const zip64Offset = uint64(zip64 + 48);
+        const agrees = (ordinary, value, sentinel) => ordinary === sentinel || ordinary === value;
+        if (uint64(zip64 + 24) !== zip64Count ||
+            !agrees(view.getUint16(end + 4, true), 0, 0xffff) ||
+            !agrees(view.getUint16(end + 6, true), 0, 0xffff) ||
+            !agrees(view.getUint16(end + 8, true), zip64Count, 0xffff) ||
+            !agrees(count, zip64Count, 0xffff) ||
+            !agrees(directoryLength, zip64Length, 0xffffffff) ||
+            !agrees(directoryOffset, zip64Offset, 0xffffffff))
+            return invalid();
+        count = zip64Count;
+        directoryLength = zip64Length;
+        directoryOffset = zip64Offset;
+        directoryEnd = zip64;
+    }
+    else if (view.getUint16(end + 4, true) ||
+        view.getUint16(end + 6, true) ||
+        count !== view.getUint16(end + 8, true))
+        return invalid();
+    if (!count || count > 16 || directoryOffset + directoryLength !== directoryEnd)
         return invalid();
     let at = directoryOffset;
     let expandedTotal = 0;
@@ -144,35 +197,60 @@ async function readSinglePngZip(bytes, signal, ensureActive) {
     const names = new Set();
     for (let index = 0; index < count; index++) {
         ensureActive();
-        if (at + 46 > end || view.getUint32(at, true) !== 0x02014b50)
+        if (at + 46 > directoryEnd || view.getUint32(at, true) !== 0x02014b50)
             return invalid();
         const flags = view.getUint16(at + 8, true);
         const method = view.getUint16(at + 10, true);
         const crc = view.getUint32(at + 16, true);
-        const size = view.getUint32(at + 20, true);
-        const expanded = view.getUint32(at + 24, true);
+        let size = view.getUint32(at + 20, true);
+        let expanded = view.getUint32(at + 24, true);
         const nameLength = view.getUint16(at + 28, true);
         const extraLength = view.getUint16(at + 30, true);
         const commentLength = view.getUint16(at + 32, true);
-        const local = view.getUint32(at + 42, true);
+        let disk = view.getUint16(at + 34, true);
+        let local = view.getUint32(at + 42, true);
         const next = at + 46 + nameLength + extraLength + commentLength;
+        if (next > directoryEnd)
+            return invalid();
+        const zip64 = readExtra(at + 46 + nameLength, extraLength);
+        let extraAt = zip64?.start ?? 0;
+        const extra64 = () => {
+            if (!zip64)
+                return invalid();
+            const value = uint64(extraAt, zip64.end);
+            extraAt += 8;
+            return value;
+        };
+        if (expanded === 0xffffffff)
+            expanded = extra64();
+        if (size === 0xffffffff)
+            size = extra64();
+        if (local === 0xffffffff)
+            local = extra64();
+        if (disk === 0xffff) {
+            if (!zip64 || extraAt + 4 > zip64.end)
+                return invalid();
+            disk = view.getUint32(extraAt, true);
+        }
         expandedTotal += expanded;
         // Only UTF-8, deflate tuning flags and an optional data descriptor are supported.
         if (flags & ~0x080e ||
             ![0, 8].includes(method) ||
-            view.getUint16(at + 6, true) > 20 ||
-            view.getUint16(at + 34, true) ||
+            view.getUint16(at + 6, true) > 45 ||
+            disk ||
             !nameLength ||
-            next > end ||
             size > MAX_IMAGE_BYTES ||
             expandedTotal > MAX_IMAGE_BYTES ||
             local + 30 > directoryOffset)
             return invalid();
         const nameBytes = bytes.subarray(at + 46, at + 46 + nameLength);
-        checkExtra(at + 46 + nameLength, extraLength);
         let name;
         try {
-            name = new TextDecoder('utf-8', { fatal: true }).decode(nameBytes);
+            // Legacy names are only used for byte identity and the ASCII .png suffix.
+            // Preserve their bytes instead of treating CP437 names as broken UTF-8.
+            name = flags & 0x0800
+                ? new TextDecoder('utf-8', { fatal: true }).decode(nameBytes)
+                : Array.from(nameBytes, byte => String.fromCharCode(byte)).join('');
         }
         catch {
             return invalid();
@@ -185,7 +263,7 @@ async function readSinglePngZip(bytes, signal, ensureActive) {
             return invalid();
         names.add(name);
         if (view.getUint32(local, true) !== 0x04034b50 ||
-            view.getUint16(local + 4, true) > 20 ||
+            view.getUint16(local + 4, true) > 45 ||
             view.getUint16(local + 6, true) !== flags ||
             view.getUint16(local + 8, true) !== method)
             return invalid();
@@ -196,22 +274,44 @@ async function readSinglePngZip(bytes, signal, ensureActive) {
             localNameLength !== nameLength ||
             !nameBytes.every((byte, i) => bytes[local + 30 + i] === byte))
             return invalid();
-        checkExtra(local + 30 + localNameLength, localExtraLength);
+        const localZip64 = readExtra(local + 30 + localNameLength, localExtraLength);
+        let localSize = view.getUint32(local + 18, true);
+        let localExpanded = view.getUint32(local + 22, true);
+        if (localZip64) {
+            // Unlike the central directory, local ZIP64 headers always carry both sizes.
+            const expanded64 = uint64(localZip64.start, localZip64.end);
+            const size64 = uint64(localZip64.start + 8, localZip64.end);
+            if (localExpanded === 0xffffffff)
+                localExpanded = expanded64;
+            if (localSize === 0xffffffff)
+                localSize = size64;
+        }
+        else if (localSize === 0xffffffff || localExpanded === 0xffffffff)
+            return invalid();
         let localEnd = start + size;
         if (flags & 8) {
-            if (localEnd + 12 > directoryOffset)
+            const wide = Boolean(localZip64 || zip64);
+            const descriptorLength = wide ? 20 : 12;
+            const matches = (offset) => offset + descriptorLength <= directoryOffset &&
+                view.getUint32(offset, true) === crc &&
+                view.getUint32(offset + 4, true) === size &&
+                (wide
+                    ? view.getUint32(offset + 8, true) === 0 &&
+                        view.getUint32(offset + 12, true) === expanded &&
+                        view.getUint32(offset + 16, true) === 0
+                    : view.getUint32(offset + 8, true) === expanded);
+            // Try both forms: an unsigned descriptor's CRC may equal the signature.
+            if (localEnd + 4 <= directoryOffset && view.getUint32(localEnd, true) === 0x08074b50 && matches(localEnd + 4)) {
+                localEnd += 4 + descriptorLength;
+            }
+            else if (matches(localEnd))
+                localEnd += descriptorLength;
+            else
                 return invalid();
-            const descriptor = view.getUint32(localEnd, true) === 0x08074b50 ? localEnd + 4 : localEnd;
-            if (descriptor + 12 > directoryOffset ||
-                view.getUint32(descriptor, true) !== crc ||
-                view.getUint32(descriptor + 4, true) !== size ||
-                view.getUint32(descriptor + 8, true) !== expanded)
-                return invalid();
-            localEnd = descriptor + 12;
         }
         else if (view.getUint32(local + 14, true) !== crc ||
-            view.getUint32(local + 18, true) !== size ||
-            view.getUint32(local + 22, true) !== expanded)
+            localSize !== size ||
+            localExpanded !== expanded)
             return invalid();
         if (ranges.some(([from, to]) => local < to && localEnd > from))
             return invalid();
@@ -225,7 +325,7 @@ async function readSinglePngZip(bytes, signal, ensureActive) {
         }
         at = next;
     }
-    if (at !== end || !selected)
+    if (at !== directoryEnd || !selected)
         return invalid();
     const compressed = bytes.slice(selected.start, selected.start + selected.size);
     let image;
@@ -249,6 +349,23 @@ async function readSinglePngZip(bytes, signal, ensureActive) {
 export async function readImageResponse(response, signal, ensureActive) {
     const bytes = await readResponse(response, MAX_IMAGE_BYTES, signal, ensureActive);
     const isPng = PNG_MAGIC.every((byte, index) => bytes[index] === byte);
+    const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
+    if (!isPng && !isZip) {
+        const type = response.headers.get('content-type')?.toLowerCase() ?? '';
+        const prefix = new TextDecoder().decode(bytes.subarray(0, 512)).trimStart();
+        // Never echo arbitrary upstream content: it may contain credentials or HTML.
+        if (!bytes.length)
+            fail('生图服务没有返回图片数据。');
+        if (/^<(?:!doctype\s+html|html\b)/i.test(prefix) || type.includes('text/html')) {
+            fail('生图服务返回了 HTML 网页，没有返回图片。请检查服务 URL 是否为生图接口，或是否被登录页、网关拦截。');
+        }
+        if (/^[\[{]/.test(prefix) || type.includes('json')) {
+            fail('生图服务返回了 JSON 数据，没有返回 PNG 图片或图片压缩包。请检查密钥、服务额度和接口兼容性。');
+        }
+        if (type.startsWith('image/'))
+            fail('生图服务返回了非 PNG 图片；当前仅支持 PNG 图片或包含 PNG 的压缩包。');
+        fail('生图服务返回了无法识别的数据；当前仅支持 PNG 图片或包含 PNG 的压缩包。请检查服务 URL 和接口兼容性。');
+    }
     const image = isPng ? bytes : await readSinglePngZip(bytes, signal, ensureActive);
     if (isPng)
         requirePng(image);

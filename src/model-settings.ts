@@ -1,5 +1,7 @@
 import type { ModelApiSettings, ModelMessage } from './model-types.js';
 
+export const MAX_PRESET_ENTRIES = 10_000;
+
 export interface PromptEntry extends ModelMessage {
   id: string;
   name: string;
@@ -62,7 +64,7 @@ function stringList(value: unknown, max: number): string[] {
 }
 
 function entries(value: unknown): PromptEntry[] {
-  if (!Array.isArray(value) || value.length > 200) invalid();
+  if (!Array.isArray(value) || value.length > MAX_PRESET_ENTRIES) invalid();
   const items = value.map(raw => {
     const entry = record(raw);
     if (!['system', 'user', 'assistant'].includes(String(entry.role)) || typeof entry.enabled !== 'boolean') invalid();
@@ -89,16 +91,17 @@ export function validateModelSettings(value: unknown): ModelSettings {
   const head = entries(source.head);
   const tail = entries(source.tail);
   const all = [...head, ...tail];
-  if (all.length > 200 || new Set(all.map(entry => entry.id)).size !== all.length) invalid();
+  if (all.length > MAX_PRESET_ENTRIES || new Set(all.map(entry => entry.id)).size !== all.length) invalid();
   const legacyLayers = stringList(source.enabledLayers, 100);
   const enabledLayers = source.promptOrder === undefined ? [...new Set([...legacyLayers, ...builtinLayerIds])] : legacyLayers;
   const promptOrder = source.promptOrder === undefined
     ? createPromptOrder(head, tail, enabledLayers)
-    : stringList(source.promptOrder, 301);
+    : stringList(source.promptOrder, MAX_PRESET_ENTRIES + 101);
   const promptKeys = new Set(all.map(entry => `prompt:${entry.id}`));
+  const orderKeys = new Set(promptOrder);
   if (promptOrder.filter(key => key === 'input').length !== 1
-    || [...promptKeys].some(key => !promptOrder.includes(key))
-    || enabledLayers.some(id => !promptOrder.includes(`layer:${id}`))
+    || [...promptKeys].some(key => !orderKeys.has(key))
+    || enabledLayers.some(id => !orderKeys.has(`layer:${id}`))
     || promptOrder.some(key => key !== 'input' && !promptKeys.has(key) && !/^layer:[a-z0-9][a-z0-9._-]{0,127}$/i.test(key))) invalid();
   if (source.worldbookSource !== undefined && source.worldbookSource !== 'uploads') invalid();
   // Native Tavern selections from the previous version must never match an uploaded book by accident.

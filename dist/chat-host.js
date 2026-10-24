@@ -7,8 +7,7 @@ let nativePromise;
 function host() {
     const root = globalThis;
     const value = root.SillyTavern?.getContext();
-    if (!value || !Array.isArray(value.chat) || typeof value.updateMessageBlock !== 'function'
-        || typeof value.getRequestHeaders !== 'function') {
+    if (!value || !Array.isArray(value.chat) || typeof value.getRequestHeaders !== 'function') {
         throw new ChatHostError('当前环境没有提供酒馆聊天接口。');
     }
     return value;
@@ -113,18 +112,22 @@ export async function assertChatSnapshot(snapshot) {
     requireIdle(state);
     requireSnapshot(snapshot);
 }
-function notifyRendered(messageId) {
+function notifyRendered(messageId, change) {
     for (const listener of renderListeners) {
         try {
-            listener(messageId);
+            listener(messageId, change);
         }
         catch { /* A view error must not undo a saved message. */ }
     }
 }
-/** Replaces only the captured message and active swipe; failed writes never overwrite a later edit. */
-export async function replaceAssistantMessage(snapshot, nextText, signal) {
+/** Commit only after the host confirms storage; updating image controls never rebuilds the floor. */
+export async function replaceAssistantMessage(snapshot, result, signal) {
+    const nextText = result.text;
     if (typeof nextText !== 'string' || !nextText.trim())
         throw new ChatHostError('处理结果为空，原回复已保留。');
+    const change = {
+        previousText: snapshot.text, text: nextText, added: result.added.map(marker => ({ ...marker })),
+    };
     const state = await nativeState();
     signal?.throwIfAborted();
     requireIdle(state);
@@ -157,9 +160,6 @@ export async function replaceAssistantMessage(snapshot, nextText, signal) {
     requireSnapshot(snapshot);
     signal?.throwIfAborted();
     saving = true;
-    saved.message.mes = nextText;
-    if (snapshot.swipeId !== null)
-        saved.message.swipes[snapshot.swipeId] = nextText;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
     let persisted = false;
@@ -171,36 +171,31 @@ export async function replaceAssistantMessage(snapshot, nextText, signal) {
         });
         if (!response.ok)
             throw new ChatHostError('聊天保存失败，服务端状态待确认；请检查连接或重新打开聊天。');
-        const result = await response.json();
-        if (result.ok !== true)
+        const confirmation = await response.json();
+        if (confirmation.ok !== true)
             throw new ChatHostError('酒馆没有确认聊天已保存，服务端状态待确认。');
         persisted = true;
-        const current = sameTarget(snapshot, nextText);
-        if (!current)
+        let current;
+        try {
+            current = requireSnapshot(snapshot);
+        }
+        catch {
             throw new ChatHostError('结果已保存到原聊天；当前聊天或楼层已变化，请重新打开原聊天确认。');
-        renderMessage(current, snapshot.messageId, saved.message);
-        notifyRendered(snapshot.messageId);
-        return takeSnapshot(current, snapshot.messageId);
+        }
+        saved.message.mes = nextText;
+        if (snapshot.swipeId !== null)
+            saved.message.swipes[snapshot.swipeId] = nextText;
+        // Capture the committed version before a view listener can change the active chat.
+        const committed = takeSnapshot(current, snapshot.messageId);
+        notifyRendered(snapshot.messageId, change);
+        return committed;
     }
     catch (error) {
-        if (!persisted) {
-            const current = sameTarget(snapshot, nextText);
-            if (current) {
-                saved.message.mes = snapshot.text;
-                if (snapshot.swipeId !== null)
-                    saved.message.swipes[snapshot.swipeId] = saved.swipeText;
-                try {
-                    renderMessage(current, snapshot.messageId, saved.message);
-                    notifyRendered(snapshot.messageId);
-                }
-                catch { /* Preserve the restored raw text. */ }
-            }
-        }
         if (error instanceof ChatHostError)
             throw error;
         throw new ChatHostError(persisted
-            ? '结果已保存，但界面未能刷新，请重新打开聊天确认。'
-            : '聊天保存未获确认，服务端状态待确认；原回复在未被再次修改时已恢复。');
+            ? '结果已保存，但当前页面未能同步，请重新打开原聊天确认。'
+            : '聊天保存未获确认，服务端状态待确认；插件未改动当前正文和界面。');
     }
     finally {
         clearTimeout(timer);
@@ -266,14 +261,6 @@ export function formatChatText(text, messageId) {
     // marker differs from mes and avoids this; otherwise use the transient-message path.
     const formattingId = messageId === 0 && text === message.mes ? -1 : messageId;
     return context.messageFormatting(text, message.name ?? '', Boolean(message.is_system), Boolean(message.is_user), formattingId);
-}
-function renderMessage(context, messageId, message) {
-    // updateMessageBlock's default renderer can rewrite macros in message zero.
-    // Render through the side-effect-free path before refreshing its media/reasoning UI.
-    const element = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
-    if (element)
-        element.innerHTML = formatChatText(message.mes, messageId);
-    context.updateMessageBlock(messageId, message, { rerenderMessage: false });
 }
 export function watchChatRendering(callback) {
     const context = host();

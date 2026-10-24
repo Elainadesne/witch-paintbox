@@ -46,7 +46,17 @@ export function createImageInsertionPlan(original: string): ImageInsertionPlan {
 
 interface Insertion { offset: number; content: string; markers: ImageMarker[] }
 
-export function applyImageInsertions(plan: ImageInsertionPlan, response: string): { text: string; added: ImageMarker[] } {
+export interface InsertedImageMarker extends ImageMarker {
+  /** Insertion offset in plan.original, before any new markers were added. */
+  sourceOffset: number;
+}
+
+export interface ImageInsertionResult {
+  text: string;
+  added: InsertedImageMarker[];
+}
+
+export function applyImageInsertions(plan: ImageInsertionPlan, response: string): ImageInsertionResult {
   if (typeof response !== 'string' || response.length > MAX_MARKER_TEXT_LENGTH) throw new Error('AI 返回内容过长或格式无效。');
   let source = response.trim();
   const fence = /^```(?:json)?[ \t]*(?:\r\n|\r|\n)([\s\S]*?)(?:\r\n|\r|\n)```$/i.exec(source);
@@ -96,10 +106,13 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
   let text = plan.original;
   for (const insertion of insertions) text = text.slice(0, insertion.offset) + insertion.content + text.slice(insertion.offset);
   let shift = 0;
-  const added: ImageMarker[] = [];
+  const added: InsertedImageMarker[] = [];
   for (const insertion of [...insertions].reverse()) {
     for (const marker of insertion.markers) {
-      added.push({ ...marker, start: marker.start + insertion.offset + shift, end: marker.end + insertion.offset + shift });
+      added.push({
+        ...marker, start: marker.start + insertion.offset + shift, end: marker.end + insertion.offset + shift,
+        sourceOffset: insertion.offset,
+      });
     }
     shift += insertion.content.length;
   }

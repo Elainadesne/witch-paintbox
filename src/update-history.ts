@@ -1,6 +1,14 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-24', title: '预设扩容、配图渲染与反代兼容',
+    changes: [
+      '模型预设条数由 200 提高到 10,000，导入与保存同步扩容；列表每页显示 100 项，减少大量条目带来的界面卡顿。',
+      '楼层配图采用增量挂载和局部恢复；AI 标记保存后不刷新整层，保留已运行的 HTML 前端。无法定位的新增配图先在楼层末尾展示，仍可生图。',
+      '生图响应兼容有界 ZIP64 压缩包，保留 CRC 与图片校验；JSON、HTML 和非 PNG 响应分别提示原因。',
+    ],
+  },
+  {
     date: '2026-10-24', title: '测试分支 · 角色、服装与世界书',
     changes: [
       '标签锚定：模型 API 现在按 INI 分段展示并发送角色别名、固定外貌、默认服装和完整服装库。',
