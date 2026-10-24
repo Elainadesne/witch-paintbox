@@ -1,4 +1,5 @@
 export const ANCHOR_NAME_LIMIT = 80;
+export const ANCHOR_ALIAS_LIMIT = 20;
 export const ANCHOR_TAG_LIMIT = 32_768;
 export const ANCHOR_PORTRAIT_LIMIT = 10 * 1024 * 1024;
 const databaseName = 'witch-paintbox-anchors';
@@ -118,7 +119,7 @@ async function transact(mode, action, makeRequest) {
             resolve(request.result);
         };
         try {
-            request = makeRequest(transaction.objectStore(storeName));
+            request = makeRequest(transaction.objectStore(storeName), fail);
             request.onerror = () => fail(operationError(action, request.error));
         }
         catch {
@@ -177,9 +178,27 @@ function snapshot(value) {
     const name = anchorName(anchor.name, '角色名称');
     if (!/\p{Script=Han}/u.test(name))
         throw new Error('请使用包含中文汉字的角色名称，以便与英文生图 tag 区分。');
+    // Older records and backups predate aliases; no database upgrade is needed.
+    const rawAliases = anchor.aliases === undefined ? [] : anchor.aliases;
+    if (!Array.isArray(rawAliases))
+        throw new Error('角色别名必须是数组，原有记录未修改。');
+    if (rawAliases.length > ANCHOR_ALIAS_LIMIT)
+        throw new Error(`每个角色最多添加 ${ANCHOR_ALIAS_LIMIT} 个别名。`);
+    const aliasNames = new Set();
+    const aliases = Array.from(rawAliases, value => {
+        const alias = anchorName(value, '角色别名');
+        if (!/\p{Script=Han}/u.test(alias))
+            throw new Error(`角色别名“${alias}”必须包含中文汉字，以便与英文生图 tag 区分。`);
+        if (alias === name)
+            throw new Error(`角色别名“${alias}”不能与自己的正式名称相同。`);
+        if (aliasNames.has(alias))
+            throw new Error(`角色别名“${alias}”重复，请只保留一个。`);
+        aliasNames.add(alias);
+        return alias;
+    });
     return {
         id: requiredText(anchor.id, '角色标识', 128),
-        name,
+        name, aliases,
         appearance: requiredText(anchor.appearance, '固定外貌标签', ANCHOR_TAG_LIMIT),
         outfits, selectedOutfitId,
         // A stored Blob is independent of gallery records and their object URLs.
@@ -206,25 +225,33 @@ export function onAnchorsChanged(callback) {
 }
 export async function loadAnchors() {
     const anchors = await transact('readonly', '读取', store => store.getAll());
-    return anchors.map(snapshot).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+    return validateAnchorLibrary(anchors).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
 }
 export function validateAnchor(value) {
     return snapshot(value);
 }
-export async function replaceAnchors(value) {
+export function validateAnchorLibrary(value) {
     if (!Array.isArray(value))
-        throw new Error('角色锚定备份必须是数组，原有记录未修改。');
+        throw new Error('角色锚定库必须是数组，原有记录未修改。');
     const saved = Array.from(value, validateAnchor);
     const ids = new Set();
-    const names = new Set();
+    const names = new Map();
     for (const anchor of saved) {
         if (ids.has(anchor.id))
-            throw new Error('角色锚定备份中角色标识重复，原有记录未修改。');
-        if (names.has(anchor.name))
-            throw new Error('角色锚定备份中角色名称重复，原有记录未修改。');
+            throw new Error('角色锚定库中角色标识重复，原有记录未修改。');
         ids.add(anchor.id);
-        names.add(anchor.name);
+        for (const [index, name] of [anchor.name, ...anchor.aliases].entries()) {
+            const kind = index === 0 ? '正式名' : '别名';
+            const owner = names.get(name);
+            if (owner)
+                throw new Error(`角色“${anchor.name}”的${kind}“${name}”与角色“${owner.role}”的${owner.kind}冲突，请更换称呼。`);
+            names.set(name, { role: anchor.name, kind });
+        }
     }
+    return saved;
+}
+export async function replaceAnchors(value) {
+    const saved = validateAnchorLibrary(value);
     await transact('readwrite', '恢复', store => {
         const cleared = store.clear();
         for (const anchor of saved)
@@ -236,8 +263,21 @@ export async function replaceAnchors(value) {
 }
 export async function saveAnchor(anchor) {
     const saved = snapshot(anchor);
-    // The unique name index also rejects concurrent same-name saves in other tabs.
-    await transact('readwrite', '保存', store => store.put(saved));
+    await transact('readwrite', '保存', (store, fail) => {
+        const request = store.getAll();
+        request.onsuccess = () => {
+            try {
+                // Read and check every name in this write transaction so concurrent tabs
+                // cannot claim the same alias between validation and the final put.
+                validateAnchorLibrary([...request.result.filter(item => item?.id !== saved.id), saved]);
+                store.put(saved);
+            }
+            catch (error) {
+                fail(error instanceof Error ? error : operationError('保存'));
+            }
+        };
+        return request;
+    });
     notify();
 }
 export async function deleteAnchor(id) {

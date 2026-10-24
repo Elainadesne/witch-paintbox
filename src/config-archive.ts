@@ -1,6 +1,6 @@
 import { defaultImageSettings, loadImageSettings, saveImageSettings, validateImageSettings, type ImageSettings } from './image-settings.js';
 import { defaultModelSettings, loadModelSettings, saveModelSettings, validateModelSettings, type ModelSettings } from './model-settings.js';
-import { loadAnchors, replaceAnchors, validateAnchor, ANCHOR_PORTRAIT_LIMIT, type CharacterAnchor } from './anchor-store.js';
+import { loadAnchors, replaceAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT, type CharacterAnchor } from './anchor-store.js';
 import { loadWorldbookArchive, replaceWorldbookArchive, validateWorldbookArchive, type StoredWorldbook } from './worldbook-source.js';
 import { readSettings, saveSettings, type Settings, type TavernContext } from './settings.js';
 import { isPageId } from './pages.js';
@@ -118,14 +118,10 @@ function decodePortrait(value: unknown): Blob | null {
 
 function anchors(value: unknown): CharacterAnchor[] {
   if (!Array.isArray(value) || value.length > 10_000) throw new Error('角色锚定列表无效。');
-  const rows = value.map(raw => {
+  return validateAnchorLibrary(value.map(raw => {
     const item = object(raw, '角色锚定');
-    return validateAnchor({ ...item, portrait: decodePortrait(item.portrait) });
-  });
-  if (new Set(rows.map(row => row.id)).size !== rows.length || new Set(rows.map(row => row.name)).size !== rows.length) {
-    throw new Error('角色锚定存在重复标识或名称。');
-  }
-  return rows;
+    return { ...item, portrait: decodePortrait(item.portrait) };
+  }));
 }
 
 function checkWorldbookLinks(attachments: ModelSettings['worldbooks'], books: StoredWorldbook[]): void {
@@ -229,7 +225,7 @@ export function summarizeArchive(archive: ParsedArchive): ArchiveSummary[] {
     const { model, anchors, worldbooks } = archive.data;
     rows.unshift({ title: '生图 API', detail: `${archive.data.image.connectionProfiles.length} 个保存连接；模型 ${archive.data.image.parameters.model}，${archive.data.image.parameters.width} × ${archive.data.image.parameters.height}，含全部生图参数。` },
       { title: '模型 API 与预设', detail: `${model.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.model || '未选模型'}`}；预设“${model.presetName || '未命名'}”，${model.head.length + model.tail.length} 个文本条目，含编排、功能层选择和标记设置。` });
-    rows.push({ title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` },
+    rows.push({ title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` },
       { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含挂载关系。${worldbooks.map(book => book.name).join('、')}` },
       { title: '使用偏好', detail: '页面记忆、悬浮球位置及位置记忆。' });
   }

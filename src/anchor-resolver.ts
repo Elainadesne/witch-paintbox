@@ -1,14 +1,17 @@
 import { loadAnchors, type CharacterAnchor } from './anchor-store.js';
 
 export async function resolveStoredAnchorPrompt(prompt: string): Promise<string> {
-  // Anchor names contain Han characters; ordinary English tags need no database access.
+  // Names and aliases contain Han characters; ordinary English tags need no database access.
   if (!/\p{Script=Han}/u.test(prompt)) return prompt;
   return resolveAnchorPrompt(prompt, await loadAnchors());
 }
 
 /** Expand complete name tokens once, preserving unrelated tags and their separators. */
 export function resolveAnchorPrompt(prompt: string, anchors: readonly CharacterAnchor[]): string {
-  const names = new Map(anchors.map(anchor => [anchor.name, anchor]));
+  const names = new Map<string, CharacterAnchor>();
+  for (const anchor of anchors) {
+    for (const name of [anchor.name, ...anchor.aliases]) names.set(name, anchor);
+  }
   function expand(part: string): string {
     const token = part.trim();
     const separator = token.indexOf('/');

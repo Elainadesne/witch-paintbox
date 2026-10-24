@@ -1,4 +1,4 @@
-import { loadAnchors, saveAnchor, deleteAnchor, onAnchorsChanged, newAnchorId, ANCHOR_NAME_LIMIT, ANCHOR_TAG_LIMIT, ANCHOR_PORTRAIT_LIMIT, } from './anchor-store.js';
+import { loadAnchors, saveAnchor, deleteAnchor, onAnchorsChanged, newAnchorId, ANCHOR_NAME_LIMIT, ANCHOR_ALIAS_LIMIT, ANCHOR_TAG_LIMIT, ANCHOR_PORTRAIT_LIMIT, } from './anchor-store.js';
 import { getCurrentRoundImages } from './current-images.js';
 import { onImageHistoryChanged } from './image-history.js';
 import { watchChatRendering } from './chat-host.js';
@@ -196,7 +196,7 @@ export class AnchorConfig {
       <div class="anchor-library">${this.anchors.map(anchor => `<article class="anchor-record">
         <button type="button" class="anchor-character" data-anchor-id="${escape(anchor.id)}">
           ${this.image(anchor.portrait, 'anchor-portrait')}
-          <span><strong>${escape(anchor.name)}</strong><span class="anchor-tag-excerpt">${escape(anchor.appearance)}</span></span>
+          <span><strong>${escape(anchor.name)}</strong>${anchor.aliases.length ? `<span class="anchor-aliases">又称：${escape(anchor.aliases.join('、'))}</span>` : ''}<span class="anchor-tag-excerpt">${escape(anchor.appearance)}</span></span>
           <span class="anchor-edit-label">编辑</span>
         </button>
         <ul class="anchor-wardrobe">${anchor.outfits.map(outfit => `<li><button type="button" data-anchor-id="${escape(anchor.id)}" data-anchor-outfit="${escape(outfit.id)}"><span>${escape(outfit.name)}</span>${anchor.selectedOutfitId === outfit.id ? '<small>当前服装</small>' : ''}</button></li>`).join('')}
@@ -211,6 +211,8 @@ export class AnchorConfig {
       <fieldset class="anchor-editor"${this.busy ? ' disabled' : ''}>
         <div class="anchor-identity">${this.image(draft.portrait, 'anchor-editor-portrait')}
           <div class="anchor-identity-fields"><label class="config-field"><span>角色中文名称</span><input type="text" data-anchor-field="name" value="${escape(draft.name)}" maxlength="${ANCHOR_NAME_LIMIT}" placeholder="例如：莎莉" autocomplete="off"></label>
+            <label class="config-field"><span>别名与称呼</span><textarea rows="3" data-anchor-field="aliases" spellcheck="false" placeholder="每行一个，也可用逗号分隔" aria-describedby="anchor-aliases-hint">${escape(draft.aliases.join('\n'))}</textarea></label>
+            <p class="config-status" id="anchor-aliases-hint">每个称呼需含汉字，最多 ${ANCHOR_ALIAS_LIMIT} 个；可用换行、中英文逗号分隔。别名共用当前角色的外貌与服装。</p>
             <label class="config-field"><span>角色图</span><input type="file" accept="image/png,image/jpeg,image/webp" data-anchor-portrait></label>
             <div class="anchor-portrait-actions"><button type="button" class="text-button" data-anchor-action="generate-portrait"${this.portraitRequest ? ' disabled' : ''}>生成角色图</button><button type="button" class="text-button" data-anchor-action="cancel-portrait"${this.portraitRequest ? '' : ' hidden'}>取消</button></div>
             <p class="config-status anchor-portrait-hint">沿用生图 API 的参数与画师串，生成后点击“保存角色”保留。</p>
@@ -258,6 +260,10 @@ export class AnchorConfig {
         if (!this.draft || this.busy || !(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement))
             return;
         const key = field.dataset.anchorField;
+        if (key === 'aliases') {
+            this.draft.aliases = field.value.split(/[,，\r\n]+/).map(alias => alias.trim()).filter(Boolean);
+            this.markDirty();
+        }
         if (key === 'name' || key === 'appearance' || key === 'selectedOutfitId') {
             if (key !== 'name' && this.draft[key] !== field.value)
                 this.cancelPortrait('外貌或服装已修改，已取消本次生成等待。');
@@ -313,7 +319,7 @@ export class AnchorConfig {
             return false;
         this.cancelPortrait('已切换角色，已取消之前的生成等待。');
         this.draft = anchor ? structuredClone(anchor) : {
-            id: newAnchorId(), name: '', appearance: source?.entry.positive ?? '', outfits: [],
+            id: newAnchorId(), name: '', aliases: [], appearance: source?.entry.positive ?? '', outfits: [],
             selectedOutfitId: '', portrait: source?.entry.blob ?? null, updatedAt: Date.now(),
         };
         this.sourcePrompt = source?.entry.positive ?? '';

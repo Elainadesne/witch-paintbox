@@ -240,6 +240,18 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .transfer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; }
 .transfer-actions > button { max-width: 100%; }
 
+.update-history { margin-top: 38px; }
+.update-history-group { border-bottom: 1px solid var(--border); }
+.update-history-group > summary { padding: 14px 0; color: var(--ink); cursor: pointer; }
+.update-history-group > summary::marker { color: var(--accent); }
+.update-history-group time { color: var(--section-accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+.update-history-label { margin-left: 12px; color: var(--muted); font-size: 12px; }
+.update-history-list { display: grid; gap: 8px; margin: 0; padding: 0 0 18px 22px; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
+.update-history-list > li::marker { color: var(--section-accent); }
+@media (max-width: 420px) {
+  .update-history-label { display: block; margin: 3px 0 0 18px; }
+}
+
 .header-actions { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .api-switch { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .api-switch[hidden] { display: none; }
@@ -662,3 +674,5 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 @media (max-width: 380px) {
   .model-parameters { grid-template-columns: minmax(0, 1fr); }
 }
+
+.anchor-aliases { display: block; margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }

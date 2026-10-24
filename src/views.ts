@@ -1,5 +1,6 @@
 import { navigation, pages, pluginName, type PageId } from './pages.js';
 import type { Settings } from './settings.js';
+import { updateHistoryView } from './update-history.js';
 
 export type FeatureTab = 'anchors' | 'worldbook';
 
@@ -72,7 +73,8 @@ function preferencesView(settings: Settings): string {
       <button type="button" class="secondary" data-action="reset-preferences">恢复默认偏好</button>
       <p class="muted" role="status" data-feedback>更改会自动保存。</p>
     </div>
-    <div data-config-transfer></div>`;
+    <div data-config-transfer></div>
+    ${updateHistoryView()}`;
 }
 
 function featureView(tab: FeatureTab): string {

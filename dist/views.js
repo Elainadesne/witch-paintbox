@@ -1,4 +1,5 @@
 import { navigation, pages, pluginName } from './pages.js';
+import { updateHistoryView } from './update-history.js';
 export function navigationView(page) {
     return navigation.map((item, index) => `
     <button type="button" class="nav-item" data-page="${item.page}"
@@ -65,7 +66,8 @@ function preferencesView(settings) {
       <button type="button" class="secondary" data-action="reset-preferences">恢复默认偏好</button>
       <p class="muted" role="status" data-feedback>更改会自动保存。</p>
     </div>
-    <div data-config-transfer></div>`;
+    <div data-config-transfer></div>
+    ${updateHistoryView()}`;
 }
 function featureView(tab) {
     return `<div class="image-settings feature-settings">
