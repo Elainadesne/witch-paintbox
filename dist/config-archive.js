@@ -131,14 +131,20 @@ function checkWorldbookLinks(attachments, books) {
         }
     }
 }
-export function archiveKeyCount(archive) {
+function archiveConnections(archive) {
     if (archive.kind !== 'all')
-        return 0;
+        return [];
     const { image, model } = archive.data;
     return [...IMAGE_PROVIDERS.flatMap(provider => {
             const settings = image.profiles[provider];
-            return [settings.connection.key, ...settings.connectionProfiles.map(profile => profile.key)];
-        }), model.api.key].filter(Boolean).length;
+            return [settings.connection, ...settings.connectionProfiles];
+        }), model.api];
+}
+export function archiveKeyCount(archive) {
+    return archiveConnections(archive).filter(connection => Boolean(connection.key)).length;
+}
+export function archiveUrlCount(archive) {
+    return archiveConnections(archive).filter(connection => connection.url.trim()).length;
 }
 export function parseArchive(source) {
     if (source.length > MAX_ARCHIVE_BYTES || new TextEncoder().encode(source).byteLength > MAX_ARCHIVE_BYTES)
@@ -236,10 +242,14 @@ export async function exportArchive(kind, includeKeys, context) {
         checkWorldbookLinks(modelAttachments(model), worldbooks);
         if (!includeKeys) {
             for (const provider of IMAGE_PROVIDERS) {
-                image.profiles[provider].connection.key = '';
-                image.profiles[provider].connectionProfiles.forEach(profile => { profile.key = ''; });
+                const settings = image.profiles[provider];
+                for (const connection of [settings.connection, ...settings.connectionProfiles]) {
+                    connection.key = '';
+                    connection.url = '';
+                }
             }
             model.api.key = '';
+            model.api.url = '';
         }
         const portable = [];
         for (const character of characters)

@@ -1,4 +1,4 @@
-import { applyArchive, archiveKeyCount, exportArchive, MAX_ARCHIVE_BYTES, parseArchive, summarizeArchive, type ArchiveKind, type ParsedArchive } from './config-archive.js';
+import { applyArchive, archiveKeyCount, archiveUrlCount, exportArchive, MAX_ARCHIVE_BYTES, parseArchive, summarizeArchive, type ArchiveKind, type ParsedArchive } from './config-archive.js';
 import type { TavernContext } from './settings.js';
 import { loadImageSettings, type ImageProvider } from './image-settings.js';
 
@@ -84,7 +84,7 @@ export class ConfigTransfer {
         <div class="transfer-scope-options" role="group" aria-label="导出范围">${(Object.keys(scopeTitles) as ArchiveKind[]).map(kind => `<button type="button" data-transfer-kind="${kind}" aria-pressed="${this.kind === kind}"${busy ? ' disabled' : ''}>${scopeTitles[kind]}</button>`).join('')}</div>
         <p class="config-status">${scopeDescriptions[this.kind]}</p>
         ${this.kind === 'artists' || this.kind === 'presets' ? `<p class="config-status">本次导出：${loadImageSettings().provider === 'openai' ? 'GPT' : 'NAI'}。</p>` : ''}
-        ${this.kind === 'all' ? `<label class="prompt-enable"><input type="checkbox" data-transfer-keys${this.includeKeys ? ' checked' : ''}${busy ? ' disabled' : ''}>包含 API 密钥</label><p class="config-status">勾选后，NAI / GPT 两套生图 API 与共用模型 API 的密钥会以明文写入文件。</p>` : ''}
+        ${this.kind === 'all' ? `<label class="prompt-enable"><input type="checkbox" data-transfer-keys${this.includeKeys ? ' checked' : ''}${busy ? ' disabled' : ''}>包含 API 密钥和相应 URL</label><p class="config-status">勾选后，NAI / GPT 两套生图 API（含已保存连接）与共用模型 API 的密钥、URL 会以明文写入文件；未勾选时一并清空导出文件中的密钥和 URL。</p>` : ''}
         <div class="transfer-actions"><button type="button" class="text-button" data-transfer-action="export"${busy ? ' disabled' : ''}>${this.phase === 'export' ? '正在整理…' : '导出 JSON'}</button></div>
         <p class="config-status">导出已保存的配置；请先保存其他页面的修改。已生成的图片历史不包含在配置文件内。</p>
       </section>
@@ -96,6 +96,7 @@ export class ConfigTransfer {
           <p class="config-status">${escape(this.pending!.filename)} · 导出于 ${escape(new Date(archive.exportedAt).toLocaleString())}</p>
           <ul class="transfer-summary">${summarizeArchive(archive).map(row => `<li><strong>${escape(row.title)}</strong><br><span>${escape(row.detail)}</span></li>`).join('')}
             ${archive.kind === 'all' ? `<li><strong>API 密钥</strong><br><span>${archiveKeyCount(archive) ? `包含 ${archiveKeyCount(archive)} 处密钥，内容不在此展示。` : '未包含有效密钥；完整导入后需重新填写。'}</span></li>` : ''}
+            ${archive.kind === 'all' ? `<li><strong>API 请求 URL</strong><br><span>${archiveUrlCount(archive) ? `包含 ${archiveUrlCount(archive)} 处请求 URL。` : '未包含请求 URL；完整导入后，自定义接口需重新填写地址。'}</span></li>` : ''}
           </ul>
           <p class="config-status">${replacementDescriptions[archive.kind]}</p>
           <div class="transfer-actions"><button type="button" class="text-button" data-transfer-action="confirm"${busy ? ' disabled' : ''}>${this.isApplying ? '正在导入…' : '确认导入以上配置'}</button><button type="button" class="text-button" data-transfer-action="cancel"${busy ? ' disabled' : ''}>取消</button></div>
@@ -138,7 +139,7 @@ export class ConfigTransfer {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.hidden = true; link.href = url;
       const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '').replace('T', '-');
-      link.download = `魔女画匣-${scopeTitles[kind]}${keys ? '-含密钥' : ''}-${stamp}.json`;
+      link.download = `魔女画匣-${scopeTitles[kind]}${keys ? '-含密钥和URL' : ''}-${stamp}.json`;
       try { document.body.append(link); link.click(); }
       finally { link.remove(); setTimeout(() => URL.revokeObjectURL(url), 30_000); }
       this.notice = '已创建配置文件并交给浏览器下载。';

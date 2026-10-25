@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-10-25', title: '配置导出同步控制密钥与 URL',
+        changes: [
+            '完整导出的选项改为“包含 API 密钥和相应 URL”；未勾选时，两套生图 API 的当前与保存连接、共用模型 API 均清空导出副本中的密钥和地址。',
+            '导入确认新增请求 URL 数量，兼容旧版保留 URL 的分享文件；本机配置与 TT 同步选项保持不变。',
+        ],
+    },
+    {
         date: '2026-10-25', title: '多角色分栏改为可选增强',
         changes: [
             'NAI 提示词格式完整时使用角色分栏；普通单串、孤立 ~、不完整分栏或模型不支持时，保留整段提示词按普通模式生成，不再因分栏格式拦截。',
