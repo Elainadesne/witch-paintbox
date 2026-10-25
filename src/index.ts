@@ -13,6 +13,7 @@ import { navigationView, pageView, type FeatureTab } from './views.js';
 import { getHostStore, initializeHostStorage } from './host-storage.js';
 import { getSyncApiKeys, initializeSettingsStorage, setSyncApiKeys } from './host-settings.js';
 import { initializeNativeLibraries } from './host-library.js';
+import { bindUpdateNotice, updateNoticeView } from './extension-updates.js';
 
 declare const SillyTavern: { getContext(): TavernContext };
 declare const $: (ready: () => void) => void;
@@ -66,7 +67,9 @@ async function mount() {
     <dialog id="image-plugin-panel" class="panel" aria-labelledby="image-plugin-title">
       <div class="shell">
         <header class="window-header">
-          <div><p class="eyebrow">魔女的绘图工坊</p><h1 id="image-plugin-title">${pluginName}</h1></div>
+          <div class="window-brand"><p class="eyebrow">魔女的绘图工坊</p>
+            <div class="window-title"><h1 id="image-plugin-title">${pluginName}</h1>${updateNoticeView()}</div>
+          </div>
           <div class="header-actions">
             <nav class="api-switch" aria-label="接口类型" hidden>
               <button type="button" data-page="image-api">生图 API</button>
@@ -88,6 +91,7 @@ async function mount() {
   const sidebar = root.querySelector<HTMLElement>('.sidebar')!;
   const content = root.querySelector<HTMLElement>('.content')!;
   const apiSwitch = root.querySelector<HTMLElement>('.api-switch')!;
+  const updateNotice = bindUpdateNotice(root, signal);
   const persist = () => saveSettings(context, settings);
   const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'));
 
@@ -96,6 +100,7 @@ async function mount() {
     launcherMenu.close();
     navigate(target, false);
     panel.showModal();
+    updateNotice.check();
     content.focus({ preventScroll: true });
   }
 

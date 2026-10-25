@@ -60,7 +60,7 @@ function hostSyncView() {
     if (!getHostStore())
         return '<p class="config-status">当前 TT 版本未提供完整的扩展数据存储，配置仍保存在本机。更新 TT 后重新打开画匣即可迁移。</p>';
     return `<section class="image-settings" aria-label="TauriTavern 配置同步">
-    <header class="section-heading"><h2 class="section-title">TauriTavern 同步</h2>
+    <header class="section-heading section-heading--plain"><h2 class="section-title">TauriTavern 同步</h2>
       <p class="section-description">配置已接入 TT 扩展数据。同步时勾选“扩展数据”；页面记忆与悬浮球位置随酒馆设置同步。</p></header>
     <p class="config-status">包含接口参数、预设、画师串、角色与服装库、角色图、世界书及挂载选择。生成图片历史仍保存在本机。</p>
     <label class="preference-row"><span><strong>同时同步 API 密钥</strong><span>默认关闭，接收设备需自行填写密钥。开启后，已保存的生图与模型 API 密钥会写入 TT 扩展数据并参与同步。</span></span>

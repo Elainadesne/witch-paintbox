@@ -1,10 +1,10 @@
-import { ImageResponseError, readImageResponse } from './image-response.js';
+import { ImageResponseError } from './image-response.js';
+import { readRasterImage } from './raster-image.js';
 import { queueImageGeneration } from './image-queue.js';
 export const OPENAI_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'];
 const OFFICIAL_ENDPOINT = 'https://api.openai.com/v1/images/generations';
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const MAX_JSON_BYTES = 46 * 1024 * 1024;
-const PNG_MAGIC = [137, 80, 78, 71, 13, 10, 26, 10];
 export function defaultOpenAIImageParameters() {
     return { model: '', width: 1024, height: 1536, quality: 'auto' };
 }
@@ -156,26 +156,33 @@ export async function fetchOpenAIImageModels(connection, signal) {
         return [...new Set(models)].sort((a, b) => a.localeCompare(b));
     });
 }
-async function imageBytes(item, signal) {
-    if (typeof item.b64_json === 'string' && item.b64_json) {
-        const source = item.b64_json;
-        if (source.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 || source.length % 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(source)) {
-            fail('接口返回的 base64 图片无效或超过 32 MiB。');
-        }
-        let decoded;
-        try {
-            decoded = atob(source);
-        }
-        catch {
-            return fail('接口返回的 base64 图片无法解码。');
-        }
-        if (decoded.length > MAX_IMAGE_BYTES)
-            fail('接口返回的图片超过 32 MiB。');
-        signal.throwIfAborted();
-        return Uint8Array.from(decoded, character => character.charCodeAt(0));
+function decodeImageBase64(value, signal) {
+    // Some compatible services include a data URL prefix or line-wrapped base64.
+    // The declared MIME is only a hint; readRasterImage validates the actual bytes.
+    const source = value.trim().replace(/^data:image\/(?:png|jpe?g|webp);base64,/i, '').replace(/[\t\r\n ]/g, '');
+    if (!source || source.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 || source.length % 4 === 1
+        || !/^[A-Za-z0-9+/]+={0,2}$/.test(source) || (source.includes('=') && source.length % 4)) {
+        fail('接口返回的 base64 图片无效或超过 32 MiB。');
     }
+    let decoded;
+    try {
+        decoded = atob(source);
+    }
+    catch {
+        return fail('接口返回的 base64 图片无法解码。');
+    }
+    if (decoded.length > MAX_IMAGE_BYTES)
+        fail('接口返回的图片超过 32 MiB。');
+    signal.throwIfAborted();
+    return Uint8Array.from(decoded, character => character.charCodeAt(0));
+}
+async function imageBytes(item, signal) {
+    if (typeof item.b64_json === 'string' && item.b64_json.trim())
+        return decodeImageBase64(item.b64_json, signal);
     if (typeof item.url !== 'string' || !item.url)
         fail('接口没有返回 b64_json 或图片 URL。');
+    if (/^data:/i.test(item.url.trim()))
+        return decodeImageBase64(item.url, signal);
     let url;
     try {
         url = new URL(item.url);
@@ -216,10 +223,7 @@ export async function generateOpenAIImage(connection, parameters, prompt, signal
         if (!Array.isArray(payload.data) || payload.data.length !== 1)
             fail('生图接口应返回且仅返回一张图片。');
         const bytes = await imageBytes(object(payload.data[0]), requestSignal);
-        if (!PNG_MAGIC.every((byte, index) => bytes[index] === byte))
-            fail('接口未按要求返回 PNG 图片，请检查服务兼容性。');
-        const blob = await readImageResponse(new Response(Uint8Array.from(bytes).buffer), requestSignal, () => requestSignal.throwIfAborted());
-        const header = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        return { blob, parameters: { ...params, width: header.getUint32(16), height: header.getUint32(20) } };
+        const image = await readRasterImage(bytes, requestSignal);
+        return { blob: image.blob, parameters: { ...params, width: image.width, height: image.height } };
     }), signal, onProgress);
 }

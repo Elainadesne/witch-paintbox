@@ -1,6 +1,14 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-25', title: '更新提醒与 GPT 图片格式兼容',
+    changes: [
+      '修复使用偏好中 TauriTavern 同步标题与说明文字重叠。',
+      '画匣标题旁新增更新铃铛，按当前安装分支检查 Git 更新；悬停查看状态，点击可重新检查。',
+      'GPT 接口支持识别 PNG、JPEG 和静态 WebP，兼容内嵌图片地址与换行 base64；保留原始格式，下载扩展名与生成属性同步显示实际格式。',
+    ],
+  },
+  {
     date: '2026-10-25', title: 'GPT 生图与双套配置',
     changes: [
       '生图 API 新增 NAI / GPT 切换，分别保存连接、参数和画师配置；GPT 支持拉取模型列表或手动填写。',

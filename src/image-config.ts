@@ -3,6 +3,7 @@ import { imageSettingsView, OPENAI_SIZE_PRESETS } from './image-view.js';
 import { NAI_SIZE_PRESETS, validateImageConnection, type ImageConnection } from './novelai.js';
 import { fetchOpenAIImageModels, validateOpenAIImageConnection, type OpenAIImageParameters } from './openai-image.js';
 import { generateConfiguredImage } from './image-provider.js';
+import { imageFileExtension } from './raster-image.js';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
@@ -537,8 +538,7 @@ export class ImageConfig {
       const url = URL.createObjectURL(result.blob);
       if (this.imageUrl) URL.revokeObjectURL(this.imageUrl);
       this.imageUrl = url;
-      const extension = result.blob.type === 'image/jpeg' ? 'jpg' : result.blob.type === 'image/webp' ? 'webp' : 'png';
-      this.imageFilename = `witch-paintbox-${result.seed ?? Date.now()}.${extension}`;
+      this.imageFilename = `witch-paintbox-${result.seed ?? Date.now()}.${imageFileExtension(result.blob)}`;
       this.generationMessage = result.seed === undefined ? '生成完成。' : `生成完成 · 种子 ${result.seed}`;
     } catch (error) {
       if (this.settings?.provider !== snapshot.provider) return;

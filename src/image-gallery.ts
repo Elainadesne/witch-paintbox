@@ -1,5 +1,6 @@
 import type { ImageHistoryEntry } from './image-history.js';
 import { NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES } from './novelai.js';
+import { imageFileExtension } from './raster-image.js';
 
 export interface GalleryImage {
   entry: ImageHistoryEntry;
@@ -176,7 +177,7 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
     image.width = entry.parameters.width;
     image.height = entry.parameters.height;
     download.href = url;
-    download.download = `witch-paintbox-${entry.seed ?? entry.id}.png`;
+    download.download = `witch-paintbox-${entry.seed ?? entry.id}.${imageFileExtension(entry.blob)}`;
     download.removeAttribute('aria-disabled');
     download.removeAttribute('tabindex');
     const fields: Array<[string, string | number]> = [
@@ -187,7 +188,7 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
       ['生成时间', new Date(entry.createdAt).toLocaleString('zh-CN', { hour12: false })],
     ];
     if (entry.provider === 'openai') {
-      fields.push(['请求质量', entry.parameters.quality], ['输出格式', 'PNG']);
+      fields.push(['请求质量', entry.parameters.quality], ['输出格式', imageFileExtension(entry.blob).toUpperCase()]);
     } else {
       const params = entry.parameters;
       fields.push(

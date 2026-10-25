@@ -8,6 +8,7 @@ import { createChatImageView } from './chat-image-view.js';
 import { createImageGallery, type GalleryImage } from './image-gallery.js';
 import { loadImageHistory, saveImageHistory, deleteImageHistory, type ImageHistoryEntry } from './image-history.js';
 import { markerEntries, type MarkerEntry } from './image-marker-history.js';
+import { imageFileExtension } from './raster-image.js';
 
 type AssistantMessage = ReturnType<typeof readAssistantMessages>[number];
 
@@ -249,7 +250,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
       if (selected) {
         image.src = download.href = selected.url;
         image.title = selected.entry.provider === 'openai' ? selected.entry.parameters.model : `种子 ${selected.entry.seed}`;
-        download.download = `witch-paintbox-${selected.entry.provider === 'openai' ? selected.entry.id : selected.entry.seed}.png`;
+        download.download = `witch-paintbox-${selected.entry.provider === 'openai' ? selected.entry.id : selected.entry.seed}.${imageFileExtension(selected.entry.blob)}`;
         setImageSize(selected.entry.parameters.width, selected.entry.parameters.height);
       } else {
         image.removeAttribute('src');
