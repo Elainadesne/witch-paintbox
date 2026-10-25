@@ -2,7 +2,7 @@ import { assertChatSnapshot, captureLatestAssistant, readAssistantMessages } fro
 import { loadImageHistory } from './image-history.js';
 import { markerEntries } from './image-marker-history.js';
 function signatureOf(message) {
-    return JSON.stringify([message.scope, message.chatId, message.messageId, message.swipeId, message.historyId, message.text]);
+    return JSON.stringify([message.scope, message.chatId, message.messageId, message.swipeId, message.historyId, message.turnId, message.text]);
 }
 /** Reads the actual latest assistant reply, including images outside the currently rendered DOM. */
 export async function getCurrentRoundImages() {

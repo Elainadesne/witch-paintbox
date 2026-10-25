@@ -1,5 +1,5 @@
 import { readAssistantMessages, watchChatRendering } from './chat-host.js';
-import { locateImageMarkers, locateImageInsertionPoints } from './chat-image-placement.js';
+import { hasPendingFrontendFrame, iframeNarrativeRoot, locateImageInsertionPoints, locateImageMarkers, primaryNarrativeContainer } from './chat-image-placement.js';
 import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
 import { generateConfiguredImage } from './image-provider.js';
@@ -8,6 +8,7 @@ import { createImageGallery } from './image-gallery.js';
 import { loadImageHistory, saveImageHistory, deleteImageHistory } from './image-history.js';
 import { markerEntries } from './image-marker-history.js';
 import { imageFileExtension } from './raster-image.js';
+import { frameDocument, frontendFrames } from './frontend-frames.js';
 /** Render-only controls: stored chat text always contains the original literal markers. */
 export function bindChatImages(signal) {
     if (signal.aborted)
@@ -20,6 +21,38 @@ export function bindChatImages(signal) {
     const warnings = new WeakMap();
     let timer;
     let stopped = false;
+    const observedFrames = new Map();
+    function containsAcrossFrames(root, node) {
+        let current = node;
+        while (current) {
+            if (!current.isConnected)
+                return false;
+            if (root.contains(current))
+                return true;
+            try {
+                current = current.ownerDocument?.defaultView?.frameElement ?? null;
+            }
+            catch {
+                return false;
+            }
+        }
+        return false;
+    }
+    function isSlotConnected(slot) {
+        return slot.isConnected && containsAcrossFrames(document.documentElement, slot);
+    }
+    function closestFloor(node) {
+        let current = node;
+        while (current) {
+            if (current.nodeType === Node.ELEMENT_NODE) {
+                const mes = current.closest('.mes');
+                if (mes)
+                    return mes;
+            }
+            current = current.ownerDocument?.defaultView?.frameElement ?? null;
+        }
+        return null;
+    }
     function warnRendering(element, message, reason) {
         const previous = warnings.get(element);
         if (previous?.text === message.text && previous.reason === reason)
@@ -30,7 +63,7 @@ export function bindChatImages(signal) {
     }
     function sameMessage(a, b) {
         return a.scope === b.scope && a.chatId === b.chatId && a.messageId === b.messageId
-            && (a.swipeId ?? 0) === (b.swipeId ?? 0) && a.historyId === b.historyId;
+            && (a.swipeId ?? 0) === (b.swipeId ?? 0) && a.historyId === b.historyId && a.turnId === b.turnId;
     }
     function isCurrent(message, key) {
         try {
@@ -53,7 +86,7 @@ export function bindChatImages(signal) {
     }
     function cleanPendingContainers() {
         for (const container of pendingContainers) {
-            if (!container.isConnected)
+            if (!isSlotConnected(container))
                 pendingContainers.delete(container);
             else if (!container.querySelector('.witch-paintbox-image')) {
                 container.firstElementChild?.remove();
@@ -91,7 +124,7 @@ export function bindChatImages(signal) {
                     insertions.set(nextEntry.key, { ...pending, message });
                     insertions.delete(key);
                 }
-                if (nextEntry && control.slot.isConnected) {
+                if (nextEntry && isSlotConnected(control.slot)) {
                     const next = controlFor(nextEntry, message);
                     const original = originals.get(control.slot);
                     if (original)
@@ -116,6 +149,7 @@ export function bindChatImages(signal) {
         let control = images.get(entry.key);
         if (!control) {
             control = imageSlot(entry.marker, message, entry.key, entry.historyKey);
+            control.slot.dataset.wpSlot = entry.key;
             images.set(entry.key, control);
         }
         return control;
@@ -123,8 +157,9 @@ export function bindChatImages(signal) {
     function rememberInsertedText(entry, slot) {
         if (originals.has(slot))
             return;
-        const fragment = document.createDocumentFragment();
-        fragment.append(document.createTextNode(`\n\n${entry.marker.raw}\n\n`));
+        const doc = slot.ownerDocument ?? document;
+        const fragment = doc.createDocumentFragment();
+        fragment.append(doc.createTextNode(`\n\n${entry.marker.raw}\n\n`));
         originals.set(slot, fragment);
     }
     function mountPendingInsertions(element, message, entries) {
@@ -144,7 +179,8 @@ export function bindChatImages(signal) {
             catch { /* A changed or inaccessible display uses the local fallback below. */ }
             for (const { offset, range } of points) {
                 const atPoint = group.filter(entry => insertions.get(entry.key)?.sourceOffset === offset);
-                const fragment = document.createDocumentFragment();
+                const doc = range.startContainer.ownerDocument ?? document;
+                const fragment = doc.createDocumentFragment();
                 for (const entry of atPoint) {
                     const control = controlFor(entry, message);
                     rememberInsertedText(entry, control.slot);
@@ -163,14 +199,23 @@ export function bindChatImages(signal) {
         const unresolved = pending.filter(entry => insertions.has(entry.key));
         if (!unresolved.length)
             return;
-        let container = [...pendingContainers].find(item => item.parentElement === element);
+        if (hasPendingFrontendFrame(element))
+            return;
+        const target = primaryNarrativeContainer(element);
+        const doc = target.ownerDocument ?? document;
+        let container = [...pendingContainers].find(item => item.parentElement === target);
         if (!container) {
-            container = document.createElement('div');
+            container = doc.createElement('div');
             container.className = 'witch-paintbox-pending';
-            const note = document.createElement('small');
+            container.dataset.preserveHtml = '1';
+            const note = doc.createElement('small');
             note.textContent = '配图已保存 · 暂未定位到正文位置，可先在此生成图片。';
             container.append(note);
-            element.append(container);
+            const anchor = target.querySelector('.wlog-report-panel, .auto-system-panel');
+            if (anchor && anchor.parentElement === target)
+                target.insertBefore(container, anchor);
+            else
+                target.append(container);
             pendingContainers.add(container);
         }
         let previous = container.firstChild;
@@ -285,8 +330,8 @@ export function bindChatImages(signal) {
         async function requestGeneration(event) {
             event.preventDefault();
             event.stopPropagation();
-            if (request || !slot.isConnected || !isCurrent(message, key)
-                || slot.closest('.mes')?.querySelector('textarea.edit_textarea'))
+            if (request || !isSlotConnected(slot) || !isCurrent(message, key)
+                || closestFloor(slot)?.querySelector('textarea.edit_textarea'))
                 return;
             const controller = new AbortController();
             request = controller;
@@ -430,6 +475,7 @@ export function bindChatImages(signal) {
             }
         }
         cleanPendingContainers();
+        observeFrames();
         if (!enabled)
             return;
         for (const block of Array.from(document.querySelectorAll('#chat .mes[mesid]'))) {
@@ -448,9 +494,27 @@ export function bindChatImages(signal) {
                     warnRendering(element, message, '未解析到有效图片标记；请检查标记格式或其所在的代码/HTML 区域。');
                 continue;
             }
+            // Restore live slots if a frontend script cloned and replaced its container DOM.
+            const entryByKey = new Map(entries.map(entry => [entry.key, entry]));
+            const roots = [element, ...frontendFrames(element).map(frame => iframeNarrativeRoot(frame).root).filter((r) => Boolean(r))];
+            for (const root of roots) {
+                for (const clone of Array.from(root.querySelectorAll('.witch-paintbox-image[data-wp-slot]'))) {
+                    if (clone.shadowRoot)
+                        continue;
+                    const entry = entryByKey.get(clone.dataset.wpSlot ?? '');
+                    if (!entry)
+                        continue;
+                    const control = controlFor(entry, message);
+                    if (control.slot !== clone) {
+                        clone.replaceWith(control.slot);
+                        insertions.delete(entry.key);
+                        control.refreshTheme();
+                    }
+                }
+            }
             const mounted = entries.flatMap(entry => {
                 const slot = images.get(entry.key)?.slot;
-                return slot && element.contains(slot) ? [slot] : [];
+                return slot && containsAcrossFrames(element, slot) ? [slot] : [];
             });
             if (mounted.length === entries.length && !entries.some(entry => insertions.has(entry.key))) {
                 warnings.delete(element);
@@ -458,7 +522,7 @@ export function bindChatImages(signal) {
             }
             const pending = entries.filter(entry => {
                 const slot = images.get(entry.key)?.slot;
-                return !slot || !element.contains(slot) || insertions.has(entry.key);
+                return !slot || !containsAcrossFrames(element, slot) || insertions.has(entry.key);
             });
             let placements = [];
             try {
@@ -470,7 +534,7 @@ export function bindChatImages(signal) {
             for (const { entry, range } of placements) {
                 const control = controlFor(entry, message);
                 control.closePreview();
-                if (control.slot.isConnected) {
+                if (isSlotConnected(control.slot)) {
                     if (insertions.has(entry.key))
                         control.slot.remove();
                     else
@@ -486,15 +550,52 @@ export function bindChatImages(signal) {
             mountPendingInsertions(element, message, entries);
             const count = entries.filter(entry => {
                 const slot = images.get(entry.key)?.slot;
-                return slot && element.contains(slot);
+                return slot && containsAcrossFrames(element, slot);
             }).length;
-            if (count < entries.length) {
+            if (count < entries.length && !hasPendingFrontendFrame(element)) {
                 warnRendering(element, message, `已挂载 ${count}/${entries.length} 个图片按钮；其余标记被显示规则隐藏、复制或转换。`);
             }
             else
                 warnings.delete(element);
         }
         cleanPendingContainers();
+    }
+    function observeFrames() {
+        if (stopped)
+            return;
+        const frames = new Set(frontendFrames(document.getElementById('chat') ?? document.body));
+        for (const [frame, watch] of observedFrames) {
+            if (!frames.has(frame) || frameDocument(frame) !== watch.doc) {
+                watch.dispose();
+                observedFrames.delete(frame);
+            }
+        }
+        for (const frame of frames) {
+            if (observedFrames.has(frame))
+                continue;
+            const doc = frameDocument(frame);
+            const mutations = new MutationObserver(schedule);
+            const theme = new MutationObserver(() => images.forEach(control => control.refreshTheme()));
+            frame.addEventListener('load', schedule);
+            if (doc?.documentElement) {
+                mutations.observe(doc.documentElement, {
+                    childList: true, subtree: true, characterData: true,
+                    attributes: true, attributeFilter: ['class', 'aria-busy', 'style', 'hidden', 'aria-hidden'],
+                });
+                doc.addEventListener('toggle', schedule, true);
+                theme.observe(doc.documentElement, {
+                    subtree: true, attributes: true, attributeFilter: ['data-theme'],
+                });
+                if (doc.body)
+                    theme.observe(doc.body, { attributes: true, attributeFilter: ['class', 'style'] });
+            }
+            observedFrames.set(frame, { doc, dispose() {
+                    mutations.disconnect();
+                    theme.disconnect();
+                    frame.removeEventListener('load', schedule);
+                    doc?.removeEventListener('toggle', schedule, true);
+                } });
+        }
     }
     function schedule() {
         if (stopped || timer !== undefined)
@@ -516,7 +617,10 @@ export function bindChatImages(signal) {
     catch { /* The DOM observer can still follow native re-renders. */ }
     const chatElement = document.getElementById('chat') ?? document.body;
     const observer = new MutationObserver(schedule);
-    observer.observe(chatElement, { childList: true, subtree: true, characterData: true });
+    observer.observe(chatElement, {
+        childList: true, subtree: true, characterData: true,
+        attributes: true, attributeFilter: ['class', 'style', 'hidden', 'aria-hidden', 'aria-busy'],
+    });
     // Opening native details changes visibility without inserting any DOM nodes.
     chatElement.addEventListener('toggle', schedule, true);
     const themeObserver = new MutationObserver(() => images.forEach(control => control.refreshTheme()));
@@ -533,6 +637,8 @@ export function bindChatImages(signal) {
         clearTimeout(timer);
         observer.disconnect();
         chatElement.removeEventListener('toggle', schedule, true);
+        observedFrames.forEach(watch => watch.dispose());
+        observedFrames.clear();
         themeObserver.disconnect();
         stopWatching();
         clearImages();

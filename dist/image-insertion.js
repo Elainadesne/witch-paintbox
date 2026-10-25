@@ -1,29 +1,65 @@
 import { MAX_IMAGE_MARKERS, MAX_MARKER_TEXT_LENGTH, MAX_ORIGINAL_LENGTH, parseImageMarkers } from './image-markers.js';
 import { imageTextRegions, textLines } from './image-text-regions.js';
 function newline(text) { return /\r\n|\r|\n/.exec(text)?.[0] ?? '\n'; }
+/** Locate <now_plot> / <gametxt> narrative bodies outside code and image regions. */
+export function narrativeSpans(text, regions = imageTextRegions(text)) {
+    // HTML comments/scripts and code samples are opaque regions. Only standalone
+    // tag regions can open/close a narrative body, including nested wrappers.
+    const spans = [];
+    const stack = [];
+    for (const region of regions) {
+        if (region.kind !== 'html' || !region.closed)
+            continue;
+        const token = text.slice(region.start, region.end);
+        const open = /^<(now_plot|gametxt)(?:\s[^<>]*)?>$/i.exec(token);
+        if (open) {
+            stack.push({ tag: open[1].toLowerCase(), start: region.end });
+            continue;
+        }
+        const close = /^<\/(now_plot|gametxt)\s*>$/i.exec(token);
+        if (!close || !stack.length)
+            continue;
+        const current = stack.at(-1);
+        if (current.tag !== close[1].toLowerCase()) {
+            stack.length = 0;
+            continue;
+        }
+        stack.pop();
+        if (!stack.length && text.slice(current.start, region.start).trim()) {
+            spans.push({ start: current.start, end: region.start });
+        }
+    }
+    return spans;
+}
 export function createImageInsertionPlan(original) {
     if (typeof original !== 'string' || original.length > MAX_ORIGINAL_LENGTH)
         throw new Error('正文过长或格式无效，无法建立插入位置。');
     const regions = imageTextRegions(original);
+    const spans = narrativeSpans(original, regions);
+    const bounds = spans.length ? spans : [{ start: 0, end: original.length }];
     const usedIds = new Set(Array.from(original.matchAll(/【插入点 (P\d+)】/g), match => match[1]));
     const points = [];
     let regionIndex = 0;
     let nextId = 1;
-    for (const line of textLines(original)) {
-        if (!original.slice(line.start, line.contentEnd).trim())
-            continue;
-        const offset = line.end;
-        while (regionIndex < regions.length && (regions[regionIndex].end < offset
-            || (regions[regionIndex].end === offset && regions[regionIndex].closed)))
-            regionIndex++;
-        const region = regions[regionIndex];
-        if (region && region.start < offset && (offset < region.end || !region.closed))
-            continue;
-        let id;
-        do {
-            id = `P${String(nextId++).padStart(3, '0')}`;
-        } while (usedIds.has(id));
-        points.push(Object.freeze({ id, offset }));
+    for (const span of bounds) {
+        for (const line of textLines(original.slice(span.start, span.end))) {
+            if (!original.slice(span.start + line.start, span.start + line.contentEnd).trim())
+                continue;
+            const offset = span.start + line.end;
+            while (regionIndex < regions.length && (regions[regionIndex].end < offset
+                || (regions[regionIndex].end === offset && regions[regionIndex].closed)))
+                regionIndex++;
+            const region = regions[regionIndex];
+            if (region && region.start < offset && (offset < region.end || !region.closed))
+                continue;
+            if (points.at(-1)?.offset === offset)
+                continue;
+            let id;
+            do {
+                id = `P${String(nextId++).padStart(3, '0')}`;
+            } while (usedIds.has(id));
+            points.push(Object.freeze({ id, offset }));
+        }
     }
     const eol = newline(original);
     const pieces = [];

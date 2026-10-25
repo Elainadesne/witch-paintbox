@@ -1,4 +1,5 @@
 import type { ImageInsertionResult } from './image-insertion.js';
+import { captureEmbeddedWrite, readEmbeddedTurn } from './embedded-chat.js';
 
 type ChatMessage = Record<string, unknown> & {
   mes: string;
@@ -55,6 +56,7 @@ interface SnapshotState {
   swipes: string[] | undefined;
   swipeText: string | undefined;
   swipeCount: number;
+  embedded: ReturnType<typeof captureEmbeddedWrite>;
 }
 
 class ChatHostError extends Error {}
@@ -128,6 +130,7 @@ function takeSnapshot(context: ChatHost, messageId: number): ChatSnapshot {
     characterId: context.characterId, groupId: context.groupId,
     swipes: message.swipes, swipeText: swipeId === null ? undefined : message.swipes?.[swipeId],
     swipeCount: message.swipes?.length ?? 0,
+    embedded: captureEmbeddedWrite(messageId, message.mes),
   });
   return snapshot;
 }
@@ -145,6 +148,8 @@ function sameTarget(snapshot: ChatSnapshot, expectedText: string): ChatHost | nu
       || (saved.message.swipes?.length ?? 0) !== saved.swipeCount) return null;
     const expectedSwipe = expectedText === snapshot.text ? saved.swipeText : expectedText;
     if (snapshot.swipeId !== null && saved.message.swipes?.[snapshot.swipeId] !== expectedSwipe) return null;
+    if (saved.embedded) saved.embedded.assertCurrent(expectedText);
+    else if (captureEmbeddedWrite(snapshot.messageId, expectedText)) return null;
     return context;
   } catch { return null; }
 }
@@ -231,6 +236,14 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: Im
     catch { throw new ChatHostError('结果已保存到原聊天；当前聊天或楼层已变化，请重新打开原聊天确认。'); }
     saved.message.mes = nextText;
     if (snapshot.swipeId !== null) saved.message.swipes![snapshot.swipeId] = nextText;
+    try { await saved.embedded?.save(nextText); }
+    catch {
+      notifyRendered(snapshot.messageId, change);
+      throw new ChatHostError('配图已保存到酒馆，但前端历史同步未获确认；请检查当前回合，暂勿重复 AI 处理。');
+    }
+    if (!sameTarget(snapshot, nextText)) {
+      throw new ChatHostError('配图已保存，但前端或聊天已切换；请返回原聊天确认。');
+    }
     // Capture the committed version before a view listener can change the active chat.
     const committed = takeSnapshot(current, snapshot.messageId);
     notifyRendered(snapshot.messageId, change);
@@ -274,7 +287,7 @@ function historyIdentities(messages: ChatMessage[]): Map<number, string> {
   return new Map([...current].filter(([, id]) => counts.get(id) === 1));
 }
 
-export function readAssistantMessages(): Array<{ scope: string; chatId: string; messageId: number; swipeId: number | null; historyId: string | null; text: string }> {
+export function readAssistantMessages(): Array<{ scope: string; chatId: string; messageId: number; swipeId: number | null; historyId: string | null; turnId: string | null; text: string }> {
   const context = host();
   const id = chatId(context);
   const scope = context.groupId !== undefined && context.groupId !== null && context.groupId !== ''
@@ -284,7 +297,10 @@ export function readAssistantMessages(): Array<{ scope: string; chatId: string; 
   return context.chat.flatMap((message, messageId) => {
     if (!message || message.is_user || message.is_system || typeof message.mes !== 'string') return [];
     try {
-      return [{ scope, chatId: id, messageId, swipeId: currentSwipe(message), historyId: identities.get(messageId) ?? null, text: message.mes }];
+      const embedded = readEmbeddedTurn(messageId);
+      return [{ scope, chatId: id, messageId, swipeId: currentSwipe(message),
+        historyId: embedded ? embedded.historyId : identities.get(messageId) ?? null,
+        turnId: embedded?.turnId ?? null, text: embedded?.text ?? message.mes }];
     } catch {
       // A swipe being created may not have its text yet; other floors can still render.
       return [];

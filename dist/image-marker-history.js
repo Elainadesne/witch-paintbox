@@ -11,7 +11,8 @@ export function markerEntries(message) {
         // If identical blocks are inserted/deleted, their old positions are ambiguous.
         const markerId = [marker.raw, counts.get(marker.raw), occurrence];
         return { marker,
-            key: JSON.stringify([message.scope, message.chatId, message.messageId, message.swipeId ?? 0, ...markerId]),
+            key: JSON.stringify([message.scope, message.chatId, message.messageId, message.swipeId ?? 0,
+                ...(message.turnId ? [message.turnId] : []), ...markerId]),
             historyKey: message.historyId === null ? null : JSON.stringify([message.scope, message.chatId, message.historyId, ...markerId]),
         };
     });

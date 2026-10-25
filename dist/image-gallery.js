@@ -318,11 +318,25 @@ export function createImageGallery(summary, signal, handlers) {
             select(next.entry.id);
     }, { signal });
     element.addEventListener('keyup', event => event.stopPropagation(), { signal });
-    signal.addEventListener('abort', close, { once: true });
+    let portal = null;
+    const removePortal = () => { portal?.remove(); portal = null; };
+    signal.addEventListener('abort', () => { close(); removePortal(); }, { once: true });
     return {
         element, setImages, close,
         open() {
-            if (signal.aborted || !element.isConnected)
+            if (signal.aborted)
+                return;
+            if (element.ownerDocument !== document) {
+                if (!portal || !portal.isConnected) {
+                    removePortal();
+                    portal = document.createElement('div');
+                    portal.className = 'witch-paintbox-gallery-portal';
+                    const shadow = portal.attachShadow({ mode: 'open' });
+                    document.body.append(portal);
+                    shadow.append(document.adoptNode(element));
+                }
+            }
+            if (!element.isConnected)
                 return;
             if (element.open && element.matches(':modal'))
                 return;

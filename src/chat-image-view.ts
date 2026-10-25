@@ -2,7 +2,8 @@
 function pageButtonColor(element: HTMLElement): string {
   const layers: number[][] = [];
   for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-    const color = getComputedStyle(parent).backgroundColor;
+    const view = parent.ownerDocument.defaultView ?? window;
+    const color = view.getComputedStyle(parent).backgroundColor;
     if (!/^rgba?\(/.test(color)) continue;
     const values = color.match(/[\d.]+/g)?.map(Number);
     if (!values || values.length < 3) continue;
@@ -25,9 +26,11 @@ function pageButtonColor(element: HTMLElement): string {
 }
 
 export function createChatImageView(summary: string, signal: AbortSignal) {
-  const slot = document.createElement('span');
+  const slot = document.createElement('div');
   slot.className = 'witch-paintbox-image';
   slot.contentEditable = 'false';
+  slot.dataset.preserveHtml = '1';
+  slot.addEventListener('click', event => event.stopPropagation(), { signal });
   const root = slot.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     :host { --button-surface: #45434e; --frame-inset: 8px; --image-width: 383px; --image-ratio: .6842; display: block; width: max-content; min-width: min(100%, calc(var(--image-width) + var(--frame-inset) + var(--frame-inset) + 2px)); max-width: 100%; margin: .8em auto; color: #3c3931; font: inherit; text-indent: 0; text-align: left; }

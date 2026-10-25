@@ -1,6 +1,15 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-25', title: '测试分支 · 重前端配图兼容',
+    changes: [
+      '同源 iframe 内含 #readingContent 或 #game-text-display 等叙事容器时，配图画框直接嵌入叙事文本层，全屏查看器自动提升至顶层窗口。',
+      '正文包含 <now_plot> 或 <gametxt> 时，行间插入点限制在叙事块内；代码、脚本与注释中的同名标签不参与识别。',
+      '修正 iframe 重绘后的画框恢复、隐藏与跨域 iframe 干扰、行间定位偏移；移除或切换 iframe 时释放旧文档监听。',
+      '单楼层前端按回合区分图片历史；写回前核对原文、缓存实例与回合，历史同步失败明确提示，不自动重试。',
+    ],
+  },
+  {
     date: '2026-10-25', title: '配置导出同步控制密钥与 URL',
     changes: [
       '完整导出的选项改为“包含 API 密钥和相应 URL”；未勾选时，两套生图 API 的当前与保存连接、共用模型 API 均清空导出副本中的密钥和地址。',
