@@ -62,7 +62,7 @@ export function automaticImages(handlers) {
             const settings = currentPreferences();
             const nextIdentity = context ? JSON.stringify([context.scope, context.chatId]) : '';
             const enabled = parsingEnabled && settings.autoGenerateImages && Boolean(context);
-            const nextMode = `${enabled}:${settings.autoGenerateLatestOnly}`;
+            const nextMode = String(enabled);
             if (identity !== nextIdentity || mode !== nextMode) {
                 cancel();
                 seen.clear();
@@ -71,7 +71,7 @@ export function automaticImages(handlers) {
                 mode = nextMode;
                 return; // Opening a chat or enabling the option establishes a baseline, without billing.
             }
-            const eligible = new Map(candidates.filter(item => !settings.autoGenerateLatestOnly || item.message.messageId === context?.latestMessageId)
+            const eligible = new Map(candidates.filter(item => item.message.messageId === context?.latestMessageId)
                 .map(item => [item.entry.key, item]));
             if (active) {
                 const current = candidates.find(item => item.entry.key === active.candidate.entry.key);

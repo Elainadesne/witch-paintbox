@@ -1,5 +1,19 @@
 const waiting = [];
 let running = false;
+const listeners = new Set();
+export function onImageQueueChanged(listener) {
+    listener({ generating: running, queued: waiting.length });
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+}
+function notifyQueue() {
+    for (const listener of listeners) {
+        try {
+            listener({ generating: running, queued: waiting.length });
+        }
+        catch { /* A launcher update must not interrupt the shared queue. */ }
+    }
+}
 function cancelled() {
     return new DOMException('本次生图已取消。', 'AbortError');
 }
@@ -20,6 +34,7 @@ function updatePositions() {
             report(task, { state: 'queued', position });
         }
     }
+    notifyQueue();
 }
 async function drain() {
     if (running)
@@ -33,6 +48,7 @@ async function drain() {
     }
     finally {
         running = false;
+        notifyQueue();
     }
 }
 /** One shared FIFO for every image entry point; the operation includes response decoding. */

@@ -2,7 +2,7 @@ import { isPageId } from './pages.js';
 export const extensionId = 'tavern-image-plugin';
 export function defaultSettings() {
     return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-        imageRetentionDays: 0, autoGenerateImages: false, autoGenerateLatestOnly: true };
+        imageRetentionDays: 0, autoGenerateImages: false };
 }
 export function readSettings(context) {
     const settings = defaultSettings();
@@ -18,8 +18,6 @@ export function readSettings(context) {
         settings.imageRetentionDays = saved.imageRetentionDays;
     if (typeof saved.autoGenerateImages === 'boolean')
         settings.autoGenerateImages = saved.autoGenerateImages;
-    if (typeof saved.autoGenerateLatestOnly === 'boolean')
-        settings.autoGenerateLatestOnly = saved.autoGenerateLatestOnly;
     if (isPageId(saved.lastPage))
         settings.lastPage = saved.lastPage;
     if (saved.position && Number.isFinite(saved.position.x) && Number.isFinite(saved.position.y)) {

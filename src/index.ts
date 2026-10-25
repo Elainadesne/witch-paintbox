@@ -51,7 +51,7 @@ async function mount() {
       if (settings.rememberPosition && settings.position) floating?.setPosition(settings.position);
       else floating?.reset();
       for (const input of Array.from(content.querySelectorAll<HTMLInputElement>('.preference-row input'))) {
-        if (input.name === 'rememberPage' || input.name === 'rememberPosition' || input.name === 'autoGenerateImages' || input.name === 'autoGenerateLatestOnly') input.checked = settings[input.name];
+        if (input.name === 'rememberPage' || input.name === 'rememberPosition' || input.name === 'autoGenerateImages') input.checked = settings[input.name];
       }
       const retention = content.querySelector<HTMLSelectElement>('[name="imageRetentionDays"]');
       if (retention) retention.value = String(settings.imageRetentionDays);
@@ -224,8 +224,8 @@ async function mount() {
         persist();
         return;
       }
-      if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition', 'autoGenerateImages', 'autoGenerateLatestOnly'].includes(input.name)) return;
-      if (transfer.isApplying) { input.checked = settings[input.name as 'rememberPage' | 'rememberPosition' | 'autoGenerateImages' | 'autoGenerateLatestOnly']; return; }
+      if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition', 'autoGenerateImages'].includes(input.name)) return;
+      if (transfer.isApplying) { input.checked = settings[input.name as 'rememberPage' | 'rememberPosition' | 'autoGenerateImages']; return; }
       if (input.name === 'rememberPage') {
         settings.rememberPage = input.checked;
         settings.lastPage = page;
@@ -234,7 +234,7 @@ async function mount() {
         settings.rememberPosition = input.checked;
         settings.position = input.checked ? floating!.getPosition() : null;
       }
-      if (input.name === 'autoGenerateImages' || input.name === 'autoGenerateLatestOnly') settings[input.name] = input.checked;
+      if (input.name === 'autoGenerateImages') settings.autoGenerateImages = input.checked;
       persist();
       content.querySelector<HTMLElement>('[data-feedback]')!.textContent = '更改会自动保存。';
     }, { signal });

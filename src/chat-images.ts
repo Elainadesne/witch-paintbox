@@ -372,7 +372,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
           if (!isCurrent(message, key)) { controller.abort(); return; }
           if (autoSignal && progress.state === 'generating') {
             const preferences = currentPreferences();
-            if (!preferences.autoGenerateImages || preferences.autoGenerateLatestOnly && imageChatContext()?.latestMessageId !== message.messageId) {
+            if (!preferences.autoGenerateImages || imageChatContext()?.latestMessageId !== message.messageId) {
               controller.abort(); return;
             }
           }

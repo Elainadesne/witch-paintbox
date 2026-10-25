@@ -14,7 +14,6 @@ export interface Settings {
   position: Position | null;
   imageRetentionDays: 0 | 1 | 3 | 7;
   autoGenerateImages: boolean;
-  autoGenerateLatestOnly: boolean;
 }
 
 export interface TavernContext {
@@ -24,7 +23,7 @@ export interface TavernContext {
 
 export function defaultSettings(): Settings {
   return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-    imageRetentionDays: 0, autoGenerateImages: false, autoGenerateLatestOnly: true };
+    imageRetentionDays: 0, autoGenerateImages: false };
 }
 
 export function readSettings(context: TavernContext): Settings {
@@ -37,7 +36,6 @@ export function readSettings(context: TavernContext): Settings {
   if (typeof saved.rememberPosition === 'boolean') settings.rememberPosition = saved.rememberPosition;
   if ([0, 1, 3, 7].includes(saved.imageRetentionDays!)) settings.imageRetentionDays = saved.imageRetentionDays!;
   if (typeof saved.autoGenerateImages === 'boolean') settings.autoGenerateImages = saved.autoGenerateImages;
-  if (typeof saved.autoGenerateLatestOnly === 'boolean') settings.autoGenerateLatestOnly = saved.autoGenerateLatestOnly;
   if (isPageId(saved.lastPage)) settings.lastPage = saved.lastPage;
   if (saved.position && Number.isFinite(saved.position.x) && Number.isFinite(saved.position.y)) {
     settings.position = { x: saved.position.x, y: saved.position.y };

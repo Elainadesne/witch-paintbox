@@ -65,11 +65,9 @@ function preferences(value: unknown): Settings {
     if (![0, 1, 3, 7].includes(source.imageRetentionDays as number)) throw new Error('图片保留时间格式无效。');
     optional.imageRetentionDays = source.imageRetentionDays as Settings['imageRetentionDays'];
   }
-  for (const key of ['autoGenerateImages', 'autoGenerateLatestOnly'] as const) {
-    if (source[key] !== undefined) {
-      if (typeof source[key] !== 'boolean') throw new Error('自动生图偏好格式无效。');
-      optional[key] = source[key];
-    }
+  if (source.autoGenerateImages !== undefined) {
+    if (typeof source.autoGenerateImages !== 'boolean') throw new Error('自动生图偏好格式无效。');
+    optional.autoGenerateImages = source.autoGenerateImages;
   }
   return { ...optional, rememberPage: source.rememberPage, rememberPosition: source.rememberPosition, lastPage: source.lastPage, position };
 }
@@ -321,7 +319,7 @@ export function summarizeArchive(archive: ParsedArchive): ArchiveSummary[] {
     { title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` },
     { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装；完整导入将替换当前通用服装库。${sharedOutfits.map(outfit => outfit.name).join('、')}` },
     { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含两套挂载关系。${worldbooks.map(book => book.name).join('、')}` },
-    { title: '使用偏好', detail: `含页面记忆与悬浮球位置。自动生图：${archive.data.preferences.autoGenerateImages ? '开启' : '关闭'}；仅限最新楼层：${archive.data.preferences.autoGenerateLatestOnly ? '是' : '否'}；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，导入后会清理本机过期图片` : '关闭'}。` });
+    { title: '使用偏好', detail: `含页面记忆与悬浮球位置。自动生图：${archive.data.preferences.autoGenerateImages ? '开启' : '关闭'}（仅限最新一楼）；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，导入后会清理本机过期图片` : '关闭'}。` });
   return rows;
 }
 

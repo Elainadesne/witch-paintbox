@@ -1,4 +1,5 @@
 import type { Position } from './settings.js';
+import { onImageQueueChanged } from './image-queue.js';
 
 export function bindLauncher(
   button: HTMLButtonElement,
@@ -12,6 +13,18 @@ export function bindLauncher(
   let drag: { pointerId: number; x: number; y: number; origin: Position } | null = null;
   let moved = false;
   let suppressClick = false;
+  const idleLabel = button.getAttribute('aria-label') ?? '';
+  const idleTitle = button.title;
+  const idleText = button.textContent;
+  const stopQueue = onImageQueueChanged(({ generating, queued }) => {
+    const status = `正在生图${queued ? ` · 还有 ${queued} 张排队` : ''}`;
+    button.classList.toggle('generating', generating);
+    button.textContent = generating ? '绘制中' : idleText;
+    button.title = generating ? `${status} · 点击打开菜单` : idleTitle;
+    button.setAttribute('aria-label', generating ? `${status}，${idleLabel}` : idleLabel);
+    button.setAttribute('aria-busy', String(generating));
+  });
+  signal.addEventListener('abort', stopQueue, { once: true });
 
   function place(next: Position) {
     const margin = 12;

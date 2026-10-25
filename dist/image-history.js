@@ -270,6 +270,21 @@ export function historyScope(markerKey) {
     catch { /* Legacy records without an identifiable card remain in All images. */ }
     return 'unassigned';
 }
+export function historySourceName(scope, sourceName) {
+    if (sourceName?.trim() && sourceName !== '当前群聊')
+        return sourceName;
+    try {
+        const key = JSON.parse(scope);
+        if (Array.isArray(key) && key[1] !== undefined && key[1] !== null) {
+            if (key[0] === 'group')
+                return `群聊 · ${key[1]}`;
+            if (key[0] === 'character')
+                return String(key[1]).replace(/\.png$/i, '');
+        }
+    }
+    catch { /* Images created without an open card have no card identity. */ }
+    return '未归属图片';
+}
 export function historyTitle(entry) {
     if (entry.title)
         return entry.title;
@@ -330,6 +345,19 @@ async function walkHistory(mode, action, open, visit, result, permitted = () => 
             transaction.abort();
         }
     });
+}
+/** Read only the newest record for each card; skip its remaining images via the scope index. */
+export async function loadImageHistoryCategories() {
+    const categories = [];
+    return walkHistory('readonly', '分类读取', store => store.index('scopeCreatedAt').openCursor(null, 'prev'), cursor => {
+        const scope = cursor.key[0];
+        if (typeof scope !== 'string')
+            return true;
+        const sourceName = cursor.value.sourceName;
+        categories.push({ scope, name: historySourceName(scope, typeof sourceName === 'string' ? sourceName : undefined) });
+        cursor.continue([scope]);
+        return false; // continue([scope]) jumps to the previous card instead of the previous image.
+    }, () => categories.sort((a, b) => a.name.localeCompare(b.name) || a.scope.localeCompare(b.scope)));
 }
 /** At most one page of blobs is retained; pagination is stable for equal timestamps. */
 export async function loadImageHistoryPage(scope, before, limit = 12) {

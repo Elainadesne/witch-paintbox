@@ -1,5 +1,5 @@
 import { imageChatContext, watchChatRendering } from './chat-host.js';
-import { loadImageHistoryPage, deleteImageHistory, historyScope, historyTitle, historyWasDeleted, onImageHistoryChanged } from './image-history.js';
+import { loadImageHistoryPage, loadImageHistoryCategories, deleteImageHistory, historyScope, historySourceName, historyTitle, historyWasDeleted, onImageHistoryChanged } from './image-history.js';
 import { createImageGallery } from './image-gallery.js';
 /** A bounded page of local images. Switching pages releases every old object URL. */
 export class ImageReview {
@@ -10,6 +10,8 @@ export class ImageReview {
     items = [];
     all = false;
     scope = null;
+    categories = [];
+    category = null;
     cursors = [null];
     next = null;
     more = false;
@@ -27,6 +29,7 @@ export class ImageReview {
         this.cursors = [null];
         container.innerHTML = `<section class="image-review">
       <div class="review-toolbar"><nav class="anchor-tabs" aria-label="图片范围"><button type="button" data-review-scope="current">当前角色卡</button><button type="button" data-review-scope="all">全部角色卡</button></nav><button type="button" class="text-button" data-review-action="refresh">刷新</button></div>
+      <nav class="review-categories" data-review-categories aria-label="按角色卡筛选" hidden></nav>
       <p class="config-status" data-review-context></p><p class="config-status" data-review-status role="status">正在读取图片…</p>
       <div class="review-grid" data-review-grid></div>
       <nav class="review-pagination" aria-label="图片翻页"><button type="button" class="secondary" data-review-action="previous">上一页</button><span data-review-page></span><button type="button" class="secondary" data-review-action="next">下一页</button></nav>
@@ -38,7 +41,14 @@ export class ImageReview {
             if (button.dataset.reviewScope) {
                 this.all = button.dataset.reviewScope === 'all';
                 this.cursors = [null];
+                void this.load(true);
+                return;
+            }
+            if (button.dataset.reviewCategory !== undefined) {
+                this.category = button.dataset.reviewCategory || null;
+                this.cursors = [null];
                 void this.load();
+                return;
             }
             if (button.dataset.reviewImage)
                 this.open(button.dataset.reviewImage);
@@ -46,7 +56,7 @@ export class ImageReview {
                 return;
             if (button.dataset.reviewAction === 'refresh') {
                 this.cursors = [null];
-                void this.load();
+                void this.load(true);
             }
             if (button.dataset.reviewAction === 'previous' && this.cursors.length > 1) {
                 this.cursors.pop();
@@ -60,7 +70,7 @@ export class ImageReview {
         this.stopHistory = onImageHistoryChanged(change => {
             if (change.savedId) {
                 if (!this.gallery?.element.open && this.cursors.length === 1)
-                    void this.load();
+                    void this.load(true);
                 else
                     this.message('有新图片，点击“刷新”查看。');
                 return;
@@ -77,7 +87,7 @@ export class ImageReview {
             this.render();
             removed.forEach(item => URL.revokeObjectURL(item.url));
             if (!this.gallery?.element.open)
-                void this.load();
+                void this.load(true);
         });
         this.stopChat = watchChatRendering(() => {
             const scope = imageChatContext()?.scope ?? null;
@@ -89,7 +99,7 @@ export class ImageReview {
                 void this.load();
             }
         });
-        void this.load();
+        void this.load(true);
     }
     unmount() {
         this.version++;
@@ -117,7 +127,7 @@ export class ImageReview {
             status.classList.toggle('is-error', error);
         }
     }
-    async load() {
+    async load(refreshCategories = false) {
         if (!this.container)
             return;
         const version = ++this.version;
@@ -134,7 +144,17 @@ export class ImageReview {
         }
         this.message('正在读取图片…');
         try {
-            const result = await loadImageHistoryPage(this.all ? null : this.scope, this.cursors.at(-1) ?? null);
+            if (this.all && refreshCategories) {
+                const categories = await loadImageHistoryCategories();
+                if (version !== this.version || !this.container)
+                    return;
+                this.categories = categories;
+                if (this.category && !categories.some(item => item.scope === this.category)) {
+                    this.category = null;
+                    this.cursors = [null];
+                }
+            }
+            const result = await loadImageHistoryPage(this.all ? this.category : this.scope, this.cursors.at(-1) ?? null);
             if (version !== this.version || !this.container)
                 return;
             this.items = result.entries.map(entry => ({ entry, url: URL.createObjectURL(entry.blob) }));
@@ -161,7 +181,9 @@ export class ImageReview {
             button.setAttribute('aria-pressed', String((button.dataset.reviewScope === 'all') === this.all));
         });
         const context = imageChatContext();
-        container.querySelector('[data-review-context]').textContent = `${this.all ? '全部角色卡与未归属图片' : context?.name ?? '当前角色卡'} · 本机保存 · 每页最多 12 张`;
+        const categoryName = this.categories.find(item => item.scope === this.category)?.name;
+        container.querySelector('[data-review-context]').textContent = `${this.all ? categoryName ?? '全部角色卡与未归属图片' : context?.name ?? '当前角色卡'} · 本机保存 · 每页最多 12 张`;
+        this.renderCategories();
         const grid = container.querySelector('[data-review-grid]');
         grid.replaceChildren();
         for (const { entry, url } of this.items) {
@@ -178,16 +200,7 @@ export class ImageReview {
             title.textContent = historyTitle(entry);
             const source = document.createElement('span');
             source.className = 'muted';
-            let label = entry.sourceName;
-            if (!label) {
-                try {
-                    const scope = JSON.parse(historyScope(entry.markerKey));
-                    label = String(scope[1] ?? '未归属图片').replace(/\.png$/i, '');
-                }
-                catch {
-                    label = '未归属图片';
-                }
-            }
+            const label = historySourceName(historyScope(entry.markerKey), entry.sourceName);
             source.textContent = `${label} · ${new Date(entry.createdAt).toLocaleString()} · ${(entry.blob.size / 1024 / 1024).toFixed(1)} MB`;
             button.append(image, title, source);
             grid.append(button);
@@ -196,6 +209,33 @@ export class ImageReview {
         container.querySelector('[data-review-action="previous"]').disabled = this.loading || this.cursors.length <= 1;
         container.querySelector('[data-review-action="next"]').disabled = this.loading || !this.more;
         container.querySelector('[data-review-action="refresh"]').disabled = this.loading;
+    }
+    renderCategories() {
+        const nav = this.container.querySelector('[data-review-categories]');
+        const active = nav.getRootNode().activeElement;
+        const focused = active instanceof HTMLButtonElement && nav.contains(active) ? active.dataset.reviewCategory : undefined;
+        nav.hidden = !this.all;
+        nav.replaceChildren();
+        if (!this.all)
+            return;
+        const counts = new Map();
+        const numbers = new Map();
+        for (const item of this.categories)
+            counts.set(item.name, (counts.get(item.name) ?? 0) + 1);
+        for (const item of [{ scope: '', name: '全部' }, ...this.categories]) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.dataset.reviewCategory = item.scope;
+            const number = (numbers.get(item.name) ?? 0) + 1;
+            if (item.scope)
+                numbers.set(item.name, number);
+            button.textContent = item.scope && counts.get(item.name) > 1 ? `${item.name}（${number}）` : item.name;
+            button.title = item.scope ? `查看${button.textContent}的图片` : '查看全部角色卡的图片';
+            button.setAttribute('aria-pressed', String((this.category ?? '') === item.scope));
+            nav.append(button);
+            if (focused === item.scope)
+                button.focus({ preventScroll: true });
+        }
     }
     open(id) {
         const selected = this.items.find(item => item.entry.id === id);

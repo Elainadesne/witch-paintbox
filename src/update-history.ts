@@ -1,6 +1,14 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-25', title: '角色卡分类与绘制状态',
+    changes: [
+      '全部角色卡的生图回顾增加角色卡名称标签，可按卡筛选；同名卡分别收纳，未归属图片单独显示。',
+      '自动生图固定仅处理最新一楼，移除单独的范围开关；旧配置导入后也采用该规则。',
+      '悬浮球在 NAI 或 GPT 生图期间显示绘制状态，悬停可查看排队数量，队列结束后恢复。',
+    ],
+  },
+  {
     date: '2026-10-25', title: '生图回顾与自动留存',
     changes: [
       '使用偏好增加图片自动清理，可关闭或保留最近 1、3、7 天；按生成时间清理本机历史，角色锚定图保留。',

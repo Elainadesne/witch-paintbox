@@ -10,6 +10,21 @@ interface QueuedGeneration {
 
 const waiting: QueuedGeneration[] = [];
 let running = false;
+interface ImageQueueState { generating: boolean; queued: number }
+const listeners = new Set<(state: ImageQueueState) => void>();
+
+export function onImageQueueChanged(listener: (state: ImageQueueState) => void): () => void {
+  listener({ generating: running, queued: waiting.length });
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+function notifyQueue(): void {
+  for (const listener of listeners) {
+    try { listener({ generating: running, queued: waiting.length }); }
+    catch { /* A launcher update must not interrupt the shared queue. */ }
+  }
+}
 
 function cancelled(): DOMException {
   return new DOMException('本次生图已取消。', 'AbortError');
@@ -32,6 +47,7 @@ function updatePositions(): void {
       report(task, { state: 'queued', position });
     }
   }
+  notifyQueue();
 }
 
 async function drain(): Promise<void> {
@@ -44,6 +60,7 @@ async function drain(): Promise<void> {
     }
   } finally {
     running = false;
+    notifyQueue();
   }
 }
 

@@ -35,12 +35,10 @@ function preferences(value) {
             throw new Error('图片保留时间格式无效。');
         optional.imageRetentionDays = source.imageRetentionDays;
     }
-    for (const key of ['autoGenerateImages', 'autoGenerateLatestOnly']) {
-        if (source[key] !== undefined) {
-            if (typeof source[key] !== 'boolean')
-                throw new Error('自动生图偏好格式无效。');
-            optional[key] = source[key];
-        }
+    if (source.autoGenerateImages !== undefined) {
+        if (typeof source.autoGenerateImages !== 'boolean')
+            throw new Error('自动生图偏好格式无效。');
+        optional.autoGenerateImages = source.autoGenerateImages;
     }
     return { ...optional, rememberPage: source.rememberPage, rememberPosition: source.rememberPosition, lastPage: source.lastPage, position };
 }
@@ -305,7 +303,7 @@ export function summarizeArchive(archive) {
         const parameters = provider === 'novelai' ? settings.parameters : settings.openaiParameters;
         rows.push({ title: `${providerName(provider)} 生图 API`, detail: `${settings.connectionProfiles.length} 个保存连接；模型 ${parameters.model || '未选模型'}，${parameters.width} × ${parameters.height}，含全部生图参数。` }, { title: `${providerName(provider)} 画师串`, detail: `${settings.artists.length} 个命名配置及当前提示词。${settings.artists.map(item => item.name).join('、')}` }, { title: `${providerName(provider)} 预设`, detail: `“${preset.presetName || '未命名'}”，${preset.head.length + preset.tail.length} 个文本条目，含编排、功能层选择和 ${preset.worldbooks.length} 本世界书挂载。` });
     }
-    rows.push({ title: '共用模型 API', detail: `${model.api.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.api.model || '未选模型'}`}；含回复参数及配图标记开关。` }, { title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` }, { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装；完整导入将替换当前通用服装库。${sharedOutfits.map(outfit => outfit.name).join('、')}` }, { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含两套挂载关系。${worldbooks.map(book => book.name).join('、')}` }, { title: '使用偏好', detail: `含页面记忆与悬浮球位置。自动生图：${archive.data.preferences.autoGenerateImages ? '开启' : '关闭'}；仅限最新楼层：${archive.data.preferences.autoGenerateLatestOnly ? '是' : '否'}；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，导入后会清理本机过期图片` : '关闭'}。` });
+    rows.push({ title: '共用模型 API', detail: `${model.api.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.api.model || '未选模型'}`}；含回复参数及配图标记开关。` }, { title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` }, { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装；完整导入将替换当前通用服装库。${sharedOutfits.map(outfit => outfit.name).join('、')}` }, { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含两套挂载关系。${worldbooks.map(book => book.name).join('、')}` }, { title: '使用偏好', detail: `含页面记忆与悬浮球位置。自动生图：${archive.data.preferences.autoGenerateImages ? '开启' : '关闭'}（仅限最新一楼）；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，导入后会清理本机过期图片` : '关闭'}。` });
     return rows;
 }
 /** Validate everything before writes; restore completed sections if a later storage operation fails. */

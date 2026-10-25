@@ -76,8 +76,7 @@ function preferencesView(settings) {
       <label class="preference-row"><span><strong>自动清理生图</strong><span>按生成时间清理所有角色卡的本机图片历史；角色锚定图保留。开启后立即清理，关闭酒馆期间的过期图片会在下次打开时清理。</span></span>
         <select name="imageRetentionDays" aria-label="图片保留时间">${[[0, '关闭'], [1, '保留 1 天'], [3, '保留 3 天'], [7, '保留 7 天']].map(([value, label]) => `<option value="${value}"${settings.imageRetentionDays === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
       <p class="config-status" data-cleanup-status role="status"></p>
-      <label class="preference-row"><span><strong>自动生图</strong><span>AI 回复结束、提示词稳定 1 秒后，按正文顺序依次绘制。会消耗生图额度；已有图片跳过，失败不自动重试。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
-      <label class="preference-row"><span><strong>仅限最新一楼</strong><span>关闭后也处理本次打开聊天后其他楼层新增的配图标记。打开聊天或开启功能时，不补跑已有标记。</span></span><input type="checkbox" name="autoGenerateLatestOnly" ${settings.autoGenerateLatestOnly ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>自动生图</strong><span>仅限最新一楼。AI 回复结束、提示词稳定 1 秒后，按正文顺序依次绘制。会消耗生图额度；已有图片跳过，失败不自动重试，打开聊天或开启功能时不补跑历史标记。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
     </section>
     <label class="preference-row">
       <span><strong>回到上次页面</strong><span>再次打开时继续上次的位置；关闭后每次进入“开始使用”。</span></span>
