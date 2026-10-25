@@ -42,6 +42,34 @@ function requireIdle(state) {
         throw new ChatHostError('请先完成或取消正在进行的楼层编辑。');
     }
 }
+/** Automatic generation waits for the native reply and any floor edits to finish. */
+export async function isChatReadyForImages() {
+    try {
+        requireIdle(await nativeState());
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+export function imageChatContext() {
+    try {
+        const context = host();
+        const id = chatId(context);
+        const group = context.groupId !== undefined && context.groupId !== null && context.groupId !== '';
+        const character = context.characters[Number(context.characterId)];
+        if (!group && !character)
+            return null;
+        return {
+            scope: JSON.stringify(group ? ['group', String(context.groupId)] : ['character', character.avatar ?? context.characterId]),
+            name: group ? '当前群聊' : character.name,
+            chatId: id, latestMessageId: context.chat.length - 1,
+        };
+    }
+    catch {
+        return null;
+    }
+}
 function latestAssistant(context) {
     for (let id = context.chat.length - 1; id >= 0; id--) {
         const message = context.chat[id];
@@ -293,7 +321,7 @@ export function watchChatRendering(callback) {
             continue;
         const handler = (...args) => {
             try {
-                callback(typeof args[0] === 'number' ? args[0] : undefined);
+                callback(typeof args[0] === 'number' ? args[0] : undefined, undefined, name);
             }
             catch { /* Do not interrupt host rendering. */ }
         };

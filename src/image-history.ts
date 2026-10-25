@@ -13,6 +13,9 @@ interface ImageHistoryData {
   characters?: CharacterPrompt[];
   /** Original scene tags before anchor expansion and artist additions. Older entries omit this. */
   scenePrompt?: string;
+  scope?: string;
+  title?: string;
+  sourceName?: string;
 }
 
 export type ImageHistoryEntry = ImageHistoryData & (
@@ -29,16 +32,36 @@ export function imageHistoryPositive(entry: ImageHistoryEntry): string {
 const databaseName = 'witch-paintbox-image-history';
 const storeName = 'images';
 let connection: Promise<IDBDatabase> | null = null;
-const changeListeners = new Set<() => void>();
+export interface ImageHistoryChange { savedId?: string; deletedIds?: readonly string[]; before?: number }
+const changeListeners = new Set<(change: ImageHistoryChange) => void>();
+let channel: BroadcastChannel | null = null;
 
-export function onImageHistoryChanged(callback: () => void): () => void {
+/** Keep open tabs from retaining deleted blobs; only record IDs and cutoffs cross the channel. */
+export function bindImageHistorySync(signal: AbortSignal): void {
+  if (signal.aborted || channel || typeof BroadcastChannel !== 'function') return;
+  try { channel = new BroadcastChannel('witch-paintbox-image-history'); } catch { return; }
+  const current = channel;
+  current.onmessage = event => {
+    const value = event.data;
+    if (!value || typeof value !== 'object') return;
+    const change: ImageHistoryChange = {};
+    if (typeof value.savedId === 'string') change.savedId = value.savedId;
+    if (Array.isArray(value.deletedIds) && value.deletedIds.every((id: unknown) => typeof id === 'string')) change.deletedIds = value.deletedIds;
+    if (typeof value.before === 'number' && Number.isFinite(value.before) && value.before > 0) change.before = value.before;
+    if (Object.keys(change).length) notifyChanged(change, false);
+  };
+  signal.addEventListener('abort', () => { current.close(); if (channel === current) channel = null; }, { once: true });
+}
+
+export function onImageHistoryChanged(callback: (change: ImageHistoryChange) => void): () => void {
   changeListeners.add(callback);
   return () => { changeListeners.delete(callback); };
 }
 
-function notifyChanged(): void {
+function notifyChanged(change: ImageHistoryChange, broadcast = true): void {
+  if (broadcast) { try { channel?.postMessage(change); } catch { /* Local listeners still update. */ } }
   for (const listener of changeListeners) {
-    try { listener(); } catch { /* View failures must not undo committed image history. */ }
+    try { listener(change); } catch { /* View failures must not undo committed image history. */ }
   }
 }
 
@@ -54,7 +77,7 @@ function database(): Promise<IDBDatabase> {
       reject(new Error(message));
     }
     let request: IDBOpenDBRequest;
-    try { request = window.indexedDB.open(databaseName, 1); }
+    try { request = window.indexedDB.open(databaseName, 2); }
     catch { fail('浏览器无法打开图片历史，请检查站点存储权限。'); return; }
     request.onblocked = () => fail('图片历史被其他页面占用，请关闭其他酒馆页面后重试。');
     request.onerror = () => fail('浏览器未能打开图片历史，请检查存储权限或剩余空间。');
@@ -66,6 +89,16 @@ function database(): Promise<IDBDatabase> {
           ? request.transaction!.objectStore(storeName)
           : db.createObjectStore(storeName, { keyPath: 'id' });
         if (!store.indexNames.contains('markerKey')) store.createIndex('markerKey', 'markerKey', { unique: false });
+        if (!store.indexNames.contains('createdAt')) store.createIndex('createdAt', ['createdAt', 'id']);
+        if (!store.indexNames.contains('scopeCreatedAt')) store.createIndex('scopeCreatedAt', ['scope', 'createdAt', 'id']);
+        // Backfill ownership from existing keys, without loading the full archive into memory.
+        const cursor = store.openCursor();
+        cursor.onsuccess = () => {
+          const row = cursor.result;
+          if (!row) return;
+          row.update({ ...row.value, scope: historyScope(row.value.markerKey) });
+          row.continue();
+        };
       } catch {
         request.transaction?.abort();
         fail('图片历史存储初始化失败。');
@@ -159,6 +192,9 @@ function snapshot(value: unknown): ImageHistoryEntry {
     positive: entry.positive, negative: entry.negative,
     ...(characters === undefined ? {} : { characters }),
     ...(entry.scenePrompt === undefined ? {} : { scenePrompt: entry.scenePrompt }),
+    scope: historyScope(entry.markerKey),
+    ...(typeof entry.title === 'string' ? { title: entry.title.slice(0, 400) } : {}),
+    ...(typeof entry.sourceName === 'string' ? { sourceName: entry.sourceName.slice(0, 200) } : {}),
   };
   // Copy only image metadata: connection credentials and arbitrary extra fields never enter this store.
   if (entry.provider === 'openai') {
@@ -196,11 +232,98 @@ export async function loadImageHistory(markerKey: string): Promise<ImageHistoryE
 export async function saveImageHistory(entry: ImageHistoryEntry): Promise<void> {
   const saved = snapshot(entry);
   await transact('readwrite', '保存', store => store.put(saved));
-  notifyChanged();
+  notifyChanged({ savedId: saved.id });
 }
 
 export async function deleteImageHistory(id: string): Promise<void> {
   if (typeof id !== 'string' || !id) throw new Error('图片历史标识无效，无法删除。');
   await transact('readwrite', '删除', store => store.delete(id));
-  notifyChanged();
+  notifyChanged({ deletedIds: [id] });
+}
+
+export function historyScope(markerKey: string): string {
+  try {
+    const key: unknown = JSON.parse(markerKey);
+    if (Array.isArray(key) && typeof key[0] === 'string') return key[0];
+  } catch { /* Legacy records without an identifiable card remain in All images. */ }
+  return 'unassigned';
+}
+
+export function historyTitle(entry: ImageHistoryEntry): string {
+  if (entry.title) return entry.title;
+  try {
+    const key = JSON.parse(entry.markerKey);
+    const raw = key[key.length - 3];
+    if (typeof raw === 'string') return /^<img>\s*\[([^\]\r\n]+)\]/.exec(raw)?.[1] ?? '配图';
+  } catch { /* Keep old images viewable even when their title cannot be recovered. */ }
+  return '配图';
+}
+
+export function historyWasDeleted(entry: ImageHistoryEntry, change: ImageHistoryChange): boolean {
+  return Boolean(change.deletedIds?.includes(entry.id) || change.before !== undefined && entry.createdAt < change.before);
+}
+
+async function walkHistory<T, C extends IDBCursor>(mode: IDBTransactionMode, action: string,
+  open: (store: IDBObjectStore) => IDBRequest<C | null>,
+  visit: (cursor: C, store: IDBObjectStore) => boolean,
+  result: () => T, permitted = () => true): Promise<T> {
+  const db = await database();
+  if (!permitted()) return result();
+  return new Promise<T>((resolve, reject) => {
+    let transaction: IDBTransaction;
+    try { transaction = db.transaction(storeName, mode); }
+    catch { connection = null; reject(operationError(action)); return; }
+    const timer = setTimeout(() => {
+      try { transaction.abort(); } catch { /* May already be committed. */ }
+      reject(new Error(`图片历史${action}超时，请稍后重试。`));
+    }, 30_000);
+    transaction.onabort = transaction.onerror = () => { clearTimeout(timer); reject(operationError(action, transaction.error)); };
+    transaction.oncomplete = () => { clearTimeout(timer); resolve(result()); };
+    try {
+      const store = transaction.objectStore(storeName);
+      const request = open(store);
+      request.onsuccess = () => {
+        try {
+          if (!permitted()) { transaction.abort(); return; }
+          const cursor = request.result;
+          if (cursor && visit(cursor, store)) cursor.continue();
+        } catch { transaction.abort(); }
+      };
+    } catch { transaction.abort(); }
+  });
+}
+
+export interface ImageHistoryPage { entries: ImageHistoryEntry[]; more: boolean; next: [number, string] | null }
+
+/** At most one page of blobs is retained; pagination is stable for equal timestamps. */
+export async function loadImageHistoryPage(scope: string | null, before: [number, string] | null, limit = 12): Promise<ImageHistoryPage> {
+  const entries: ImageHistoryEntry[] = [];
+  let more = false;
+  const size = Math.max(1, Math.min(24, Math.floor(limit)));
+  const range = scope === null
+    ? before ? IDBKeyRange.upperBound(before, true) : undefined
+    : IDBKeyRange.bound([scope], before ? [scope, ...before] : [scope, Number.MAX_VALUE, []], false, Boolean(before));
+  return walkHistory('readonly', '读取', store => store.index(scope === null ? 'createdAt' : 'scopeCreatedAt').openCursor(range, 'prev'), cursor => {
+    let entry: ImageHistoryEntry;
+    try { entry = snapshot(cursor.value); } catch { return true; }
+    if (entries.length === size) { more = true; return false; }
+    entries.push(entry);
+    return true;
+  }, () => {
+    const last = entries.at(-1);
+    return { entries, more, next: last ? [last.createdAt, last.id] : null };
+  });
+}
+
+/** Delete via timestamp keys rather than reading every image blob. */
+export async function deleteExpiredImages(before: number, permitted = () => true): Promise<number> {
+  if (!Number.isFinite(before) || before <= 0) return 0;
+  let count = 0;
+  await walkHistory('readwrite', '清理', store => store.index('createdAt').openKeyCursor(IDBKeyRange.upperBound([before], true)), (cursor, store) => {
+    store.delete(cursor.primaryKey);
+    count++;
+    return true;
+  }, () => count, permitted);
+  if (count) notifyChanged({ before });
+  return count;
 }

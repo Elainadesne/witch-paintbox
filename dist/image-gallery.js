@@ -323,6 +323,7 @@ export function createImageGallery(summary, signal, handlers) {
     signal.addEventListener('abort', () => { close(); removePortal(); }, { once: true });
     return {
         element, setImages, close,
+        setSummary(value) { summary = value; title.textContent = value; element.setAttribute('aria-label', `${value} · 图片查看器`); },
         open() {
             if (signal.aborted)
                 return;

@@ -39,6 +39,7 @@ function guideView(): string {
           <div class="map-leaves">
             <button type="button" class="map-leaf" data-page="features" data-feature-tab="anchors"><strong>标签锚定</strong><span>固定角色外貌与服装</span></button>
             <button type="button" class="map-leaf" data-page="features" data-feature-tab="worldbook"><strong>世界书</strong><span>上传并挂载参考条目</span></button>
+            ${node('review', 'map-leaf')}
           </div>
         </div>
         <div class="map-branch">${node('preferences')}
@@ -52,7 +53,7 @@ function guideView(): string {
         <li><span class="guide-step-number" aria-hidden="true">01</span><div><h4>连接接口，导入预设</h4><p>选择 NAI 或 GPT，配置两类 API，再导入对应服务的预设。</p></div></li>
         <li><span class="guide-step-number" aria-hidden="true">02</span><div><h4>补充角色与世界资料</h4><p>按需要配置标签锚定、上传世界书，并勾选要挂载的条目。</p></div></li>
         <li><span class="guide-step-number" aria-hidden="true">03</span><div><h4>让 AI 处理最新回复</h4><p>打开悬浮球菜单，点击“AI生图”，为正文插入配图位置。</p></div></li>
-        <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层中生成图片</h4><p>点击配图位置的“生成图片”，图片会按队列依次绘制。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层中生成图片</h4><p>点击“生成图片”，或在使用偏好开启自动生图。已保存图片可在生图回顾中翻看。</p></div></li>
       </ol>
     </section>
     <section class="guide-transfer" aria-labelledby="guide-transfer-heading">
@@ -76,6 +77,14 @@ function hostSyncView(): string {
 
 function preferencesView(settings: Settings): string {
   return `
+    <section class="preference-section" aria-labelledby="image-habits-heading">
+      <header class="section-heading section-heading--plain"><h3 id="image-habits-heading" class="section-title">配图与留存</h3><p class="section-description">安排自动绘制，给本机画匣留出空间。</p></header>
+      <label class="preference-row"><span><strong>自动清理生图</strong><span>按生成时间清理所有角色卡的本机图片历史；角色锚定图保留。开启后立即清理，关闭酒馆期间的过期图片会在下次打开时清理。</span></span>
+        <select name="imageRetentionDays" aria-label="图片保留时间">${[[0, '关闭'], [1, '保留 1 天'], [3, '保留 3 天'], [7, '保留 7 天']].map(([value, label]) => `<option value="${value}"${settings.imageRetentionDays === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+      <p class="config-status" data-cleanup-status role="status"></p>
+      <label class="preference-row"><span><strong>自动生图</strong><span>AI 回复结束、提示词稳定 1 秒后，按正文顺序依次绘制。会消耗生图额度；已有图片跳过，失败不自动重试。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>仅限最新一楼</strong><span>关闭后也处理本次打开聊天后其他楼层新增的配图标记。打开聊天或开启功能时，不补跑已有标记。</span></span><input type="checkbox" name="autoGenerateLatestOnly" ${settings.autoGenerateLatestOnly ? 'checked' : ''}></label>
+    </section>
     <label class="preference-row">
       <span><strong>回到上次页面</strong><span>再次打开时继续上次的位置；关闭后每次进入“开始使用”。</span></span>
       <input type="checkbox" name="rememberPage" ${settings.rememberPage ? 'checked' : ''}>
@@ -119,6 +128,7 @@ export function pageView(page: PageId, settings: Settings, featureTab: FeatureTa
     case 'image-api': return '<div data-image-settings></div>';
     case 'model-api': return '<div data-model-settings></div>';
     case 'features': return featureView(featureTab);
+    case 'review': return heading + '<div data-image-review></div>';
     case 'preferences': return heading + preferencesView(settings);
   }
 }

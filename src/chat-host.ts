@@ -45,7 +45,7 @@ export interface ImageDisplayChange extends ImageInsertionResult {
   previousText: string;
 }
 
-type ChatRenderListener = (messageId?: number, change?: ImageDisplayChange) => void;
+type ChatRenderListener = (messageId?: number, change?: ImageDisplayChange, event?: string) => void;
 
 interface SnapshotState {
   chat: ChatMessage[];
@@ -102,6 +102,26 @@ function requireIdle(state: Awaited<ReturnType<typeof nativeState>>): void {
   if (document.querySelector('#chat .edit_textarea, #chat .reasoning_edit_textarea')) {
     throw new ChatHostError('请先完成或取消正在进行的楼层编辑。');
   }
+}
+
+/** Automatic generation waits for the native reply and any floor edits to finish. */
+export async function isChatReadyForImages(): Promise<boolean> {
+  try { requireIdle(await nativeState()); return true; } catch { return false; }
+}
+
+export function imageChatContext(): { scope: string; name: string; chatId: string; latestMessageId: number } | null {
+  try {
+    const context = host();
+    const id = chatId(context);
+    const group = context.groupId !== undefined && context.groupId !== null && context.groupId !== '';
+    const character = context.characters[Number(context.characterId)];
+    if (!group && !character) return null;
+    return {
+      scope: JSON.stringify(group ? ['group', String(context.groupId)] : ['character', character.avatar ?? context.characterId]),
+      name: group ? '当前群聊' : character.name,
+      chatId: id, latestMessageId: context.chat.length - 1,
+    };
+  } catch { return null; }
 }
 
 function latestAssistant(context: ChatHost): number {
@@ -329,7 +349,7 @@ export function watchChatRendering(callback: ChatRenderListener): () => void {
     const event = context.eventTypes?.[name];
     if (!event) continue;
     const handler = (...args: unknown[]) => {
-      try { callback(typeof args[0] === 'number' ? args[0] : undefined); } catch { /* Do not interrupt host rendering. */ }
+      try { callback(typeof args[0] === 'number' ? args[0] : undefined, undefined, name); } catch { /* Do not interrupt host rendering. */ }
     };
     context.eventSource.on(event, handler);
     subscriptions.push({ event, handler });

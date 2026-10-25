@@ -8,14 +8,49 @@ const databaseName = 'witch-paintbox-image-history';
 const storeName = 'images';
 let connection = null;
 const changeListeners = new Set();
+let channel = null;
+/** Keep open tabs from retaining deleted blobs; only record IDs and cutoffs cross the channel. */
+export function bindImageHistorySync(signal) {
+    if (signal.aborted || channel || typeof BroadcastChannel !== 'function')
+        return;
+    try {
+        channel = new BroadcastChannel('witch-paintbox-image-history');
+    }
+    catch {
+        return;
+    }
+    const current = channel;
+    current.onmessage = event => {
+        const value = event.data;
+        if (!value || typeof value !== 'object')
+            return;
+        const change = {};
+        if (typeof value.savedId === 'string')
+            change.savedId = value.savedId;
+        if (Array.isArray(value.deletedIds) && value.deletedIds.every((id) => typeof id === 'string'))
+            change.deletedIds = value.deletedIds;
+        if (typeof value.before === 'number' && Number.isFinite(value.before) && value.before > 0)
+            change.before = value.before;
+        if (Object.keys(change).length)
+            notifyChanged(change, false);
+    };
+    signal.addEventListener('abort', () => { current.close(); if (channel === current)
+        channel = null; }, { once: true });
+}
 export function onImageHistoryChanged(callback) {
     changeListeners.add(callback);
     return () => { changeListeners.delete(callback); };
 }
-function notifyChanged() {
+function notifyChanged(change, broadcast = true) {
+    if (broadcast) {
+        try {
+            channel?.postMessage(change);
+        }
+        catch { /* Local listeners still update. */ }
+    }
     for (const listener of changeListeners) {
         try {
-            listener();
+            listener(change);
         }
         catch { /* View failures must not undo committed image history. */ }
     }
@@ -35,7 +70,7 @@ function database() {
         }
         let request;
         try {
-            request = window.indexedDB.open(databaseName, 1);
+            request = window.indexedDB.open(databaseName, 2);
         }
         catch {
             fail('浏览器无法打开图片历史，请检查站点存储权限。');
@@ -55,6 +90,19 @@ function database() {
                     : db.createObjectStore(storeName, { keyPath: 'id' });
                 if (!store.indexNames.contains('markerKey'))
                     store.createIndex('markerKey', 'markerKey', { unique: false });
+                if (!store.indexNames.contains('createdAt'))
+                    store.createIndex('createdAt', ['createdAt', 'id']);
+                if (!store.indexNames.contains('scopeCreatedAt'))
+                    store.createIndex('scopeCreatedAt', ['scope', 'createdAt', 'id']);
+                // Backfill ownership from existing keys, without loading the full archive into memory.
+                const cursor = store.openCursor();
+                cursor.onsuccess = () => {
+                    const row = cursor.result;
+                    if (!row)
+                        return;
+                    row.update({ ...row.value, scope: historyScope(row.value.markerKey) });
+                    row.continue();
+                };
             }
             catch {
                 request.transaction?.abort();
@@ -166,6 +214,9 @@ function snapshot(value) {
         positive: entry.positive, negative: entry.negative,
         ...(characters === undefined ? {} : { characters }),
         ...(entry.scenePrompt === undefined ? {} : { scenePrompt: entry.scenePrompt }),
+        scope: historyScope(entry.markerKey),
+        ...(typeof entry.title === 'string' ? { title: entry.title.slice(0, 400) } : {}),
+        ...(typeof entry.sourceName === 'string' ? { sourceName: entry.sourceName.slice(0, 200) } : {}),
     };
     // Copy only image metadata: connection credentials and arbitrary extra fields never enter this store.
     if (entry.provider === 'openai') {
@@ -202,11 +253,122 @@ export async function loadImageHistory(markerKey) {
 export async function saveImageHistory(entry) {
     const saved = snapshot(entry);
     await transact('readwrite', '保存', store => store.put(saved));
-    notifyChanged();
+    notifyChanged({ savedId: saved.id });
 }
 export async function deleteImageHistory(id) {
     if (typeof id !== 'string' || !id)
         throw new Error('图片历史标识无效，无法删除。');
     await transact('readwrite', '删除', store => store.delete(id));
-    notifyChanged();
+    notifyChanged({ deletedIds: [id] });
+}
+export function historyScope(markerKey) {
+    try {
+        const key = JSON.parse(markerKey);
+        if (Array.isArray(key) && typeof key[0] === 'string')
+            return key[0];
+    }
+    catch { /* Legacy records without an identifiable card remain in All images. */ }
+    return 'unassigned';
+}
+export function historyTitle(entry) {
+    if (entry.title)
+        return entry.title;
+    try {
+        const key = JSON.parse(entry.markerKey);
+        const raw = key[key.length - 3];
+        if (typeof raw === 'string')
+            return /^<img>\s*\[([^\]\r\n]+)\]/.exec(raw)?.[1] ?? '配图';
+    }
+    catch { /* Keep old images viewable even when their title cannot be recovered. */ }
+    return '配图';
+}
+export function historyWasDeleted(entry, change) {
+    return Boolean(change.deletedIds?.includes(entry.id) || change.before !== undefined && entry.createdAt < change.before);
+}
+async function walkHistory(mode, action, open, visit, result, permitted = () => true) {
+    const db = await database();
+    if (!permitted())
+        return result();
+    return new Promise((resolve, reject) => {
+        let transaction;
+        try {
+            transaction = db.transaction(storeName, mode);
+        }
+        catch {
+            connection = null;
+            reject(operationError(action));
+            return;
+        }
+        const timer = setTimeout(() => {
+            try {
+                transaction.abort();
+            }
+            catch { /* May already be committed. */ }
+            reject(new Error(`图片历史${action}超时，请稍后重试。`));
+        }, 30_000);
+        transaction.onabort = transaction.onerror = () => { clearTimeout(timer); reject(operationError(action, transaction.error)); };
+        transaction.oncomplete = () => { clearTimeout(timer); resolve(result()); };
+        try {
+            const store = transaction.objectStore(storeName);
+            const request = open(store);
+            request.onsuccess = () => {
+                try {
+                    if (!permitted()) {
+                        transaction.abort();
+                        return;
+                    }
+                    const cursor = request.result;
+                    if (cursor && visit(cursor, store))
+                        cursor.continue();
+                }
+                catch {
+                    transaction.abort();
+                }
+            };
+        }
+        catch {
+            transaction.abort();
+        }
+    });
+}
+/** At most one page of blobs is retained; pagination is stable for equal timestamps. */
+export async function loadImageHistoryPage(scope, before, limit = 12) {
+    const entries = [];
+    let more = false;
+    const size = Math.max(1, Math.min(24, Math.floor(limit)));
+    const range = scope === null
+        ? before ? IDBKeyRange.upperBound(before, true) : undefined
+        : IDBKeyRange.bound([scope], before ? [scope, ...before] : [scope, Number.MAX_VALUE, []], false, Boolean(before));
+    return walkHistory('readonly', '读取', store => store.index(scope === null ? 'createdAt' : 'scopeCreatedAt').openCursor(range, 'prev'), cursor => {
+        let entry;
+        try {
+            entry = snapshot(cursor.value);
+        }
+        catch {
+            return true;
+        }
+        if (entries.length === size) {
+            more = true;
+            return false;
+        }
+        entries.push(entry);
+        return true;
+    }, () => {
+        const last = entries.at(-1);
+        return { entries, more, next: last ? [last.createdAt, last.id] : null };
+    });
+}
+/** Delete via timestamp keys rather than reading every image blob. */
+export async function deleteExpiredImages(before, permitted = () => true) {
+    if (!Number.isFinite(before) || before <= 0)
+        return 0;
+    let count = 0;
+    await walkHistory('readwrite', '清理', store => store.index('createdAt').openKeyCursor(IDBKeyRange.upperBound([before], true)), (cursor, store) => {
+        store.delete(cursor.primaryKey);
+        count++;
+        return true;
+    }, () => count, permitted);
+    if (count)
+        notifyChanged({ before });
+    return count;
 }

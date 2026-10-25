@@ -1,14 +1,17 @@
-import { readAssistantMessages, watchChatRendering } from './chat-host.js';
+import { imageChatContext, readAssistantMessages, watchChatRendering } from './chat-host.js';
 import { hasPendingFrontendFrame, iframeNarrativeRoot, locateImageInsertionPoints, locateImageMarkers, primaryNarrativeContainer } from './chat-image-placement.js';
 import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
 import { generateConfiguredImage } from './image-provider.js';
 import { createChatImageView } from './chat-image-view.js';
 import { createImageGallery } from './image-gallery.js';
-import { loadImageHistory, saveImageHistory, deleteImageHistory } from './image-history.js';
+import { loadImageHistory, saveImageHistory, deleteImageHistory, onImageHistoryChanged, historyWasDeleted } from './image-history.js';
 import { markerEntries } from './image-marker-history.js';
 import { imageFileExtension } from './raster-image.js';
 import { frameDocument, frontendFrames } from './frontend-frames.js';
+import { watchChatImageLayout } from './chat-image-layout.js';
+import { automaticImages } from './automatic-images.js';
+import { currentPreferences } from './settings.js';
 /** Render-only controls: stored chat text always contains the original literal markers. */
 export function bindChatImages(signal) {
     if (signal.aborted)
@@ -22,6 +25,16 @@ export function bindChatImages(signal) {
     let timer;
     let stopped = false;
     const observedFrames = new Map();
+    const chatElement = document.getElementById('chat') ?? document.body;
+    const layout = watchChatImageLayout(chatElement, schedule);
+    const automatic = automaticImages({
+        mounted: ({ entry, message }) => {
+            const slot = images.get(entry.key)?.slot;
+            return Boolean(slot && isSlotConnected(slot) && isCurrent(message, entry.key));
+        },
+        async generate({ entry }, signal) { await images.get(entry.key)?.generateAutomatically(signal); },
+    });
+    const stopHistory = onImageHistoryChanged(change => images.forEach(control => control.removeHistory(change)));
     function containsAcrossFrames(root, node) {
         let current = node;
         while (current) {
@@ -97,6 +110,7 @@ export function bindChatImages(signal) {
         }
     }
     function clearImages() {
+        layout.update(new Set());
         images.forEach(control => { restoreSlot(control.slot); control.dispose(); });
         images.clear();
         insertions.clear();
@@ -244,6 +258,10 @@ export function bindChatImages(signal) {
         let selectedId = null;
         let phase = 'queued';
         let historyLoaded = false;
+        let historyAvailable = false;
+        let deletedBefore = 0;
+        const deletedIds = new Set();
+        const deleted = (entry) => entry.createdAt < deletedBefore || deletedIds.has(entry.id);
         const gallery = createImageGallery(marker.summary, controls.signal, {
             onSelect(id) { selectedId = id; showSelected(); },
             async onDelete(id) {
@@ -303,7 +321,8 @@ export function bindChatImages(signal) {
         const historyReady = (historyKey ? loadImageHistory(historyKey) : Promise.resolve([])).then(entries => {
             if (controls.signal.aborted)
                 return;
-            history = entries.map(entry => ({ entry, url: URL.createObjectURL(entry.blob) }));
+            historyAvailable = true;
+            history = entries.filter(entry => !deleted(entry)).map(entry => ({ entry, url: URL.createObjectURL(entry.blob) }));
             selectedId = history.at(-1)?.entry.id ?? null;
             showSelected();
             if (!request)
@@ -327,13 +346,13 @@ export function bindChatImages(signal) {
             event.stopPropagation();
             request?.abort();
         }, { signal: controls.signal });
-        async function requestGeneration(event) {
-            event.preventDefault();
-            event.stopPropagation();
-            if (request || !isSlotConnected(slot) || !isCurrent(message, key)
+        async function requestGeneration(autoSignal) {
+            if (autoSignal?.aborted || request || !isSlotConnected(slot) || !isCurrent(message, key)
                 || closestFloor(slot)?.querySelector('textarea.edit_textarea'))
                 return;
             const controller = new AbortController();
+            const cancelAutomatic = () => controller.abort();
+            autoSignal?.addEventListener('abort', cancelAutomatic, { once: true });
             request = controller;
             cancel.hidden = false;
             phase = 'queued';
@@ -361,6 +380,13 @@ export function bindChatImages(signal) {
                         controller.abort();
                         return;
                     }
+                    if (autoSignal && progress.state === 'generating') {
+                        const preferences = currentPreferences();
+                        if (!preferences.autoGenerateImages || preferences.autoGenerateLatestOnly && imageChatContext()?.latestMessageId !== message.messageId) {
+                            controller.abort();
+                            return;
+                        }
+                    }
                     phase = progress.state;
                     canvas.dataset.phase = phase;
                     syncGenerationButtons();
@@ -374,6 +400,7 @@ export function bindChatImages(signal) {
                     id: `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`,
                     ...result, markerKey: historyKey ?? key, createdAt: Date.now(),
                     scenePrompt: marker.prompt,
+                    title: marker.summary, sourceName: imageChatContext()?.name,
                 };
                 const saving = historyKey ? saveImageHistory(entry) : Promise.resolve();
                 saves.set(entry.id, saving);
@@ -408,6 +435,7 @@ export function bindChatImages(signal) {
                     : error instanceof Error ? error.message : '生图未完成，请稍后重试。';
             }
             finally {
+                autoSignal?.removeEventListener('abort', cancelAutomatic);
                 request = null;
                 syncGenerationButtons();
                 cancel.hidden = true;
@@ -417,10 +445,31 @@ export function bindChatImages(signal) {
                     canvas.hidden = true;
             }
         }
-        button.addEventListener('click', requestGeneration, { signal: controls.signal });
-        regenerate.addEventListener('click', requestGeneration, { signal: controls.signal });
+        const clickGenerate = (event) => { event.preventDefault(); event.stopPropagation(); void requestGeneration(); };
+        button.addEventListener('click', clickGenerate, { signal: controls.signal });
+        regenerate.addEventListener('click', clickGenerate, { signal: controls.signal });
         return {
             message, slot, closePreview: gallery.close, refreshTheme,
+            async generateAutomatically(signal) {
+                await historyReady;
+                if (signal.aborted || !historyAvailable || history.length || request)
+                    return;
+                await requestGeneration(signal);
+            },
+            removeHistory(change) {
+                change.deletedIds?.forEach(id => deletedIds.add(id));
+                deletedBefore = Math.max(deletedBefore, change.before ?? 0);
+                const removed = history.filter(item => historyWasDeleted(item.entry, change));
+                if (!removed.length)
+                    return;
+                history = history.filter(item => !historyWasDeleted(item.entry, change));
+                if (!history.some(item => item.entry.id === selectedId))
+                    selectedId = history.at(-1)?.entry.id ?? null;
+                showSelected();
+                removed.forEach(item => URL.revokeObjectURL(item.url));
+                if (!request)
+                    status.textContent = history.length ? `剩余 ${history.length} 张图片` : '本机图片已清理，可手动重新生成。';
+            },
             dispose() { controls.abort(); request?.abort(); history.forEach(item => URL.revokeObjectURL(item.url)); history = []; },
         };
     }
@@ -435,6 +484,7 @@ export function bindChatImages(signal) {
         }
         catch {
             clearImages();
+            automatic.update([], false);
             return;
         }
         const byId = new Map(messages.map(message => [message.messageId, message]));
@@ -476,8 +526,12 @@ export function bindChatImages(signal) {
         }
         cleanPendingContainers();
         observeFrames();
-        if (!enabled)
+        const awaitingLayout = new Set();
+        if (!enabled) {
+            layout.update(awaitingLayout);
+            automatic.update([], false);
             return;
+        }
         for (const block of Array.from(document.querySelectorAll('#chat .mes[mesid]'))) {
             if (!block.isConnected || block.parentElement?.closest('.mes'))
                 continue;
@@ -552,12 +606,17 @@ export function bindChatImages(signal) {
                 const slot = images.get(entry.key)?.slot;
                 return slot && containsAcrossFrames(element, slot);
             }).length;
-            if (count < entries.length && !hasPendingFrontendFrame(element)) {
-                warnRendering(element, message, `已挂载 ${count}/${entries.length} 个图片按钮；其余标记被显示规则隐藏、复制或转换。`);
+            if (count < entries.length) {
+                awaitingLayout.add(block);
+                if (!hasPendingFrontendFrame(element)) {
+                    warnRendering(element, message, `已挂载 ${count}/${entries.length} 个图片按钮；其余标记尚未定位到可见正文，可能尚未布局或被显示规则隐藏、复制或转换。`);
+                }
             }
             else
                 warnings.delete(element);
         }
+        layout.update(awaitingLayout);
+        automatic.update(messages.flatMap(message => entriesFor(message).map(entry => ({ message, entry }))), enabled);
         cleanPendingContainers();
     }
     function observeFrames() {
@@ -604,7 +663,9 @@ export function bindChatImages(signal) {
     }
     let stopWatching = () => { };
     try {
-        stopWatching = watchChatRendering((messageId, change) => {
+        stopWatching = watchChatRendering((messageId, change, event) => {
+            if (event === 'GENERATION_ENDED' || event === 'GENERATION_STOPPED')
+                automatic.settled();
             try {
                 if (messageId !== undefined && change)
                     receiveInsertions(messageId, change);
@@ -615,7 +676,6 @@ export function bindChatImages(signal) {
         });
     }
     catch { /* The DOM observer can still follow native re-renders. */ }
-    const chatElement = document.getElementById('chat') ?? document.body;
     const observer = new MutationObserver(schedule);
     observer.observe(chatElement, {
         childList: true, subtree: true, characterData: true,
@@ -628,6 +688,7 @@ export function bindChatImages(signal) {
         themeObserver.observe(element, { attributes: true, attributeFilter: ['class', 'style'] });
     }
     window.addEventListener('witch-paintbox:model-settings-changed', schedule, { signal });
+    window.addEventListener('witch-paintbox:preferences-changed', schedule, { signal });
     window.addEventListener('storage', schedule, { signal });
     schedule();
     const stop = () => {
@@ -635,6 +696,9 @@ export function bindChatImages(signal) {
             return;
         stopped = true;
         clearTimeout(timer);
+        layout.dispose();
+        automatic.dispose();
+        stopHistory();
         observer.disconnect();
         chatElement.removeEventListener('toggle', schedule, true);
         observedFrames.forEach(watch => watch.dispose());

@@ -4,6 +4,8 @@ import { NAI_SIZE_PRESETS, validateImageConnection, type ImageConnection } from 
 import { fetchOpenAIImageModels, validateOpenAIImageConnection, type OpenAIImageParameters } from './openai-image.js';
 import { generateConfiguredImage } from './image-provider.js';
 import { imageFileExtension } from './raster-image.js';
+import { imageChatContext } from './chat-host.js';
+import { saveImageHistory, onImageHistoryChanged, type ImageHistoryEntry } from './image-history.js';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
@@ -22,6 +24,16 @@ export class ImageConfig {
   private modelRequest: AbortController | null = null;
   private modelOptions: string[] = [];
   private imageUrl = '';
+  private imageRecord: { id: string; createdAt: number } | null = null;
+  private stopImageHistory = onImageHistoryChanged(change => {
+    const record = this.imageRecord;
+    if (!record || !(change.deletedIds?.includes(record.id) || change.before !== undefined && record.createdAt < change.before)) return;
+    if (this.imageUrl) URL.revokeObjectURL(this.imageUrl);
+    this.imageUrl = '';
+    this.imageRecord = null;
+    if (!this.request) this.generationMessage = '本机图片已清理。';
+    this.syncGeneration();
+  });
   private imageFilename = 'witch-paintbox.png';
   private generationMessage = '';
   private generationFailed = false;
@@ -97,6 +109,7 @@ export class ImageConfig {
   }
 
   destroy(): void {
+    this.stopImageHistory();
     this.unmount();
     this.request?.abort();
     if (this.imageUrl) URL.revokeObjectURL(this.imageUrl);
@@ -423,6 +436,7 @@ export class ImageConfig {
   private clearOutput(): void {
     if (this.imageUrl) URL.revokeObjectURL(this.imageUrl);
     this.imageUrl = '';
+    this.imageRecord = null;
     this.generationMessage = '';
     this.generationFailed = false;
   }
@@ -527,6 +541,7 @@ export class ImageConfig {
     this.generationMessage = '正在加入队列…';
     this.syncGeneration();
     const snapshot = structuredClone(this.settings!);
+    const source = imageChatContext();
     try {
       const result = await generateConfiguredImage(snapshot, snapshot.positive, request.signal, progress => {
         if (request.signal.aborted || this.settings?.provider !== snapshot.provider) return;
@@ -540,6 +555,18 @@ export class ImageConfig {
       this.imageUrl = url;
       this.imageFilename = `witch-paintbox-${result.seed ?? Date.now()}.${imageFileExtension(result.blob)}`;
       this.generationMessage = result.seed === undefined ? '生成完成。' : `生成完成 · 种子 ${result.seed}`;
+      const id = newId();
+      const entry: ImageHistoryEntry = {
+        ...result, id, createdAt: Date.now(), title: '绘图工坊 · 试绘', sourceName: source?.name,
+        markerKey: JSON.stringify([source?.scope ?? 'unassigned', source?.chatId ?? '', 'workshop', id]),
+        scenePrompt: snapshot.positive,
+      };
+      this.imageRecord = { id, createdAt: entry.createdAt };
+      this.pendingSaves++;
+      try { await saveImageHistory(entry); }
+      catch (error) {
+        if (this.settings?.provider === snapshot.provider) this.generationMessage = `图片已生成，但未能保存到回顾：${error instanceof Error ? error.message : '存储不可用'}`;
+      } finally { this.pendingSaves--; }
     } catch (error) {
       if (this.settings?.provider !== snapshot.provider) return;
       this.generationFailed = !request.signal.aborted;

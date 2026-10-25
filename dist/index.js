@@ -14,6 +14,9 @@ import { getHostStore, initializeHostStorage } from './host-storage.js';
 import { getSyncApiKeys, initializeSettingsStorage, setSyncApiKeys } from './host-settings.js';
 import { initializeNativeLibraries } from './host-library.js';
 import { bindUpdateNotice, updateNoticeView } from './extension-updates.js';
+import { ImageReview } from './image-review.js';
+import { bindImageRetention, imageRetentionStatus } from './image-retention.js';
+import { bindImageHistorySync } from './image-history.js';
 async function mount() {
     if (document.getElementById(extensionId))
         return;
@@ -27,6 +30,7 @@ async function mount() {
     let featureTab = 'anchors';
     const imageConfig = new ImageConfig();
     const modelConfig = new ModelConfig();
+    const imageReview = new ImageReview();
     let anchorConfig = new AnchorConfig();
     let floating = null;
     let changingSyncKeys = false;
@@ -49,13 +53,18 @@ async function mount() {
             else
                 floating?.reset();
             for (const input of Array.from(content.querySelectorAll('.preference-row input'))) {
-                if (input.name === 'rememberPage' || input.name === 'rememberPosition')
+                if (input.name === 'rememberPage' || input.name === 'rememberPosition' || input.name === 'autoGenerateImages' || input.name === 'autoGenerateLatestOnly')
                     input.checked = settings[input.name];
             }
+            const retention = content.querySelector('[name="imageRetentionDays"]');
+            if (retention)
+                retention.value = String(settings.imageRetentionDays);
         }
     }, () => imageConfig.hasPendingWrites || modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites || changingSyncKeys ? '配置仍在保存或角色图仍在生成，请完成后再导入或导出。' : undefined);
     const controller = new AbortController();
     const { signal } = controller;
+    bindImageHistorySync(signal);
+    bindImageRetention(signal);
     signal.addEventListener('abort', unregisterLayers, { once: true });
     bindContextFilter(signal);
     const host = document.createElement('div');
@@ -95,6 +104,12 @@ async function mount() {
     const apiSwitch = root.querySelector('.api-switch');
     const updateNotice = bindUpdateNotice(root, signal);
     const persist = () => saveSettings(context, settings);
+    const showCleanupStatus = () => {
+        const status = content.querySelector('[data-cleanup-status]');
+        if (status)
+            status.textContent = imageRetentionStatus();
+    };
+    window.addEventListener('witch-paintbox:cleanup-status', showCleanupStatus, { signal });
     const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'));
     function openPanel(target) {
         if (panel.open)
@@ -110,6 +125,7 @@ async function mount() {
             return;
         imageConfig.unmount();
         modelConfig.unmount();
+        imageReview.unmount();
         anchorConfig.unmount();
         transfer.unmount();
         page = next;
@@ -142,6 +158,10 @@ async function mount() {
         const transferContainer = content.querySelector('[data-config-transfer]');
         if (page === 'preferences' && transferContainer)
             transfer.mount(transferContainer);
+        const reviewContainer = content.querySelector('[data-image-review]');
+        if (page === 'review' && reviewContainer)
+            imageReview.mount(reviewContainer);
+        showCleanupStatus();
         content.scrollTop = 0;
         settings.lastPage = page;
         persist();
@@ -222,7 +242,19 @@ async function mount() {
                 });
                 return;
             }
-            if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition'].includes(input.name))
+            if (input instanceof HTMLSelectElement && input.name === 'imageRetentionDays') {
+                if (transfer.isApplying) {
+                    input.value = String(settings.imageRetentionDays);
+                    return;
+                }
+                const days = Number(input.value);
+                if (![0, 1, 3, 7].includes(days))
+                    return;
+                settings.imageRetentionDays = days;
+                persist();
+                return;
+            }
+            if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition', 'autoGenerateImages', 'autoGenerateLatestOnly'].includes(input.name))
                 return;
             if (transfer.isApplying) {
                 input.checked = settings[input.name];
@@ -236,11 +268,14 @@ async function mount() {
                 settings.rememberPosition = input.checked;
                 settings.position = input.checked ? floating.getPosition() : null;
             }
+            if (input.name === 'autoGenerateImages' || input.name === 'autoGenerateLatestOnly')
+                settings[input.name] = input.checked;
             persist();
             content.querySelector('[data-feedback]').textContent = '更改会自动保存。';
         }, { signal });
     }, { once: true, signal });
     panel.addEventListener('close', () => {
+        imageReview.unmount();
         imageConfig.maskKey();
         modelConfig.maskKey();
         launcher.setAttribute('aria-expanded', 'false');
@@ -251,6 +286,7 @@ async function mount() {
         controller.abort();
         imageConfig.destroy();
         modelConfig.destroy();
+        imageReview.unmount();
         anchorConfig.destroy();
         transfer.unmount();
         host.remove();
@@ -263,6 +299,7 @@ async function mount() {
         controller.abort();
         imageConfig.destroy();
         modelConfig.destroy();
+        imageReview.unmount();
         anchorConfig.destroy();
         transfer.unmount();
         host.remove();

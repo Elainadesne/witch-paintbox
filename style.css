@@ -235,6 +235,22 @@ button.map-node:hover, .map-leaf:hover { border-color: var(--section-accent); ba
 .preference-row > span { min-width: 0; }
 .preference-row strong, .preference-row > span > span { display: block; }
 .preference-row > span > span { margin-top: 4px; color: var(--muted); font-size: 13px; }
+.preference-row select { flex: 0 0 auto; max-width: 100%; min-height: 40px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--field-paper); color: var(--ink); font: inherit; }
+.preference-section { margin-bottom: 28px; padding: 20px; border: 1px solid var(--border); border-radius: 5px; background: var(--field-paper); }
+.preference-section .preference-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.preference-section .section-heading { margin-bottom: 0; }
+.review-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.review-toolbar .anchor-tabs { margin-bottom: 0; }
+.review-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
+.review-card { display: grid; grid-template-rows: 180px auto 1fr; align-content: start; gap: 10px; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--field-paper); text-align: left; }
+.review-card:hover { border-color: var(--section-accent); }
+.review-card img { width: 100%; height: 180px; object-fit: contain; background: var(--surface); border-radius: 3px; }
+.review-card strong { color: var(--heading); font: 600 15px/1.6 var(--serif); overflow-wrap: anywhere; }
+.review-card > span { font-size: 12px; overflow-wrap: anywhere; }
+.review-pagination { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; }
+.review-pagination > span { color: var(--muted); font-size: 13px; }
+@media (max-width: 800px) { .review-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .review-grid { grid-template-columns: minmax(0, 1fr); } .preference-section { padding: 14px; } }
 input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color: var(--accent); }
 .status { min-height: 1.6em; margin-top: 12px; font-size: 13px; }
 [data-config-transfer] { margin-top: 34px; padding-top: 24px; border-top: 1px solid var(--border); }

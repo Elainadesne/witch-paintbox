@@ -13,6 +13,7 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
 }): {
   element: HTMLDialogElement;
   setImages(items: GalleryImage[], selectedId: string | null): void;
+  setSummary(value: string): void;
   open(): void;
   close(): void;
 } {
@@ -326,6 +327,7 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
   signal.addEventListener('abort', () => { close(); removePortal(); }, { once: true });
   return {
     element, setImages, close,
+    setSummary(value) { summary = value; title.textContent = value; element.setAttribute('aria-label', `${value} · 图片查看器`); },
     open() {
       if (signal.aborted) return;
       if (element.ownerDocument !== document) {
