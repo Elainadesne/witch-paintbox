@@ -1,5 +1,6 @@
 import { applyArchive, archiveKeyCount, exportArchive, MAX_ARCHIVE_BYTES, parseArchive, summarizeArchive, type ArchiveKind, type ParsedArchive } from './config-archive.js';
 import type { TavernContext } from './settings.js';
+import { loadImageSettings, type ImageProvider } from './image-settings.js';
 
 function escape(value: string): string {
   return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
@@ -7,16 +8,16 @@ function escape(value: string): string {
 
 const scopeTitles: Record<ArchiveKind, string> = { all: '全部配置', artists: '画师串', presets: '预设', worldbooks: '世界书' };
 const scopeDescriptions: Record<ArchiveKind, string> = {
-  all: '包含生图 API、参数、模型 API、预设、画师串、标签锚定（含角色图）、世界书及使用偏好。',
-  artists: '包含命名画师配置、当前正负面词及选用状态。',
-  presets: '包含预设名称、文本条目、编排顺序、功能层启用状态及标记设置。',
-  worldbooks: '包含上传的世界书、原文条目及已保存的条目挂载选择。',
+  all: '包含 NAI / GPT 两套生图 API、参数、画师串和预设，以及共用模型 API、标签锚定（含角色图）、通用服装、世界书与使用偏好。',
+  artists: '分享当前生图类型的命名画师配置、提示词及选用状态，文件会记录目标类型。',
+  presets: '分享当前生图类型的预设名称、文本条目、编排顺序、功能层启用状态及共用标记开关。',
+  worldbooks: '包含完整世界书库、原文条目，以及 NAI / GPT 两套已保存的挂载选择。',
 };
 const replacementDescriptions: Record<ArchiveKind, string> = {
-  all: '确认后，文件中的全部配置将替换当前对应配置和编辑草稿，包括角色库与世界书库；生成图片历史保留。',
-  artists: '确认后，将替换当前画师配置列表、正负面词及选用状态；接口、参数和其他配置保持不变。',
-  presets: '确认后，将替换预设名称、文本条目、编排顺序、功能层启用状态和标记设置；模型连接、请求参数、世界书挂载及其他配置保持不变。',
-  worldbooks: '确认后，将替换上传的世界书库及条目挂载选择；预设、世界书层的启用状态和位置、模型连接及其他配置保持不变。',
+  all: '确认后，文件中的 NAI / GPT 两套配置、共用配置和编辑草稿将替换当前内容，包括角色库与世界书库；生成图片历史保留。',
+  artists: '确认后，将替换文件指定生图类型的画师配置、提示词及选用状态；另一套画师配置、接口和参数保持不变。',
+  presets: '确认后，将替换文件指定类型的预设名称、文本条目、编排顺序及功能层启用状态，同时更新两套共用的标记开关；模型连接、请求参数和世界书挂载保持不变。',
+  worldbooks: '确认后，将替换完整世界书库及 NAI / GPT 两套挂载选择；两套预设、世界书层的启用状态和位置、模型连接保持不变。',
 };
 
 export class ConfigTransfer {
@@ -30,7 +31,7 @@ export class ConfigTransfer {
   private notice = '';
   private error = false;
 
-  constructor(private context: TavernContext, private onApplied: (kind: ArchiveKind) => void,
+  constructor(private context: TavernContext, private onApplied: (kind: ArchiveKind, provider?: ImageProvider) => void,
     private canApply: () => string | undefined) {}
 
   get isApplying(): boolean { return this.phase === 'apply'; }
@@ -82,7 +83,8 @@ export class ConfigTransfer {
       <section class="config-section"><header class="section-heading"><span class="section-index" aria-hidden="true">01</span><h2 class="section-title">配置导出</h2><p class="section-description">选择要保存或分享的内容。</p></header>
         <div class="transfer-scope-options" role="group" aria-label="导出范围">${(Object.keys(scopeTitles) as ArchiveKind[]).map(kind => `<button type="button" data-transfer-kind="${kind}" aria-pressed="${this.kind === kind}"${busy ? ' disabled' : ''}>${scopeTitles[kind]}</button>`).join('')}</div>
         <p class="config-status">${scopeDescriptions[this.kind]}</p>
-        ${this.kind === 'all' ? `<label class="prompt-enable"><input type="checkbox" data-transfer-keys${this.includeKeys ? ' checked' : ''}${busy ? ' disabled' : ''}>包含 API 密钥</label><p class="config-status">勾选后，生图 API 与模型 API 的密钥会以明文写入文件。</p>` : ''}
+        ${this.kind === 'artists' || this.kind === 'presets' ? `<p class="config-status">本次导出：${loadImageSettings().provider === 'openai' ? 'GPT' : 'NAI'}。</p>` : ''}
+        ${this.kind === 'all' ? `<label class="prompt-enable"><input type="checkbox" data-transfer-keys${this.includeKeys ? ' checked' : ''}${busy ? ' disabled' : ''}>包含 API 密钥</label><p class="config-status">勾选后，NAI / GPT 两套生图 API 与共用模型 API 的密钥会以明文写入文件。</p>` : ''}
         <div class="transfer-actions"><button type="button" class="text-button" data-transfer-action="export"${busy ? ' disabled' : ''}>${this.phase === 'export' ? '正在整理…' : '导出 JSON'}</button></div>
         <p class="config-status">导出已保存的配置；请先保存其他页面的修改。已生成的图片历史不包含在配置文件内。</p>
       </section>
@@ -126,6 +128,8 @@ export class ConfigTransfer {
   }
 
   private async download(): Promise<void> {
+    const blocked = this.canApply();
+    if (blocked) { this.notice = blocked; this.error = true; this.render(); return; }
     const request = ++this.request, kind = this.kind, keys = kind === 'all' && this.includeKeys;
     this.phase = 'export'; this.notice = '正在整理已保存的配置…'; this.error = false; this.render();
     try {
@@ -152,7 +156,7 @@ export class ConfigTransfer {
     this.phase = 'apply'; this.notice = '正在导入已确认的配置…'; this.error = false; this.render();
     try {
       await applyArchive(archive, this.context);
-      this.onApplied(archive.kind); this.pending = null;
+      this.onApplied(archive.kind, archive.kind === 'artists' || archive.kind === 'presets' ? archive.data.provider : undefined); this.pending = null;
       this.notice = archive.kind === 'all' ? '配置已导入，当前页面即可继续使用；使用偏好已提交酒馆保存。' : `${scopeTitles[archive.kind]}已导入，当前页面即可继续使用。`;
     } catch (error) {
       this.error = true; this.notice = error instanceof Error ? error.message : '配置导入失败。';

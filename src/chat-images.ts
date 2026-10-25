@@ -3,12 +3,11 @@ import { locateImageMarkers, locateImageInsertionPoints } from './chat-image-pla
 import type { ImageMarker } from './image-markers.js';
 import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
-import { generateImage } from './novelai.js';
+import { generateConfiguredImage } from './image-provider.js';
 import { createChatImageView } from './chat-image-view.js';
 import { createImageGallery, type GalleryImage } from './image-gallery.js';
 import { loadImageHistory, saveImageHistory, deleteImageHistory, type ImageHistoryEntry } from './image-history.js';
 import { markerEntries, type MarkerEntry } from './image-marker-history.js';
-import { prepareImagePrompt } from './image-prompt.js';
 
 type AssistantMessage = ReturnType<typeof readAssistantMessages>[number];
 
@@ -199,7 +198,8 @@ export function bindChatImages(signal: AbortSignal): () => void {
     const controls = new AbortController();
     const { slot, root, button, buttonLabel, regenerate, cancel, status, canvas, preview, image, placeholder, download, refreshTheme, setImageSize } = createChatImageView(marker.summary, controls.signal);
     try {
-      const { width, height } = loadImageSettings().parameters;
+      const settings = loadImageSettings();
+      const { width, height } = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
       setImageSize(width, height);
     } catch { /* A saved image can still provide its own dimensions. */ }
     let request: AbortController | null = null;
@@ -248,8 +248,8 @@ export function bindChatImages(signal: AbortSignal): () => void {
       canvas.hidden = !selected && !request;
       if (selected) {
         image.src = download.href = selected.url;
-        image.title = `种子 ${selected.entry.seed}`;
-        download.download = `witch-paintbox-${selected.entry.seed}.png`;
+        image.title = selected.entry.provider === 'openai' ? selected.entry.parameters.model : `种子 ${selected.entry.seed}`;
+        download.download = `witch-paintbox-${selected.entry.provider === 'openai' ? selected.entry.id : selected.entry.seed}.png`;
         setImageSize(selected.entry.parameters.width, selected.entry.parameters.height);
       } else {
         image.removeAttribute('src');
@@ -299,15 +299,15 @@ export function bindChatImages(signal: AbortSignal): () => void {
       status.textContent = '正在加入队列…';
       try {
         const settings = loadImageSettings();
-        const { positive, negative, characters } = await prepareImagePrompt(marker.prompt, settings.negative, settings.positive);
         controller.signal.throwIfAborted();
         await historyReady;
         controller.signal.throwIfAborted();
         if (!isCurrent(message, key)) { controller.abort(); controller.signal.throwIfAborted(); }
-        if (!history.length) setImageSize(settings.parameters.width, settings.parameters.height);
+        const parameters = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
+        if (!history.length) setImageSize(parameters.width, parameters.height);
         canvas.hidden = false;
         canvas.dataset.busy = 'true';
-        const result = await generateImage(settings.connection, settings.parameters, positive, negative, controller.signal, progress => {
+        const result = await generateConfiguredImage(settings, marker.prompt, controller.signal, progress => {
           if (controls.signal.aborted || controller.signal.aborted) return;
           if (!isCurrent(message, key)) { controller.abort(); return; }
           phase = progress.state;
@@ -315,15 +315,13 @@ export function bindChatImages(signal: AbortSignal): () => void {
           syncGenerationButtons();
           cancel.textContent = phase === 'queued' ? '取消排队' : '取消等待';
           status.textContent = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…';
-        }, characters);
+        }, settings.positive);
         // A native re-render can temporarily detach the slot without invalidating its request.
         if (controller.signal.aborted || controls.signal.aborted || !isCurrent(message, key)) return;
         const entry: ImageHistoryEntry = {
           id: `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`,
-          markerKey: historyKey ?? key, blob: result.blob, createdAt: Date.now(),
-          parameters: { ...settings.parameters, seed: result.seed }, positive, negative, seed: result.seed,
+          ...result, markerKey: historyKey ?? key, createdAt: Date.now(),
           scenePrompt: marker.prompt,
-          ...(characters.length ? { characters } : {}),
         };
         const saving = historyKey ? saveImageHistory(entry) : Promise.resolve();
         saves.set(entry.id, saving);

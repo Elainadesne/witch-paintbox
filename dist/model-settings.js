@@ -1,12 +1,14 @@
+import { createSettingsStorage } from './host-settings.js';
+import { loadImageSettings } from './image-settings.js';
 export const MAX_PRESET_ENTRIES = 10_000;
 const storageKey = 'witch-paintbox:model-settings:v1';
 export const builtinLayerIds = ['worldbook', 'anchors'];
 export function createPromptOrder(head, tail, layers = builtinLayerIds) {
     return [...head.map(entry => `prompt:${entry.id}`), ...layers.map(id => `layer:${id}`), 'input', ...tail.map(entry => `prompt:${entry.id}`)];
 }
-export function defaultModelSettings() {
+export function defaultModelSettings(presetProvider = 'novelai') {
     return {
-        mode: 'tavern', url: '', key: '', model: '', models: [],
+        presetProvider, mode: 'tavern', url: '', key: '', model: '', models: [],
         maxTokens: 2048, temperature: 1, transport: 'compatible',
         head: [], tail: [], enabledLayers: [...builtinLayerIds], presetName: '', parseImageMarkers: true,
         hideImageContext: true, promptOrder: createPromptOrder([], []), worldbookSource: 'uploads', worldbooks: [],
@@ -63,6 +65,8 @@ function entries(value) {
 }
 export function validateModelSettings(value) {
     const source = record(value);
+    if (source.presetProvider !== undefined && source.presetProvider !== 'novelai' && source.presetProvider !== 'openai')
+        invalid();
     if (source.mode !== 'tavern' && source.mode !== 'custom')
         invalid();
     if (source.transport !== 'nonstream' && source.transport !== 'stream' && source.transport !== 'compatible')
@@ -104,6 +108,7 @@ export function validateModelSettings(value) {
     if (new Set(worldbooks.map(book => book.name)).size !== worldbooks.length)
         invalid();
     return {
+        presetProvider: source.presetProvider === 'openai' ? 'openai' : 'novelai',
         mode: source.mode, url: text(source.url, 8192), key: text(source.key, 16_384),
         model: text(source.model, 512), models: stringList(source.models, 10_000),
         maxTokens: number(source.maxTokens, 1, 65_536, true), temperature: number(source.temperature, 0, 2),
@@ -114,51 +119,72 @@ export function validateModelSettings(value) {
         hideImageContext: source.hideImageContext === undefined ? true : source.hideImageContext,
     };
 }
-function stored() {
-    try {
-        const storage = window.localStorage;
-        return { storage, raw: storage.getItem(storageKey) };
-    }
-    catch {
-        throw new Error('浏览器无法读取模型配置，请检查站点存储权限。');
-    }
+export function modelPresetSettings(settings) {
+    const { head, tail, enabledLayers, presetName, promptOrder, worldbookSource, worldbooks } = settings;
+    return structuredClone({ head, tail, enabledLayers, presetName, promptOrder, worldbookSource, worldbooks });
 }
-function parse(raw) {
-    try {
-        return validateModelSettings(JSON.parse(raw));
-    }
-    catch {
-        throw new Error('已保存的模型配置无法读取，原始记录已保留，未覆盖。');
-    }
+export function modelSharedSettings(settings) {
+    const { mode, url, key, model, models, maxTokens, temperature, transport, parseImageMarkers, hideImageContext } = settings;
+    return structuredClone({ mode, url, key, model, models, maxTokens, temperature, transport, parseImageMarkers, hideImageContext });
 }
-export function loadModelSettings() {
-    const { raw } = stored();
-    return raw === null ? defaultModelSettings() : parse(raw);
+function defaultAllModelSettings() {
+    return {
+        version: 2,
+        api: modelSharedSettings(defaultModelSettings()),
+        presets: { novelai: modelPresetSettings(defaultModelSettings('novelai')), openai: modelPresetSettings(defaultModelSettings('openai')) },
+    };
 }
-export function hasSavedModelSettings() { return stored().raw !== null; }
-/** Remove only this book's saved attachment, without saving unrelated editor drafts. */
-export function detachStoredWorldbook(name) {
+export function validateAllModelSettings(value) {
+    const source = record(value);
+    if (source.version === undefined) {
+        // Every pre-provider record belongs to the original NovelAI preset.
+        const legacy = validateModelSettings(source);
+        return { ...defaultAllModelSettings(), api: modelSharedSettings(legacy), presets: {
+                novelai: modelPresetSettings(legacy), openai: modelPresetSettings(defaultModelSettings('openai')),
+            } };
+    }
+    if (source.version !== 2)
+        invalid();
+    const api = record(source.api), presets = record(source.presets);
+    const novelai = validateModelSettings({ ...record(presets.novelai), ...api, presetProvider: 'novelai' });
+    const openai = validateModelSettings({ ...record(presets.openai), ...api, presetProvider: 'openai' });
+    return { version: 2, api: modelSharedSettings(novelai), presets: {
+            novelai: modelPresetSettings(novelai), openai: modelPresetSettings(openai),
+        } };
+}
+const settingsStorage = createSettingsStorage({
+    localKey: storageKey, hostKey: 'model-settings-v1', label: '模型配置',
+    defaults: defaultAllModelSettings, validate: validateAllModelSettings,
+    stripKeys(value) { value.api.key = ''; return value; },
+    restoreKeys(value, local) {
+        value.api.key = value.api.mode === local.api.mode && value.api.url === local.api.url ? local.api.key : '';
+        return value;
+    },
+    changed() { window.dispatchEvent(new Event('witch-paintbox:model-settings-changed')); },
+});
+export function loadAllModelSettings() { return settingsStorage.load(); }
+export function saveAllModelSettings(value) { return settingsStorage.save(validateAllModelSettings(value)); }
+export function loadModelSettings(provider = loadImageSettings().provider) {
+    const value = loadAllModelSettings();
+    return validateModelSettings({ ...value.api, ...value.presets[provider], presetProvider: provider });
+}
+export function hasSavedModelSettings() { return settingsStorage.hasSaved(); }
+/** A deleted book must disappear from both provider presets. */
+export async function detachStoredWorldbook(name) {
     if (!hasSavedModelSettings())
         return;
-    const settings = loadModelSettings();
-    if (!settings.worldbooks.some(book => book.name === name))
-        return;
-    settings.worldbooks = settings.worldbooks.filter(book => book.name !== name);
-    saveModelSettings(settings);
+    await settingsStorage.update(settings => {
+        for (const provider of ['novelai', 'openai']) {
+            settings.presets[provider].worldbooks = settings.presets[provider].worldbooks.filter(book => book.name !== name);
+        }
+        return settings;
+    });
 }
 export function saveModelSettings(settings) {
     const value = validateModelSettings(settings);
-    const { storage, raw: previous } = stored();
-    if (previous !== null)
-        parse(previous);
-    const raw = JSON.stringify(value);
-    try {
-        storage.setItem(storageKey, raw);
-        if (storage.getItem(storageKey) !== raw)
-            throw new Error();
-    }
-    catch {
-        throw new Error('模型配置未能保存，请检查浏览器存储权限或剩余空间。');
-    }
-    window.dispatchEvent(new Event('witch-paintbox:model-settings-changed'));
+    return settingsStorage.update(current => ({
+        version: 2,
+        api: modelSharedSettings(value),
+        presets: { ...current.presets, [value.presetProvider]: modelPresetSettings(value) },
+    }));
 }

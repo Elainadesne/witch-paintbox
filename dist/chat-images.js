@@ -2,12 +2,11 @@ import { readAssistantMessages, watchChatRendering } from './chat-host.js';
 import { locateImageMarkers, locateImageInsertionPoints } from './chat-image-placement.js';
 import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
-import { generateImage } from './novelai.js';
+import { generateConfiguredImage } from './image-provider.js';
 import { createChatImageView } from './chat-image-view.js';
 import { createImageGallery } from './image-gallery.js';
 import { loadImageHistory, saveImageHistory, deleteImageHistory } from './image-history.js';
 import { markerEntries } from './image-marker-history.js';
-import { prepareImagePrompt } from './image-prompt.js';
 /** Render-only controls: stored chat text always contains the original literal markers. */
 export function bindChatImages(signal) {
     if (signal.aborted)
@@ -188,7 +187,8 @@ export function bindChatImages(signal) {
         const controls = new AbortController();
         const { slot, root, button, buttonLabel, regenerate, cancel, status, canvas, preview, image, placeholder, download, refreshTheme, setImageSize } = createChatImageView(marker.summary, controls.signal);
         try {
-            const { width, height } = loadImageSettings().parameters;
+            const settings = loadImageSettings();
+            const { width, height } = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
             setImageSize(width, height);
         }
         catch { /* A saved image can still provide its own dimensions. */ }
@@ -241,8 +241,8 @@ export function bindChatImages(signal) {
             canvas.hidden = !selected && !request;
             if (selected) {
                 image.src = download.href = selected.url;
-                image.title = `种子 ${selected.entry.seed}`;
-                download.download = `witch-paintbox-${selected.entry.seed}.png`;
+                image.title = selected.entry.provider === 'openai' ? selected.entry.parameters.model : `种子 ${selected.entry.seed}`;
+                download.download = `witch-paintbox-${selected.entry.provider === 'openai' ? selected.entry.id : selected.entry.seed}.png`;
                 setImageSize(selected.entry.parameters.width, selected.entry.parameters.height);
             }
             else {
@@ -296,7 +296,6 @@ export function bindChatImages(signal) {
             status.textContent = '正在加入队列…';
             try {
                 const settings = loadImageSettings();
-                const { positive, negative, characters } = await prepareImagePrompt(marker.prompt, settings.negative, settings.positive);
                 controller.signal.throwIfAborted();
                 await historyReady;
                 controller.signal.throwIfAborted();
@@ -304,11 +303,12 @@ export function bindChatImages(signal) {
                     controller.abort();
                     controller.signal.throwIfAborted();
                 }
+                const parameters = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
                 if (!history.length)
-                    setImageSize(settings.parameters.width, settings.parameters.height);
+                    setImageSize(parameters.width, parameters.height);
                 canvas.hidden = false;
                 canvas.dataset.busy = 'true';
-                const result = await generateImage(settings.connection, settings.parameters, positive, negative, controller.signal, progress => {
+                const result = await generateConfiguredImage(settings, marker.prompt, controller.signal, progress => {
                     if (controls.signal.aborted || controller.signal.aborted)
                         return;
                     if (!isCurrent(message, key)) {
@@ -320,16 +320,14 @@ export function bindChatImages(signal) {
                     syncGenerationButtons();
                     cancel.textContent = phase === 'queued' ? '取消排队' : '取消等待';
                     status.textContent = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…';
-                }, characters);
+                }, settings.positive);
                 // A native re-render can temporarily detach the slot without invalidating its request.
                 if (controller.signal.aborted || controls.signal.aborted || !isCurrent(message, key))
                     return;
                 const entry = {
                     id: `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`,
-                    markerKey: historyKey ?? key, blob: result.blob, createdAt: Date.now(),
-                    parameters: { ...settings.parameters, seed: result.seed }, positive, negative, seed: result.seed,
+                    ...result, markerKey: historyKey ?? key, createdAt: Date.now(),
                     scenePrompt: marker.prompt,
-                    ...(characters.length ? { characters } : {}),
                 };
                 const saving = historyKey ? saveImageHistory(entry) : Promise.resolve();
                 saves.set(entry.id, saving);

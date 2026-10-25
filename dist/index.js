@@ -10,9 +10,14 @@ import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName } from './pages.js';
 import { defaultSettings, extensionId, readSettings, saveSettings } from './settings.js';
 import { navigationView, pageView } from './views.js';
-function mount() {
+import { getHostStore, initializeHostStorage } from './host-storage.js';
+import { getSyncApiKeys, initializeSettingsStorage, setSyncApiKeys } from './host-settings.js';
+import { initializeNativeLibraries } from './host-library.js';
+async function mount() {
     if (document.getElementById(extensionId))
         return;
+    await initializeHostStorage();
+    await Promise.all([initializeSettingsStorage(), initializeNativeLibraries()]);
     const unregisterLayers = registerBuiltinLayers();
     const context = SillyTavern.getContext();
     let settings = readSettings(context);
@@ -23,11 +28,16 @@ function mount() {
     const modelConfig = new ModelConfig();
     let anchorConfig = new AnchorConfig();
     let floating = null;
-    const transfer = new ConfigTransfer(context, kind => {
+    let changingSyncKeys = false;
+    const transfer = new ConfigTransfer(context, (kind, provider) => {
         if (kind === 'all' || kind === 'artists')
             imageConfig.reloadSaved(kind === 'artists');
-        if (kind === 'presets' || kind === 'worldbooks')
-            modelConfig.reloadSaved(kind);
+        if (kind === 'presets')
+            modelConfig.reloadSaved(kind, provider);
+        if (kind === 'worldbooks') {
+            modelConfig.reloadSaved('worldbooks', 'novelai');
+            modelConfig.reloadSaved('worldbooks', 'openai');
+        }
         if (kind === 'all') {
             modelConfig.reloadSaved();
             anchorConfig.destroy();
@@ -42,7 +52,7 @@ function mount() {
                     input.checked = settings[input.name];
             }
         }
-    }, () => modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites ? '角色图仍在生成，或角色、世界书仍在保存，请完成后再确认导入。' : undefined);
+    }, () => imageConfig.hasPendingWrites || modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites || changingSyncKeys ? '配置仍在保存或角色图仍在生成，请完成后再导入或导出。' : undefined);
     const controller = new AbortController();
     const { signal } = controller;
     signal.addEventListener('abort', unregisterLayers, { once: true });
@@ -91,7 +101,7 @@ function mount() {
         content.focus({ preventScroll: true });
     }
     function navigate(next, focus = true, nextFeatureTab) {
-        if (transfer.isApplying)
+        if (transfer.isApplying || changingSyncKeys)
             return;
         imageConfig.unmount();
         modelConfig.unmount();
@@ -179,6 +189,34 @@ function mount() {
         }, { signal });
         root.addEventListener('change', event => {
             const input = event.target;
+            if (input instanceof HTMLInputElement && input.name === 'syncApiKeys') {
+                if (transfer.isApplying || changingSyncKeys || !getHostStore()) {
+                    input.checked = getSyncApiKeys();
+                    return;
+                }
+                const enabled = input.checked;
+                changingSyncKeys = true;
+                input.disabled = true;
+                const status = content.querySelector('[data-host-sync-status]');
+                if (status) {
+                    status.textContent = '正在保存同步设置…';
+                    status.classList.remove('is-error');
+                }
+                void setSyncApiKeys(enabled).then(() => {
+                    if (status)
+                        status.textContent = enabled ? '已开启：API 密钥会随 TT 扩展数据同步。' : '已关闭：API 密钥仅保留在本机。';
+                }).catch(error => {
+                    if (status) {
+                        status.textContent = error instanceof Error ? error.message : '同步设置未能保存，请重试。';
+                        status.classList.add('is-error');
+                    }
+                }).finally(() => {
+                    changingSyncKeys = false;
+                    input.checked = getSyncApiKeys();
+                    input.disabled = false;
+                });
+                return;
+            }
             if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition'].includes(input.name))
                 return;
             if (transfer.isApplying) {
@@ -227,4 +265,14 @@ function mount() {
     host.hidden = true;
     document.body.append(host);
 }
-$(mount);
+$(() => {
+    void mount().catch(() => {
+        const message = '魔女画匣未能读取或迁移配置，原有记录已保留。请检查 TT 扩展数据或浏览器存储后重新打开。';
+        console.error(message);
+        const toast = window.toastr;
+        if (toast)
+            toast.error(message);
+        else
+            window.alert(message);
+    });
+});

@@ -1,3 +1,5 @@
+import { getHostStore, HOST_NAMESPACE, readHostJson, withHostLock, writeHostJson } from './host-storage.js';
+
 export interface AnchorOutfit {
   id: string;
   name: string;
@@ -23,6 +25,9 @@ const databaseName = 'witch-paintbox-anchors';
 const storeName = 'characters';
 const listeners = new Set<() => void>();
 let connection: Promise<IDBDatabase> | null = null;
+const hostTable = 'anchors';
+const hostLock = 'anchor-library';
+type NativeAnchor = Omit<CharacterAnchor, 'portrait'> & { portraitKey: string | null };
 
 function database(): Promise<IDBDatabase> {
   if (connection) return connection;
@@ -195,8 +200,88 @@ export function onAnchorsChanged(callback: () => void): () => void {
 }
 
 export async function loadAnchors(): Promise<CharacterAnchor[]> {
-  const anchors = await transact('readonly', '读取', store => store.getAll());
+  const anchors = getHostStore() ? await withHostLock(hostLock, async () => {
+    const records = await nativeManifest();
+    const loaded: CharacterAnchor[] = [];
+    for (const item of records) {
+      let portrait: Blob | null = null;
+      if (item.portraitKey) {
+        try {
+          const blob = await getHostStore()!.getBlob({ namespace: HOST_NAMESPACE, table: hostTable, key: item.portraitKey });
+          const normalized = await nativePortrait(blob);
+          if (!item.portraitKey.endsWith(`.${normalized.extension}`)) throw new Error('封面内容与文件类型不符。');
+          portrait = normalized.data;
+        }
+        catch { throw new Error(`角色“${item.name}”的同步封面暂不可读，请等待同步完成后重试。`); }
+      }
+      loaded.push(snapshot({ ...item, portrait }));
+    }
+    return loaded;
+  }) : await transact('readonly', '读取', store => store.getAll());
   return validateAnchorLibrary(anchors).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+}
+
+/** Existing native manifests, including an empty library, always take precedence over IndexedDB. */
+async function nativeManifest(): Promise<NativeAnchor[]> {
+  const stored = await readHostJson('manifest', hostTable);
+  if (!stored.found) {
+    const old = validateAnchorLibrary(await transact('readonly', '迁移读取', store => store.getAll()));
+    return publishAnchors(old);
+  }
+  const value = stored.value as { version?: unknown; anchors?: unknown } | null;
+  if (!value || value.version !== 1 || !Array.isArray(value.anchors)) {
+    throw new Error('同步角色库格式无效，未使用旧本地记录覆盖，请检查同步状态。');
+  }
+  const records = value.anchors.map(raw => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('同步角色记录格式无效。');
+    const { portraitKey, ...fields } = raw as NativeAnchor;
+    if (portraitKey !== null && (typeof portraitKey !== 'string' || !/^portrait-[a-f0-9]{64}\.(?:png|jpg|webp)$/.test(portraitKey))) {
+      throw new Error('同步角色封面标识无效。');
+    }
+    const { portrait: _portrait, ...anchor } = snapshot({ ...fields, portrait: null });
+    return { ...anchor, portraitKey };
+  });
+  validateAnchorLibrary(records.map(anchor => ({ ...anchor, portrait: null })));
+  return records;
+}
+
+async function nativePortrait(blob: Blob): Promise<{ data: Blob; extension: 'png' | 'jpg' | 'webp' }> {
+  if (!(blob instanceof Blob) || !blob.size || blob.size > ANCHOR_PORTRAIT_LIMIT) {
+    throw new Error('封面图片不能为空，且不能超过 10 MB。');
+  }
+  const bytes = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const extension = [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => bytes[index] === byte) ? 'png'
+    : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? 'jpg'
+      : [82, 73, 70, 70].every((byte, index) => bytes[index] === byte)
+        && [87, 69, 66, 80].every((byte, index) => bytes[index + 8] === byte) ? 'webp' : null;
+  if (!extension) throw new Error('角色图必须是 PNG、JPEG 或 WebP 图片。');
+  const type = extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
+  return { data: blob.slice(0, blob.size, type), extension };
+}
+
+async function nativeRecord(anchor: CharacterAnchor): Promise<NativeAnchor> {
+  const { portrait, ...fields } = anchor;
+  let portraitKey: string | null = null;
+  if (portrait) {
+    const normalized = await nativePortrait(portrait);
+    // Content addressing avoids duplicating the same portrait on every metadata edit.
+    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', await normalized.data.arrayBuffer()));
+    portraitKey = `portrait-${Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('')}.${normalized.extension}`;
+    await getHostStore()!.setBlob({ namespace: HOST_NAMESPACE, table: hostTable, key: portraitKey, data: normalized.data });
+  }
+  return { ...fields, portraitKey };
+}
+
+async function publishAnchors(anchors: CharacterAnchor[]): Promise<NativeAnchor[]> {
+  const records: NativeAnchor[] = [];
+  for (const anchor of anchors) records.push(await nativeRecord(anchor));
+  // Publish references only after all assets are durable. Old assets remain for in-flight sync readers.
+  await writeHostJson('manifest', { version: 1, anchors: records }, hostTable);
+  return records;
+}
+
+export async function initializeAnchorHostStorage(): Promise<void> {
+  if (getHostStore()) await withHostLock(hostLock, async () => { await nativeManifest(); });
 }
 
 export function validateAnchor(value: unknown): CharacterAnchor {
@@ -223,6 +308,14 @@ export function validateAnchorLibrary(value: unknown): CharacterAnchor[] {
 
 export async function replaceAnchors(value: CharacterAnchor[]): Promise<void> {
   const saved = validateAnchorLibrary(value);
+  if (getHostStore()) {
+    await withHostLock(hostLock, async () => {
+      await nativeManifest();
+      await publishAnchors(saved);
+    });
+    notify();
+    return;
+  }
   await transact('readwrite', '恢复', store => {
     const cleared = store.clear();
     for (const anchor of saved) store.put(anchor);
@@ -234,6 +327,16 @@ export async function replaceAnchors(value: CharacterAnchor[]): Promise<void> {
 
 export async function saveAnchor(anchor: CharacterAnchor): Promise<void> {
   const saved = snapshot(anchor);
+  if (getHostStore()) {
+    await withHostLock(hostLock, async () => {
+      const records = (await nativeManifest()).filter(item => item.id !== saved.id);
+      validateAnchorLibrary([...records.map(item => ({ ...item, portrait: null })), saved]);
+      const updated = await nativeRecord(saved);
+      await writeHostJson('manifest', { version: 1, anchors: [...records, updated] }, hostTable);
+    });
+    notify();
+    return;
+  }
   await transact('readwrite', '保存', (store, fail) => {
     const request = store.getAll();
     request.onsuccess = () => {
@@ -253,6 +356,14 @@ export async function saveAnchor(anchor: CharacterAnchor): Promise<void> {
 
 export async function deleteAnchor(id: string): Promise<void> {
   const key = requiredText(id, '角色标识', 128);
+  if (getHostStore()) {
+    await withHostLock(hostLock, async () => {
+      const anchors = (await nativeManifest()).filter(anchor => anchor.id !== key);
+      await writeHostJson('manifest', { version: 1, anchors }, hostTable);
+    });
+    notify();
+    return;
+  }
   await transact('readwrite', '删除', store => store.delete(key));
   notify();
 }

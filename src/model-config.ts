@@ -1,6 +1,6 @@
 import { fetchModelList } from './model-api.js';
 import { featureLayerMessages, listFeatureLayers, onFeatureLayersChanged } from './feature-layers.js';
-import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, loadModelSettings, saveModelSettings, type ModelSettings, type PromptEntry } from './model-settings.js';
+import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, loadModelSettings, saveModelSettings, modelPresetSettings, modelSharedSettings, type ModelPresetSettings, type ModelSettings, type PromptEntry } from './model-settings.js';
 import { modelSettingsView, presetIndexView, presetWorkspaceView, worldbookSettingsView, PRESET_PAGE_SIZE, type ModelViewState } from './model-view.js';
 import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './preset-import.js';
 import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook } from './worldbook-source.js';
@@ -8,6 +8,8 @@ import { onAnchorsChanged } from './anchor-store.js';
 import { onSharedOutfitsChanged } from './shared-outfit-store.js';
 import { getContextFilterStatus, onContextFilterStatusChanged } from './context-filter.js';
 import { assertChatSnapshot, captureLatestAssistant } from './chat-host.js';
+import { getHostStore } from './host-storage.js';
+import { loadImageSettings, type ImageProvider } from './image-settings.js';
 
 function escape(value: string): string {
   return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
@@ -17,6 +19,8 @@ export class ModelConfig {
   private settings: ModelSettings | null = null;
   private loadError = '';
   private saved = '';
+  private saving = false;
+  private presetDrafts = new Map<ImageProvider, { preset: ModelPresetSettings; selectedKey: string; page: number; notice: string; error: boolean }>();
   private container: HTMLElement | null = null;
   private page: 'model' | 'features' | 'worldbook' = 'model';
   private listeners: AbortController | null = null;
@@ -36,11 +40,14 @@ export class ModelConfig {
   private worldbookNotice = '';
   private worldbookError = false;
 
-  get hasPendingWrites(): boolean { return Boolean(this.worldbook.busy); }
+  get hasPendingWrites(): boolean { return this.saving || Boolean(this.worldbook.busy); }
 
   constructor() {
     this.reloadSaved();
+    const providerChanged = () => this.switchPresetProvider();
+    window.addEventListener('witch-paintbox:image-provider-changed', providerChanged);
     this.unsubscribe = [
+      () => window.removeEventListener('witch-paintbox:image-provider-changed', providerChanged),
       onFeatureLayersChanged(() => { this.ensureLayerSlots(); this.render(); }),
       onAnchorsChanged(() => { if (this.selectedKey === 'layer:anchors') void this.refreshPreview(); }),
       onSharedOutfitsChanged(() => { if (this.selectedKey === 'layer:anchors') void this.refreshPreview(); }),
@@ -53,7 +60,26 @@ export class ModelConfig {
     ];
   }
 
-  reloadSaved(scope: 'all' | 'presets' | 'worldbooks' = 'all'): void {
+  reloadSaved(scope: 'all' | 'presets' | 'worldbooks' = 'all', provider: ImageProvider = loadImageSettings().provider): void {
+    if (scope === 'all') this.presetDrafts.clear();
+    else {
+      const draft = this.presetDrafts.get(provider);
+      if (draft) {
+        const stored = modelPresetSettings(loadModelSettings(provider));
+        draft.preset = scope === 'worldbooks' ? { ...draft.preset, worldbooks: stored.worldbooks }
+          : { ...stored, worldbookSource: draft.preset.worldbookSource, worldbooks: draft.preset.worldbooks };
+      }
+      if (this.settings && this.settings.presetProvider !== provider) {
+        if (scope === 'presets') {
+          const stored = loadModelSettings(provider);
+          const flags = { parseImageMarkers: stored.parseImageMarkers, hideImageContext: stored.hideImageContext };
+          Object.assign(this.settings, flags);
+          if (this.saved) this.saved = JSON.stringify({ ...JSON.parse(this.saved), ...flags });
+          this.render(); this.syncSave();
+        }
+        return;
+      }
+    }
     this.refresh?.abort(); this.bookRequest?.abort(); this.previewRequest?.abort();
     this.refresh = this.bookRequest = this.previewRequest = null;
     this.importRequest++; this.draftRevision++;
@@ -66,7 +92,7 @@ export class ModelConfig {
       this.booksLoaded = false; this.worldbookNotice = ''; this.worldbookError = false;
     }
     try {
-      const stored = loadModelSettings();
+      const stored = loadModelSettings(provider);
       if (scope !== 'all' && this.settings) {
         const fields = scope === 'worldbooks' ? ['worldbooks'] as const
           : ['presetName', 'head', 'tail', 'promptOrder', 'enabledLayers', 'parseImageMarkers', 'hideImageContext'] as const;
@@ -83,8 +109,33 @@ export class ModelConfig {
     this.loadSelectedSource();
   }
 
+  private switchPresetProvider(): void {
+    const provider = loadImageSettings().provider;
+    if (this.settings?.presetProvider === provider) return;
+    const previous = this.settings;
+    if (previous) this.presetDrafts.set(previous.presetProvider, {
+      preset: modelPresetSettings(previous), selectedKey: this.selectedKey, page: this.presetPage, notice: this.importNotice, error: this.importError,
+    });
+    this.refresh?.abort(); this.bookRequest?.abort(); this.previewRequest?.abort();
+    this.refresh = this.bookRequest = this.previewRequest = null;
+    this.importRequest++; this.draftRevision++;
+    this.loadError = ''; this.preview = undefined; this.booksLoaded = false;
+    this.worldbook = { names: [], book: '', entries: [], loading: false, error: '', busy: this.worldbook.busy };
+    this.worldbookNotice = ''; this.worldbookError = false;
+    try {
+      const stored = loadModelSettings(provider), draft = this.presetDrafts.get(provider);
+      this.settings = { ...stored, ...(draft?.preset ?? {}), ...(previous ? modelSharedSettings(previous) : {}) };
+      this.saved = hasSavedModelSettings() ? JSON.stringify(stored) : '';
+      this.selectedKey = draft?.selectedKey ?? ''; this.presetPage = draft?.page ?? 0;
+      this.importNotice = draft?.notice ?? ''; this.importError = draft?.error ?? false;
+      this.ensureLayerSlots();
+    } catch (error) { this.settings = null; this.loadError = (error as Error).message; }
+    this.render(); this.loadSelectedSource();
+  }
+
   mount(container: HTMLElement, page: 'model' | 'features' | 'worldbook' = 'model'): void {
     this.unmount();
+    this.switchPresetProvider();
     this.container = container;
     this.page = page;
     this.listeners = new AbortController();
@@ -94,7 +145,7 @@ export class ModelConfig {
       if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-preset-file')) void this.importPresetFile(event.target);
       if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-worldbook-file')) void this.importWorldbookFiles(event.target);
     }, { signal });
-    container.addEventListener('click', event => this.click(event), { signal });
+    container.addEventListener('click', event => { void this.click(event); }, { signal });
     this.render();
     this.loadSelectedSource();
   }
@@ -133,7 +184,7 @@ export class ModelConfig {
     }
     const lastPage = Math.max(0, Math.ceil((this.settings?.promptOrder.length ?? 0) / PRESET_PAGE_SIZE) - 1);
     this.presetPage = Math.max(0, Math.min(this.presetPage, lastPage));
-    return { saved: this.isSaved(), refreshing: this.refresh !== null, selectedKey: this.selectedKey, presetPage: this.presetPage,
+    return { saved: this.isSaved(), saving: this.saving, refreshing: this.refresh !== null, selectedKey: this.selectedKey, presetPage: this.presetPage,
       layerPreview: this.preview, worldbook: this.worldbook, filterStatus: getContextFilterStatus(),
       importNotice: this.importNotice || undefined, importError: this.importError };
   }
@@ -146,13 +197,13 @@ export class ModelConfig {
       this.container.innerHTML = `<div class="image-settings model-settings worldbook-library">
         <section class="config-section">
           <label class="config-field"><span>上传世界书 · JSON · 可多选</span><input type="file" data-worldbook-file accept=".json,application/json" multiple${this.worldbook.busy ? ' disabled' : ''}></label>
-          <p class="config-status">可一次选择多个世界书 JSON，支持 character_book 条目，每个文件最大 20 MiB。上传后保存在当前浏览器，同名书另存一份。</p>
+          <p class="config-status">可一次选择多个世界书 JSON，支持 character_book 条目，每个文件最大 20 MiB。上传后保存在${getHostStore() ? 'TT 扩展数据中' : '当前浏览器'}，同名书另存一份。</p>
           <p class="config-status${this.worldbookError ? ' is-error' : ''}" data-worldbook-status role="status">${escape(this.worldbookNotice)}</p>
         </section>
         <section class="config-section">${worldbookSettingsView(this.settings, this.worldbook, true)}</section>
         <label class="prompt-enable"><input type="checkbox" data-layer-id="worldbook"${this.settings.enabledLayers.includes('worldbook') ? ' checked' : ''}>在预设中启用世界书层</label>
         <button type="button" class="text-button model-feature-link" data-page="model-api">前往模型 API 预设 →</button>
-        <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status">${this.isSaved() ? '已保存在当前浏览器。' : '选择条目后，点击保存配置生效。'}</p></div>
+        <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() || this.saving ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status">${this.saving ? '正在保存…' : this.isSaved() ? '已保存。' : '选择条目后，点击保存配置生效。'}</p></div>
       </div>`;
       return;
     }
@@ -241,8 +292,8 @@ export class ModelConfig {
     const line = this.container?.querySelector<HTMLElement>('.model-save-line');
     if (line) line.dataset.saved = String(saved);
     const button = this.container?.querySelector<HTMLButtonElement>('[data-model-action="save-model"]');
-    if (button) button.disabled = saved;
-    this.message(saved ? '已保存在当前浏览器。' : '当前更改尚未保存。');
+    if (button) button.disabled = saved || this.saving;
+    this.message(this.saving ? '正在保存…' : saved ? '已保存。' : '当前更改尚未保存。');
   }
 
   private syncFilterStatus(): void {
@@ -307,7 +358,7 @@ export class ModelConfig {
     this.draftRevision++; this.syncSave();
   }
 
-  private click(event: MouseEvent): void {
+  private async click(event: MouseEvent): Promise<void> {
     if (!(event.target instanceof Element) || !this.settings) return;
     const button = event.target.closest<HTMLButtonElement>('[data-model-action]');
     if (!button || button.disabled) return;
@@ -333,7 +384,15 @@ export class ModelConfig {
         this.setBookSelection(this.worldbook.book, action === 'clear-worldbook' ? [] : this.worldbook.entries.filter(entry => entry.enabled && entry.activation && entry.content.trim()).map(entry => entry.id));
       } else if (action === 'save-model') {
         for (const field of Array.from(this.container!.querySelectorAll<HTMLInputElement>('input[type="number"]'))) if (!field.reportValidity()) return;
-        saveModelSettings(this.settings); this.saved = JSON.stringify(this.settings); this.maskKey(); this.syncSave();
+        if (this.saving || this.worldbook.busy) return;
+        const snapshot = structuredClone(this.settings);
+        this.saving = true; this.syncSave();
+        try {
+          await saveModelSettings(snapshot);
+          if (this.settings?.presetProvider === snapshot.presetProvider) this.saved = JSON.stringify(snapshot);
+          else if (this.saved) this.saved = JSON.stringify({ ...JSON.parse(this.saved), ...modelSharedSettings(snapshot) });
+          this.maskKey();
+        } finally { this.saving = false; this.syncSave(); }
       } else if (action === 'preset-page-previous' || action === 'preset-page-next') {
         this.presetPage += action === 'preset-page-next' ? 1 : -1;
         this.renderPresetIndex();
@@ -485,7 +544,7 @@ export class ModelConfig {
   private async importWorldbookFiles(input: HTMLInputElement): Promise<void> {
     const files = Array.from(input.files ?? []); input.value = '';
     if (!files.length || !this.settings || this.worldbook.busy) return;
-    const signal = this.listeners?.signal;
+    const signal = this.listeners?.signal, provider = this.settings.presetProvider;
     const imported: string[] = [], failures: string[] = [];
     this.bookRequest?.abort(); this.bookRequest = null;
     this.worldbook.loading = false;
@@ -510,7 +569,7 @@ export class ModelConfig {
         }
       }
     } finally {
-      if (!signal?.aborted && imported.length) {
+      if (!signal?.aborted && this.settings?.presetProvider === provider && imported.length) {
         this.worldbook.book = imported.at(-1)!; this.worldbook.previewId = undefined;
       }
       const remaining = files.length - imported.length - failures.length;
@@ -526,14 +585,15 @@ export class ModelConfig {
 
   private async removeWorldbook(): Promise<void> {
     const name = this.worldbook.book;
-    if (!name || !this.settings || this.worldbook.busy || !this.worldbook.names.includes(name)) return;
+    if (!name || !this.settings || this.saving || this.worldbook.busy || !this.worldbook.names.includes(name)) return;
     if (!window.confirm(`删除上传的世界书“${name}”？它的条目挂载也会移除。`)) return;
     this.worldbook.busy = true;
     this.worldbookMessage('正在删除世界书…'); this.renderSources();
     try {
       // Detach first: a failed deletion can leave a book available for re-selection,
       // but must never leave saved references that could match a later re-upload.
-      detachStoredWorldbook(name);
+      await detachStoredWorldbook(name);
+      for (const draft of this.presetDrafts.values()) draft.preset.worldbooks = draft.preset.worldbooks.filter(book => book.name !== name);
       if (this.saved) {
         const saved: ModelSettings = JSON.parse(this.saved);
         saved.worldbooks = saved.worldbooks.filter(book => book.name !== name);

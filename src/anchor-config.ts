@@ -6,7 +6,8 @@ import { getCurrentRoundImages, type CurrentRoundImage } from './current-images.
 import { imageHistoryPositive, onImageHistoryChanged } from './image-history.js';
 import { watchChatRendering } from './chat-host.js';
 import { loadImageSettings } from './image-settings.js';
-import { generateImage } from './novelai.js';
+import { generatePreparedImage } from './image-provider.js';
+import { getHostStore } from './host-storage.js';
 import {
   loadSharedOutfits, saveSharedOutfit, deleteSharedOutfit, onSharedOutfitsChanged, type SharedOutfit,
 } from './shared-outfit-store.js';
@@ -398,19 +399,19 @@ export class AnchorConfig {
     this.container?.querySelector<HTMLInputElement>('[data-shared-outfit-field="name"]')?.focus({ preventScroll: true });
   }
 
-  private commitShared(remove = false): void {
+  private async commitShared(remove = false): Promise<void> {
     const draft = this.sharedDraft;
     if (!draft || this.busy) return;
     this.busy = true;
     this.render();
     try {
-      if (remove) deleteSharedOutfit(draft.id);
-      else saveSharedOutfit({ ...draft });
+      if (remove) await deleteSharedOutfit(draft.id);
+      else await saveSharedOutfit({ ...draft });
       this.refreshSharedOutfits();
       this.sharedDraft = null;
       this.sharedDirty = false;
       this.sharedDeleting = false;
-      this.message(remove ? '通用服装已删除。' : '通用服装已保存在当前浏览器。');
+      this.message(remove ? '通用服装已删除。' : getHostStore() ? '通用服装已保存到 TT 扩展数据。' : '通用服装已保存在当前浏览器。');
     } catch (error) {
       this.message(error instanceof Error ? error.message : '保存失败，修改仍保留在当前编辑页。', true);
     } finally {
@@ -448,7 +449,7 @@ export class AnchorConfig {
         this.picker = null;
         this.dirty = false;
         this.deleting = false;
-        this.message(remove ? '角色及服装库已删除。' : '角色与服装已保存在当前浏览器。');
+        this.message(remove ? '角色及服装库已删除。' : getHostStore() ? '角色与服装已保存到 TT 扩展数据。' : '角色与服装已保存在当前浏览器。');
       }
     } catch (error) {
       this.message(error instanceof Error ? error.message : '保存失败，修改仍保留在当前编辑页。', true);
@@ -500,7 +501,7 @@ export class AnchorConfig {
       if (!appearance.trim()) throw new Error('请先填写角色的固定外貌 tag。');
       const settings = loadImageSettings();
       const positive = [settings.positive, appearance, outfitTags].map(part => part.trim()).filter(Boolean).join(', ');
-      const result = await generateImage(settings.connection, settings.parameters, positive, settings.negative, request.signal, progress => {
+      const result = await generatePreparedImage(settings, { positive, negative: settings.negative, characters: [] }, request.signal, progress => {
         if (request.signal.aborted || !current()) return;
         this.portraitPhase = progress.state;
         this.portraitNotice = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在生成角色图…';

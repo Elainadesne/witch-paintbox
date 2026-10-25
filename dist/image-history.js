@@ -1,3 +1,4 @@
+import { validateOpenAIImageParameters } from './openai-image.js';
 /** Positive tags for display and manual character selection, not for recreating a request. */
 export function imageHistoryPositive(entry) {
     return [entry.positive, ...(entry.characters ?? []).map(character => character.positive)]
@@ -138,16 +139,12 @@ async function transact(mode, action, makeRequest) {
 }
 function snapshot(value) {
     const entry = value;
-    const parameters = entry?.parameters;
     if (!entry || typeof entry.id !== 'string' || !entry.id || typeof entry.markerKey !== 'string' || !entry.markerKey
         || !(entry.blob instanceof Blob) || !entry.blob.size
         || !Number.isFinite(entry.createdAt) || entry.createdAt < 0
-        || !Number.isInteger(entry.seed) || entry.seed < 0 || entry.seed > 4_294_967_295
         || typeof entry.positive !== 'string' || typeof entry.negative !== 'string'
         || (entry.scenePrompt !== undefined && typeof entry.scenePrompt !== 'string')
-        || !parameters || typeof parameters.model !== 'string' || typeof parameters.sampler !== 'string'
-        || typeof parameters.noiseSchedule !== 'string' || typeof parameters.sm !== 'boolean' || typeof parameters.smDyn !== 'boolean'
-        || ![parameters.width, parameters.height, parameters.steps, parameters.scale, parameters.cfgRescale].every(Number.isFinite)) {
+        || (entry.provider !== undefined && entry.provider !== 'novelai' && entry.provider !== 'openai')) {
         throw new Error('图片历史记录格式无效，原有记录未修改。');
     }
     let characters;
@@ -164,18 +161,36 @@ function snapshot(value) {
             characters.push({ positive: character.positive, negative: character.negative });
         }
     }
-    // Copy only image metadata: connection credentials and arbitrary extra fields never enter this store.
-    return {
+    const common = {
         id: entry.id, markerKey: entry.markerKey, blob: entry.blob, createdAt: entry.createdAt,
+        positive: entry.positive, negative: entry.negative,
+        ...(characters === undefined ? {} : { characters }),
+        ...(entry.scenePrompt === undefined ? {} : { scenePrompt: entry.scenePrompt }),
+    };
+    // Copy only image metadata: connection credentials and arbitrary extra fields never enter this store.
+    if (entry.provider === 'openai') {
+        // A compatible provider may return a different canvas; retain its validated PNG dimensions.
+        const parameters = validateOpenAIImageParameters(entry.parameters, 'image');
+        if (!parameters.model || entry.negative || characters?.length || entry.seed !== undefined) {
+            throw new Error('GPT 图片历史记录格式无效，原有记录未修改。');
+        }
+        return { ...common, provider: 'openai', parameters };
+    }
+    const parameters = entry.parameters;
+    if (!Number.isInteger(entry.seed) || entry.seed < 0 || entry.seed > 4_294_967_295
+        || !parameters || typeof parameters.model !== 'string' || typeof parameters.sampler !== 'string'
+        || typeof parameters.noiseSchedule !== 'string' || typeof parameters.sm !== 'boolean' || typeof parameters.smDyn !== 'boolean'
+        || ![parameters.width, parameters.height, parameters.steps, parameters.scale, parameters.cfgRescale].every(Number.isFinite)) {
+        throw new Error('图片历史记录格式无效，原有记录未修改。');
+    }
+    return {
+        ...common, provider: 'novelai', seed: entry.seed,
         parameters: {
             model: parameters.model, width: parameters.width, height: parameters.height,
             steps: parameters.steps, scale: parameters.scale, sampler: parameters.sampler,
             seed: entry.seed, noiseSchedule: parameters.noiseSchedule, cfgRescale: parameters.cfgRescale,
             sm: parameters.sm, smDyn: parameters.smDyn,
         },
-        positive: entry.positive, negative: entry.negative, seed: entry.seed,
-        ...(characters === undefined ? {} : { characters }),
-        ...(entry.scenePrompt === undefined ? {} : { scenePrompt: entry.scenePrompt }),
     };
 }
 export async function loadImageHistory(markerKey) {

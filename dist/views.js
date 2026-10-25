@@ -1,5 +1,7 @@
 import { navigation, pages, pluginName } from './pages.js';
 import { updateHistoryView } from './update-history.js';
+import { getHostStore, isTauriHost } from './host-storage.js';
+import { getSyncApiKeys } from './host-settings.js';
 export function navigationView(page) {
     return navigation.map((item, index) => `
     <button type="button" class="nav-item" data-page="${item.page}"
@@ -41,7 +43,7 @@ function guideView() {
     <section class="guide-flow" aria-labelledby="guide-flow-heading">
       <h3 id="guide-flow-heading">从正文到配图</h3>
       <ol class="guide-steps">
-        <li><span class="guide-step-number" aria-hidden="true">01</span><div><h4>连接接口，导入预设</h4><p>配置生图 API 和模型 API，再导入你准备好的预设。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">01</span><div><h4>连接接口，导入预设</h4><p>选择 NAI 或 GPT，配置两类 API，再导入对应服务的预设。</p></div></li>
         <li><span class="guide-step-number" aria-hidden="true">02</span><div><h4>补充角色与世界资料</h4><p>按需要配置标签锚定、上传世界书，并勾选要挂载的条目。</p></div></li>
         <li><span class="guide-step-number" aria-hidden="true">03</span><div><h4>让 AI 处理最新回复</h4><p>打开悬浮球菜单，点击“AI生图”，为正文插入配图位置。</p></div></li>
         <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层中生成图片</h4><p>点击配图位置的“生成图片”，图片会按队列依次绘制。</p></div></li>
@@ -51,6 +53,20 @@ function guideView() {
       <div><h3 id="guide-transfer-heading">把配置带走，也分享喜欢的内容</h3><p>点击按钮选择全部配置、画师串、预设或世界书。完整导出可选择是否包含密钥；导入时先校验并展示内容，确认后才会写入。</p></div>
       <button type="button" class="secondary" data-page="preferences" data-section="config-transfer">配置迁移与分享 →</button>
     </section>`;
+}
+function hostSyncView() {
+    if (!isTauriHost())
+        return '';
+    if (!getHostStore())
+        return '<p class="config-status">当前 TT 版本未提供完整的扩展数据存储，配置仍保存在本机。更新 TT 后重新打开画匣即可迁移。</p>';
+    return `<section class="image-settings" aria-label="TauriTavern 配置同步">
+    <header class="section-heading"><h2 class="section-title">TauriTavern 同步</h2>
+      <p class="section-description">配置已接入 TT 扩展数据。同步时勾选“扩展数据”；页面记忆与悬浮球位置随酒馆设置同步。</p></header>
+    <p class="config-status">包含接口参数、预设、画师串、角色与服装库、角色图、世界书及挂载选择。生成图片历史仍保存在本机。</p>
+    <label class="preference-row"><span><strong>同时同步 API 密钥</strong><span>默认关闭，接收设备需自行填写密钥。开启后，已保存的生图与模型 API 密钥会写入 TT 扩展数据并参与同步。</span></span>
+      <input type="checkbox" name="syncApiKeys" ${getSyncApiKeys() ? 'checked' : ''}></label>
+    <p class="config-status" data-host-sync-status role="status">${getSyncApiKeys() ? 'API 密钥会随 TT 扩展数据同步。' : 'API 密钥仅保留在本机。'}</p>
+  </section>`;
 }
 function preferencesView(settings) {
     return `
@@ -66,6 +82,7 @@ function preferencesView(settings) {
       <button type="button" class="secondary" data-action="reset-preferences">恢复默认偏好</button>
       <p class="muted" role="status" data-feedback>更改会自动保存。</p>
     </div>
+    ${hostSyncView()}
     <div data-config-transfer></div>
     ${updateHistoryView()}`;
 }

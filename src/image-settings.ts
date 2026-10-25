@@ -1,3 +1,8 @@
+import { createSettingsStorage } from './host-settings.js';
+import { defaultOpenAIImageParameters, validateOpenAIImageParameters, type OpenAIImageParameters } from './openai-image.js';
+
+export type ImageProvider = 'novelai' | 'openai';
+export const IMAGE_PROVIDERS: readonly ImageProvider[] = ['novelai', 'openai'];
 import {
   defaultImageParameters,
   NAI_MODELS,
@@ -20,6 +25,9 @@ export interface ArtistPreset {
 }
 
 export interface ImageSettings {
+  provider: ImageProvider;
+  openaiParameters: OpenAIImageParameters;
+  models: string[];
   connection: ImageConnection;
   connectionProfiles: ConnectionProfile[];
   activeConnectionId: string;
@@ -30,10 +38,17 @@ export interface ImageSettings {
   activeArtistId: string;
 }
 
+export interface AllImageSettings {
+  version: 2;
+  activeProvider: ImageProvider;
+  profiles: Record<ImageProvider, ImageSettings>;
+}
+
 const storageKey = 'witch-paintbox:image-settings:v1';
 
-export function defaultImageSettings(): ImageSettings {
+export function defaultImageSettings(provider: ImageProvider = 'novelai'): ImageSettings {
   return {
+    provider, openaiParameters: defaultOpenAIImageParameters(), models: [],
     connection: { channel: 'official', url: '', key: '' },
     connectionProfiles: [],
     activeConnectionId: '',
@@ -117,6 +132,12 @@ function selectedId(value: unknown, items: { id: string }[]): string {
 
 export function validateImageSettings(value: unknown): ImageSettings {
   const source = record(value);
+  const provider = source.provider ?? 'novelai';
+  if (provider !== 'novelai' && provider !== 'openai') invalid();
+  const models = source.models ?? [];
+  if (!Array.isArray(models) || models.length > 10_000) invalid();
+  const modelNames = models.map(value => text(value, 512, true));
+  if (new Set(modelNames).size !== modelNames.length) invalid();
   const connectionProfiles = profiles(source.connectionProfiles, value => {
     const item = record(value);
     return { ...connection(item), id: text(item.id, 128, true), name: text(item.name, 128, true) };
@@ -130,7 +151,12 @@ export function validateImageSettings(value: unknown): ImageSettings {
       negative: text(item.negative),
     };
   });
+  if (provider === 'openai' && (text(source.negative).trim() || artists.some(item => item.negative.trim()))) {
+    throw new Error('GPT 配置不支持独立负面提示词，请先在来源配置中移除负面字段内容，再导入 GPT 配置。');
+  }
   return {
+    provider, models: modelNames,
+    openaiParameters: validateOpenAIImageParameters(source.openaiParameters ?? defaultOpenAIImageParameters()),
     connection: connection(source.connection),
     connectionProfiles,
     activeConnectionId: selectedId(source.activeConnectionId, connectionProfiles),
@@ -142,38 +168,75 @@ export function validateImageSettings(value: unknown): ImageSettings {
   };
 }
 
-function parseSaved(raw: string): ImageSettings {
-  try {
-    return validateImageSettings(JSON.parse(raw));
-  } catch {
-    throw new Error('已保存的生图配置无法读取，原始记录已保留，未覆盖。');
-  }
+function sameConnection(left: ImageConnection, right: ImageConnection): boolean {
+  return left.channel === right.channel && left.url === right.url;
 }
 
-function readStored(): { storage: Storage; raw: string | null } {
-  try {
-    const storage = window.localStorage;
-    return { storage, raw: storage.getItem(storageKey) };
-  } catch {
-    throw new Error('浏览器无法读取生图配置，请检查站点存储权限。');
-  }
+export function defaultAllImageSettings(): AllImageSettings {
+  return { version: 2, activeProvider: 'novelai', profiles: {
+    novelai: defaultImageSettings('novelai'), openai: defaultImageSettings('openai'),
+  } };
 }
 
-export function loadImageSettings(): ImageSettings {
-  const { raw } = readStored();
-  return raw === null ? defaultImageSettings() : parseSaved(raw);
+export function validateAllImageSettings(value: unknown): AllImageSettings {
+  const source = record(value);
+  if (source.version === undefined) {
+    const legacy = validateImageSettings(source);
+    const all = defaultAllImageSettings();
+    all.profiles[legacy.provider] = legacy;
+    all.activeProvider = legacy.provider;
+    return all;
+  }
+  if (source.version !== 2 || !IMAGE_PROVIDERS.includes(source.activeProvider as ImageProvider)) invalid();
+  const profiles = record(source.profiles);
+  const novelai = validateImageSettings(profiles.novelai);
+  const openai = validateImageSettings(profiles.openai);
+  if (novelai.provider !== 'novelai' || openai.provider !== 'openai') invalid();
+  return { version: 2, activeProvider: source.activeProvider as ImageProvider, profiles: { novelai, openai } };
 }
 
-export function saveImageSettings(settings: ImageSettings): void {
-  const value = validateImageSettings(settings);
-  const { storage, raw: previous } = readStored();
-  // Preserve an unreadable record instead of replacing it with a fresh UI state.
-  if (previous !== null) parseSaved(previous);
-  const raw = JSON.stringify(value);
-  try {
-    storage.setItem(storageKey, raw);
-    if (storage.getItem(storageKey) !== raw) throw new Error();
-  } catch {
-    throw new Error('浏览器未能保存生图配置，请检查存储权限或剩余空间后重试。');
-  }
+const settingsStorage = createSettingsStorage<AllImageSettings>({
+  localKey: storageKey, hostKey: 'image-settings-v1', label: '生图配置',
+  defaults: defaultAllImageSettings, validate: validateAllImageSettings,
+  stripKeys(value) {
+    for (const settings of Object.values(value.profiles)) {
+      settings.connection.key = '';
+      settings.connectionProfiles.forEach(profile => { profile.key = ''; });
+    }
+    return value;
+  },
+  restoreKeys(value, local) {
+    for (const provider of IMAGE_PROVIDERS) {
+      const settings = value.profiles[provider], savedSettings = local.profiles[provider];
+      const active = savedSettings.connectionProfiles.find(item => item.id === settings.activeConnectionId && sameConnection(item, settings.connection));
+      settings.connection.key = active?.key ?? (settings.activeConnectionId === savedSettings.activeConnectionId
+        && sameConnection(settings.connection, savedSettings.connection) ? savedSettings.connection.key : '');
+      for (const profile of settings.connectionProfiles) {
+        const saved = savedSettings.connectionProfiles.find(item => item.id === profile.id && sameConnection(item, profile));
+        profile.key = saved?.key ?? '';
+      }
+    }
+    return value;
+  },
+  changed() { window.dispatchEvent(new Event('witch-paintbox:image-settings-changed')); },
+});
+
+export function loadAllImageSettings(): AllImageSettings { return settingsStorage.load(); }
+export function loadImageSettings(provider?: ImageProvider): ImageSettings {
+  const all = settingsStorage.load();
+  return all.profiles[provider ?? all.activeProvider];
+}
+export function saveImageSettings(settings: ImageSettings): Promise<void> {
+  const snapshot = validateImageSettings(settings);
+  return settingsStorage.update(all => ({ ...all, profiles: { ...all.profiles, [snapshot.provider]: snapshot } }));
+}
+export async function switchImageProvider(provider: ImageProvider): Promise<void> {
+  if (!IMAGE_PROVIDERS.includes(provider)) invalid();
+  if (settingsStorage.load().activeProvider === provider) return;
+  await settingsStorage.update(all => ({ ...all, activeProvider: provider }));
+  window.dispatchEvent(new Event('witch-paintbox:image-provider-changed'));
+}
+/** Bulk import refreshes the UI only after every section commits or rolls back. */
+export function saveAllImageSettings(settings: AllImageSettings): Promise<void> {
+  return settingsStorage.save(settings);
 }

@@ -1,3 +1,5 @@
+import { createSettingsStorage } from './host-settings.js';
+import { getHostStore } from './host-storage.js';
 import { ANCHOR_NAME_LIMIT, ANCHOR_TAG_LIMIT, type AnchorOutfit } from './anchor-store.js';
 
 export type SharedOutfit = AnchorOutfit;
@@ -29,18 +31,6 @@ export function validateSharedOutfits(value: unknown): SharedOutfit[] {
   });
 }
 
-function parseSaved(raw: string): SharedOutfit[] {
-  try { return validateSharedOutfits(JSON.parse(raw)); }
-  catch { throw new Error('已保存的通用服装库无法读取，原始记录已保留，未覆盖。'); }
-}
-
-function readStored(): { storage: Storage; raw: string | null } {
-  try {
-    const storage = window.localStorage;
-    return { storage, raw: storage.getItem(storageKey) };
-  } catch { throw new Error('浏览器无法读取通用服装库，请检查站点存储权限。'); }
-}
-
 function notify(): void {
   for (const listener of listeners) {
     try { listener(); }
@@ -49,7 +39,7 @@ function notify(): void {
 }
 
 function handleStorage(event: StorageEvent): void {
-  if (event.key === storageKey || event.key === null) notify();
+  if (!getHostStore() && (event.key === storageKey || event.key === null)) notify();
 }
 
 export function onSharedOutfitsChanged(callback: () => void): () => void {
@@ -61,45 +51,26 @@ export function onSharedOutfitsChanged(callback: () => void): () => void {
   };
 }
 
-export function loadSharedOutfits(): SharedOutfit[] {
-  const { raw } = readStored();
-  return raw === null ? [] : parseSaved(raw);
+const settingsStorage = createSettingsStorage<SharedOutfit[]>({
+  localKey: storageKey, hostKey: 'shared-outfits-v1', label: '通用服装库',
+  defaults: () => [], validate: validateSharedOutfits, changed: notify,
+});
+
+export function loadSharedOutfits(): SharedOutfit[] { return settingsStorage.load(); }
+export function replaceSharedOutfits(value: unknown): Promise<void> {
+  return settingsStorage.save(validateSharedOutfits(value));
 }
 
-export function replaceSharedOutfits(value: unknown): void {
-  const outfits = validateSharedOutfits(value);
-  const { storage, raw: previous } = readStored();
-  // Preserve unreadable records instead of replacing them with an empty UI state.
-  if (previous !== null) parseSaved(previous);
-  const raw = JSON.stringify(outfits);
-  if (raw === previous) return;
-  try {
-    storage.setItem(storageKey, raw);
-    if (storage.getItem(storageKey) !== raw) throw new Error();
-  } catch {
-    // Only undo our own write; a different tab may already have saved newer data.
-    try {
-      if (storage.getItem(storageKey) === raw) {
-        if (previous === null) storage.removeItem(storageKey);
-        else storage.setItem(storageKey, previous);
-      }
-    } catch { /* Report the storage failure without discarding the previous snapshot. */ }
-    throw new Error('浏览器未能保存通用服装库，请检查存储权限或剩余空间后重试。');
-  }
-  notify();
-}
-
-export function saveSharedOutfit(outfit: SharedOutfit): void {
+export async function saveSharedOutfit(outfit: SharedOutfit): Promise<void> {
   const [saved] = validateSharedOutfits([outfit]);
-  const outfits = loadSharedOutfits();
-  const index = outfits.findIndex(item => item.id === saved.id);
-  if (index === -1) outfits.push(saved);
-  else outfits[index] = saved;
-  replaceSharedOutfits(outfits);
+  await settingsStorage.update(outfits => {
+    const index = outfits.findIndex(item => item.id === saved.id);
+    if (index === -1) outfits.push(saved);
+    else outfits[index] = saved;
+    return outfits;
+  });
 }
 
-export function deleteSharedOutfit(id: string): void {
-  const outfits = loadSharedOutfits();
-  if (!outfits.some(outfit => outfit.id === id)) return;
-  replaceSharedOutfits(outfits.filter(outfit => outfit.id !== id));
+export async function deleteSharedOutfit(id: string): Promise<void> {
+  await settingsStorage.update(outfits => outfits.filter(outfit => outfit.id !== id));
 }

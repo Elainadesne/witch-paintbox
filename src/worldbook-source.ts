@@ -1,3 +1,5 @@
+import { getHostStore, readHostJson, withHostLock, writeHostJson } from './host-storage.js';
+
 export interface WorldbookActivation {
   constant: boolean;
   keys: string[];
@@ -26,6 +28,10 @@ const nameLimit = 512;
 const entryLimit = 10_000;
 const listeners = new Set<() => void>();
 let connection: Promise<IDBDatabase> | null = null;
+const hostTable = 'worldbooks';
+const hostLock = 'worldbook-library';
+interface NativeBookReference { name: string; key: string }
+interface NativeBookManifest { version: 1; books: NativeBookReference[]; reservedNames: string[] }
 
 const record = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -271,6 +277,12 @@ export function validateWorldbookArchive(value: unknown): StoredWorldbook[] {
 }
 
 export async function loadWorldbookArchive(): Promise<StoredWorldbook[]> {
+  if (getHostStore()) return withHostLock(hostLock, async () => {
+    const manifest = await nativeManifest();
+    const books: StoredWorldbook[] = [];
+    for (const reference of manifest.books) books.push(await readNativeBook(reference));
+    return books.sort((a, b) => a.name.localeCompare(b.name));
+  });
   const books = await transact<unknown[]>('readonly', '备份读取', (store, result) => {
     store.getAll().onsuccess = event => result((event.target as IDBRequest<unknown[]>).result);
   });
@@ -279,6 +291,14 @@ export async function loadWorldbookArchive(): Promise<StoredWorldbook[]> {
 
 export async function replaceWorldbookArchive(books: StoredWorldbook[]): Promise<void> {
   const saved = validateWorldbookArchive(books);
+  if (getHostStore()) {
+    await withHostLock(hostLock, async () => {
+      const previous = await nativeManifest();
+      await publishBooks(saved, previous.reservedNames);
+    });
+    notify();
+    return;
+  }
   await transact<void>('readwrite', '恢复', store => {
     const registry = store.transaction.objectStore(namesStoreName);
     store.clear();
@@ -291,8 +311,13 @@ export async function replaceWorldbookArchive(books: StoredWorldbook[]): Promise
   notify();
 }
 
-/** Lists only books imported into this plugin's browser storage. */
+/** Lists only books imported into this plugin. Native hosts sync the library through their extension store. */
 export async function listWorldbooks(signal?: AbortSignal): Promise<string[]> {
+  if (getHostStore()) return withHostLock(hostLock, async () => {
+    const manifest = await nativeManifest(signal);
+    signal?.throwIfAborted();
+    return manifest.books.map(book => book.name).sort((a, b) => a.localeCompare(b));
+  });
   const keys = await transact<IDBValidKey[]>('readonly', '读取', (store, result) => {
     store.getAllKeys().onsuccess = event => result((event.target as IDBRequest<IDBValidKey[]>).result);
   }, signal);
@@ -303,6 +328,12 @@ export async function listWorldbooks(signal?: AbortSignal): Promise<string[]> {
 export async function readWorldbook(name: string, signal?: AbortSignal): Promise<WorldbookSourceEntry[]> {
   signal?.throwIfAborted();
   const key = bookName(name);
+  if (getHostStore()) return withHostLock(hostLock, async () => {
+    const manifest = await nativeManifest(signal);
+    const reference = manifest.books.find(book => book.name === key);
+    if (!reference) throw new Error(`插件中没有世界书“${key}”，请重新导入或移除挂载。`);
+    return (await readNativeBook(reference, signal)).entries;
+  });
   const value = await transact<unknown>('readonly', '读取', (store, result) => {
     store.get(key).onsuccess = event => result((event.target as IDBRequest).result);
   }, signal);
@@ -316,6 +347,18 @@ export async function readWorldbook(name: string, signal?: AbortSignal): Promise
 /** Add and choose a unique name in one transaction, including simultaneous imports from other tabs. */
 export async function importWorldbook(value: unknown, filename: string): Promise<string> {
   const book = parseBook(value, filename);
+  if (getHostStore()) {
+    const name = await withHostLock(hostLock, async () => {
+      const manifest = await nativeManifest();
+      const name = uniqueBookName(book.name, new Set(manifest.reservedNames));
+      const reference = await writeNativeBook({ ...book, name });
+      await writeHostJson('manifest', { version: 1, books: [...manifest.books, reference],
+        reservedNames: [...manifest.reservedNames, name] }, hostTable);
+      return name;
+    });
+    notify();
+    return name;
+  }
   const name = await transact<string>('readwrite', '导入', (store, result, fail) => {
     const registry = store.transaction.objectStore(namesStoreName);
     const reserved = registry.getAllKeys();
@@ -324,12 +367,7 @@ export async function importWorldbook(value: unknown, filename: string): Promise
       try {
         // Requests run in order within this transaction; both key lists are now available.
         const used = new Set([...reserved.result, ...keys.result]);
-        let unique = book.name;
-        for (let count = 2; used.has(unique); count++) {
-          const suffix = ` (${count})`;
-          const base = book.name.slice(0, nameLimit - suffix.length).replace(/[\uD800-\uDBFF]$/, '');
-          unique = base + suffix;
-        }
+        const unique = uniqueBookName(book.name, used);
         registry.add(true, unique);
         const request = store.add({ ...book, name: unique });
         request.onsuccess = () => result(unique);
@@ -342,9 +380,104 @@ export async function importWorldbook(value: unknown, filename: string): Promise
 
 export async function deleteWorldbook(name: string): Promise<void> {
   const key = bookName(name);
+  if (getHostStore()) {
+    await withHostLock(hostLock, async () => {
+      const manifest = await nativeManifest();
+      await writeHostJson('manifest', { ...manifest, books: manifest.books.filter(book => book.name !== key) }, hostTable);
+    });
+    notify();
+    return;
+  }
   // Keep the name reserved so a stale selection in another tab cannot bind to a later upload.
   await transact<undefined>('readwrite', '删除', (store, result) => {
     store.delete(key).onsuccess = () => result(undefined);
   });
   notify();
+}
+
+function uniqueBookName(name: string, used: ReadonlySet<unknown>): string {
+  let unique = name;
+  for (let count = 2; used.has(unique); count++) {
+    const suffix = ` (${count})`;
+    unique = name.slice(0, nameLimit - suffix.length).replace(/[\uD800-\uDBFF]$/, '') + suffix;
+  }
+  return unique;
+}
+
+function validateNativeManifest(value: unknown): NativeBookManifest {
+  const manifest = record(value);
+  if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.books) || !Array.isArray(manifest.reservedNames)) {
+    throw new Error('同步世界书目录格式无效，未使用旧本地记录覆盖，请检查同步状态。');
+  }
+  const names = new Set<string>(), keys = new Set<string>();
+  const books = manifest.books.map(raw => {
+    const reference = record(raw);
+    if (!reference || typeof reference.key !== 'string' || !/^book-[a-f0-9-]{36}$/.test(reference.key)) {
+      throw new Error('同步世界书文件标识无效。');
+    }
+    const name = bookName(reference.name);
+    if (name !== reference.name || names.has(name) || keys.has(reference.key)) throw new Error('同步世界书目录包含重复或无效标识。');
+    names.add(name); keys.add(reference.key);
+    return { name, key: reference.key };
+  });
+  const reservedNames = manifest.reservedNames.map(raw => {
+    const name = bookName(raw);
+    if (name !== raw) throw new Error('同步世界书保留名称无效。');
+    return name;
+  });
+  const reserved = new Set(reservedNames);
+  if (reserved.size !== reservedNames.length || books.some(book => !reserved.has(book.name))) {
+    throw new Error('同步世界书名称目录不完整。');
+  }
+  return { version: 1, books, reservedNames };
+}
+
+async function nativeManifest(signal?: AbortSignal): Promise<NativeBookManifest> {
+  signal?.throwIfAborted();
+  const stored = await readHostJson('manifest', hostTable);
+  signal?.throwIfAborted();
+  if (stored.found) return validateNativeManifest(stored.value);
+  const old = await transact<{ books: unknown[]; names: IDBValidKey[] }>('readonly', '迁移读取', (store, result) => {
+    const books = store.getAll();
+    const names = store.transaction.objectStore(namesStoreName).getAllKeys();
+    names.onsuccess = () => result({ books: books.result, names: names.result });
+  }, signal);
+  const books = validateWorldbookArchive(old.books);
+  const reserved = old.names.map(bookName);
+  return publishBooks(books, reserved, signal);
+}
+
+async function readNativeBook(reference: NativeBookReference, signal?: AbortSignal): Promise<StoredWorldbook> {
+  signal?.throwIfAborted();
+  const stored = await readHostJson(reference.key, hostTable);
+  signal?.throwIfAborted();
+  if (!stored.found) throw new Error(`世界书“${reference.name}”的同步文件尚未就绪，请等待同步完成后重试。`);
+  const [book] = validateWorldbookArchive([stored.value]);
+  if (book.name !== reference.name) throw new Error('同步世界书名称与目录不一致，原记录未修改。');
+  return book;
+}
+
+async function writeNativeBook(book: StoredWorldbook, signal?: AbortSignal): Promise<NativeBookReference> {
+  signal?.throwIfAborted();
+  // ASCII immutable keys keep names independent of filesystem/path restrictions.
+  const key = `book-${crypto.randomUUID()}`;
+  await writeHostJson(key, book, hostTable);
+  signal?.throwIfAborted();
+  return { name: book.name, key };
+}
+
+async function publishBooks(books: StoredWorldbook[], reservedNames: string[], signal?: AbortSignal): Promise<NativeBookManifest> {
+  const references: NativeBookReference[] = [];
+  for (const book of books) references.push(await writeNativeBook(book, signal));
+  const manifest: NativeBookManifest = { version: 1, books: references,
+    reservedNames: [...new Set([...reservedNames, ...books.map(book => book.name)])] };
+  signal?.throwIfAborted();
+  // Switching the small manifest publishes the complete batch. Old files remain for in-flight sync readers.
+  await writeHostJson('manifest', manifest, hostTable);
+  signal?.throwIfAborted();
+  return manifest;
+}
+
+export async function initializeWorldbookHostStorage(): Promise<void> {
+  if (getHostStore()) await withHostLock(hostLock, async () => { await nativeManifest(); });
 }

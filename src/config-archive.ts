@@ -1,5 +1,5 @@
-import { defaultImageSettings, loadImageSettings, saveImageSettings, validateImageSettings, type ImageSettings } from './image-settings.js';
-import { defaultModelSettings, loadModelSettings, saveModelSettings, validateModelSettings, type ModelSettings } from './model-settings.js';
+import { defaultImageSettings, loadImageSettings, saveImageSettings, validateImageSettings, loadAllImageSettings, saveAllImageSettings, validateAllImageSettings, IMAGE_PROVIDERS, type AllImageSettings, type ImageProvider, type ImageSettings } from './image-settings.js';
+import { defaultModelSettings, loadModelSettings, saveModelSettings, validateModelSettings, loadAllModelSettings, saveAllModelSettings, validateAllModelSettings, type AllModelSettings, type ModelSettings } from './model-settings.js';
 import { loadAnchors, replaceAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT, type CharacterAnchor } from './anchor-store.js';
 import { loadSharedOutfits, replaceSharedOutfits, validateSharedOutfits, type SharedOutfit } from './shared-outfit-store.js';
 import { loadWorldbookArchive, replaceWorldbookArchive, validateWorldbookArchive, type StoredWorldbook } from './worldbook-source.js';
@@ -10,11 +10,12 @@ export const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
 export type ArchiveKind = 'all' | 'artists' | 'presets' | 'worldbooks';
 type ArtistSettings = Pick<ImageSettings, 'artists' | 'positive' | 'negative' | 'activeArtistId'>;
 type PresetSettings = Pick<ModelSettings, 'presetName' | 'head' | 'tail' | 'promptOrder' | 'enabledLayers' | 'parseImageMarkers' | 'hideImageContext'>;
-interface WorldbookSettings { worldbooks: StoredWorldbook[]; attachments: ModelSettings['worldbooks'] }
+type WorldbookAttachments = Record<ImageProvider, ModelSettings['worldbooks']>;
+interface WorldbookSettings { worldbooks: StoredWorldbook[]; attachments: WorldbookAttachments }
 type PortableAnchor = Omit<CharacterAnchor, 'portrait'> & { portrait: string | null };
 interface CompleteSettings {
-  image: ImageSettings;
-  model: ModelSettings;
+  image: AllImageSettings;
+  model: AllModelSettings;
   preferences: Settings;
   anchors: CharacterAnchor[];
   sharedOutfits: SharedOutfit[];
@@ -22,15 +23,15 @@ interface CompleteSettings {
 }
 interface Envelope {
   format: 'witch-paintbox-config';
-  version: 1;
+  version: 1 | 2;
   kind: ArchiveKind;
   exportedAt: string;
   includesKeys: boolean;
 }
 export type ParsedArchive = Envelope & (
   { kind: 'all'; data: CompleteSettings }
-  | { kind: 'artists'; data: { artists: ArtistSettings } }
-  | { kind: 'presets'; data: { presets: PresetSettings } }
+  | { kind: 'artists'; data: { provider: ImageProvider; artists: ArtistSettings } }
+  | { kind: 'presets'; data: { provider: ImageProvider; presets: PresetSettings } }
   | { kind: 'worldbooks'; data: WorldbookSettings }
 );
 export interface ArchiveSummary { title: string; detail: string }
@@ -62,10 +63,17 @@ function preferences(value: unknown): Settings {
   return { rememberPage: source.rememberPage, rememberPosition: source.rememberPosition, lastPage: source.lastPage, position };
 }
 
-function artistSettings(value: unknown): ArtistSettings {
+const providerName = (provider: ImageProvider): string => provider === 'openai' ? 'GPT' : 'NAI';
+
+function imageProvider(value: unknown): ImageProvider {
+  if (value !== 'novelai' && value !== 'openai') throw new Error('配置文件的生图类型无效。');
+  return value;
+}
+
+function artistSettings(value: unknown, provider: ImageProvider): ArtistSettings {
   const source = object(value, '画师串');
   fields(source, ['artists', 'positive', 'negative', 'activeArtistId'], '画师串');
-  const validated = validateImageSettings({ ...defaultImageSettings(), ...source });
+  const validated = validateImageSettings({ ...defaultImageSettings(provider), ...source });
   return { artists: validated.artists, positive: validated.positive, negative: validated.negative, activeArtistId: validated.activeArtistId };
 }
 
@@ -74,18 +82,32 @@ function selectPreset(settings: ModelSettings): PresetSettings {
   return { presetName, head, tail, promptOrder, enabledLayers, parseImageMarkers, hideImageContext };
 }
 
-function presetSettings(value: unknown): PresetSettings {
+function presetSettings(value: unknown, provider: ImageProvider): PresetSettings {
   const source = object(value, '预设');
   fields(source, ['presetName', 'head', 'tail', 'promptOrder', 'enabledLayers', 'parseImageMarkers', 'hideImageContext'], '预设');
-  return selectPreset(validateModelSettings({ ...defaultModelSettings(), ...source }));
+  return selectPreset(validateModelSettings({ ...defaultModelSettings(provider), ...source }));
 }
 
-function worldbookSettings(value: unknown): WorldbookSettings {
+function modelAttachments(model: AllModelSettings): WorldbookAttachments {
+  return { novelai: model.presets.novelai.worldbooks, openai: model.presets.openai.worldbooks };
+}
+
+function worldbookSettings(value: unknown, version: 1 | 2): WorldbookSettings {
   const source = object(value, '世界书配置');
   fields(source, ['worldbooks', 'attachments'], '世界书配置');
-  if (!Array.isArray(source.attachments)) throw new Error('世界书挂载必须是数组。');
   const worldbooks = validateWorldbookArchive(source.worldbooks);
-  const attachments = validateModelSettings({ ...defaultModelSettings(), worldbooks: source.attachments }).worldbooks;
+  let raw: Record<string, unknown>;
+  if (version === 1) {
+    if (!Array.isArray(source.attachments)) throw new Error('旧版世界书挂载必须是数组。');
+    raw = { novelai: source.attachments, openai: [] };
+  } else {
+    raw = object(source.attachments, '世界书挂载');
+    fields(raw, ['novelai', 'openai'], '世界书挂载');
+  }
+  const attachments: WorldbookAttachments = {
+    novelai: validateModelSettings({ ...defaultModelSettings('novelai'), worldbooks: raw.novelai }).worldbooks,
+    openai: validateModelSettings({ ...defaultModelSettings('openai'), worldbooks: raw.openai }).worldbooks,
+  };
   checkWorldbookLinks(attachments, worldbooks);
   return { worldbooks, attachments };
 }
@@ -126,11 +148,14 @@ function anchors(value: unknown): CharacterAnchor[] {
   }));
 }
 
-function checkWorldbookLinks(attachments: ModelSettings['worldbooks'], books: StoredWorldbook[]): void {
-  for (const selected of attachments) {
-    const book = books.find(book => book.name === selected.name);
-    if (!book || selected.entries.some(id => !book.entries.some(entry => entry.id === id))) {
-      throw new Error(`世界书挂载“${selected.name}”缺少对应书籍或条目，无法完整迁移。`);
+function checkWorldbookLinks(attachments: WorldbookAttachments, books: StoredWorldbook[]): void {
+  const available = new Map(books.map(book => [book.name, new Set(book.entries.map(entry => entry.id))]));
+  for (const provider of IMAGE_PROVIDERS) {
+    for (const selected of attachments[provider]) {
+      const entries = available.get(selected.name);
+      if (!entries || selected.entries.some(id => !entries.has(id))) {
+        throw new Error(`${providerName(provider)} 世界书挂载“${selected.name}”缺少对应书籍或条目，无法完整迁移。`);
+      }
     }
   }
 }
@@ -138,43 +163,65 @@ function checkWorldbookLinks(attachments: ModelSettings['worldbooks'], books: St
 export function archiveKeyCount(archive: ParsedArchive): number {
   if (archive.kind !== 'all') return 0;
   const { image, model } = archive.data;
-  return [image.connection.key, ...image.connectionProfiles.map(profile => profile.key), model.key].filter(Boolean).length;
+  return [...IMAGE_PROVIDERS.flatMap(provider => {
+    const settings = image.profiles[provider];
+    return [settings.connection.key, ...settings.connectionProfiles.map(profile => profile.key)];
+  }), model.api.key].filter(Boolean).length;
 }
 
 export function parseArchive(source: string): ParsedArchive {
+  if (source.length > MAX_ARCHIVE_BYTES || new TextEncoder().encode(source).byteLength > MAX_ARCHIVE_BYTES) throw new Error('配置文件不能超过 128 MiB。');
   let decoded: unknown;
   try { decoded = JSON.parse(source.replace(/^\uFEFF/, '')); }
   catch { throw new Error('文件不是有效的 JSON。'); }
   const raw = object(decoded, '配置文件');
   fields(raw, ['format', 'version', 'kind', 'exportedAt', 'includesKeys', 'data'], '配置文件');
   if (raw.format !== 'witch-paintbox-config') throw new Error('请选择魔女画匣导出的配置文件；原始模型预设和世界书 JSON 请在各自页面导入。');
-  if (raw.version !== 1) throw new Error('不支持这个配置文件版本，请更新插件后重试。');
+  if (raw.version !== 1 && raw.version !== 2) throw new Error('不支持这个配置文件版本，请更新插件后重试。');
   if (!['all', 'artists', 'presets', 'worldbooks'].includes(String(raw.kind)) || typeof raw.includesKeys !== 'boolean'
     || typeof raw.exportedAt !== 'string' || raw.exportedAt.length > 64 || !Number.isFinite(Date.parse(raw.exportedAt))) {
     throw new Error('配置文件的类型、时间或密钥标记无效。');
   }
-  const base: Envelope = { format: 'witch-paintbox-config', version: 1, kind: raw.kind as ArchiveKind,
+  const base: Envelope = { format: 'witch-paintbox-config', version: raw.version, kind: raw.kind as ArchiveKind,
     exportedAt: raw.exportedAt, includesKeys: raw.includesKeys };
   const data = object(raw.data, '配置内容');
   let result: ParsedArchive;
   if (raw.kind !== 'all' && raw.includesKeys) throw new Error('局部配置文件不应包含密钥。');
   if (raw.kind === 'artists') {
-    fields(data, ['artists'], '画师串分享文件');
-    result = { ...base, kind: 'artists', data: { artists: artistSettings(data.artists) } };
+    fields(data, raw.version === 1 ? ['artists'] : ['provider', 'artists'], '画师串分享文件');
+    const provider = raw.version === 1 ? 'novelai' : imageProvider(data.provider);
+    result = { ...base, kind: 'artists', data: { provider, artists: artistSettings(data.artists, provider) } };
   } else if (raw.kind === 'presets') {
-    fields(data, ['presets'], '预设分享文件');
-    result = { ...base, kind: 'presets', data: { presets: presetSettings(data.presets) } };
+    fields(data, raw.version === 1 ? ['presets'] : ['provider', 'presets'], '预设分享文件');
+    const provider = raw.version === 1 ? 'novelai' : imageProvider(data.provider);
+    result = { ...base, kind: 'presets', data: { provider, presets: presetSettings(data.presets, provider) } };
   } else if (raw.kind === 'worldbooks') {
-    result = { ...base, kind: 'worldbooks', data: worldbookSettings(data) };
+    result = { ...base, kind: 'worldbooks', data: worldbookSettings(data, raw.version) };
   } else {
     const required = ['image', 'model', 'preferences', 'anchors', 'worldbooks'];
     fields(data, Object.hasOwn(data, 'sharedOutfits') ? [...required, 'sharedOutfits'] : required, '完整配置');
-    const image = validateImageSettings(data.image);
-    const modelRaw = object(data.model, '模型配置');
-    if (modelRaw.worldbookSource !== 'uploads') throw new Error('配置文件的世界书来源不受支持。');
-    const model = validateModelSettings(modelRaw);
+    let image: AllImageSettings, model: AllModelSettings;
+    if (raw.version === 1) {
+      const modelRaw = object(data.model, '模型配置');
+      if (modelRaw.worldbookSource !== 'uploads') throw new Error('配置文件的世界书来源不受支持。');
+      image = validateAllImageSettings(validateImageSettings({ ...object(data.image, '生图配置'), provider: 'novelai' }));
+      model = validateAllModelSettings(validateModelSettings({ ...modelRaw, presetProvider: 'novelai' }));
+    } else {
+      const modelRaw = object(data.model, '模型配置');
+      if (object(data.image, '生图配置').version !== 2 || modelRaw.version !== 2) {
+        throw new Error('新版完整配置必须包含 NAI 与 GPT 两套配置。');
+      }
+      const presets = object(modelRaw.presets, '模型预设');
+      for (const provider of IMAGE_PROVIDERS) {
+        if (object(presets[provider], `${providerName(provider)} 预设`).worldbookSource !== 'uploads') {
+          throw new Error(`${providerName(provider)} 预设的世界书来源不受支持。`);
+        }
+      }
+      image = validateAllImageSettings(data.image);
+      model = validateAllModelSettings(data.model);
+    }
     const worldbooks = validateWorldbookArchive(data.worldbooks);
-    checkWorldbookLinks(model.worldbooks, worldbooks);
+    checkWorldbookLinks(modelAttachments(model), worldbooks);
     const sharedOutfits = validateSharedOutfits(Object.hasOwn(data, 'sharedOutfits') ? data.sharedOutfits : []);
     result = { ...base, kind: 'all', data: { image, model, worldbooks, anchors: anchors(data.anchors), sharedOutfits, preferences: preferences(data.preferences) } };
   }
@@ -183,26 +230,29 @@ export function parseArchive(source: string): ParsedArchive {
 }
 
 export async function exportArchive(kind: ArchiveKind, includeKeys: boolean, context: TavernContext): Promise<Blob> {
-  const envelope: Envelope = { format: 'witch-paintbox-config', version: 1, kind, exportedAt: new Date().toISOString(), includesKeys: kind === 'all' && includeKeys };
+  const envelope: Envelope = { format: 'witch-paintbox-config', version: 2, kind, exportedAt: new Date().toISOString(), includesKeys: kind === 'all' && includeKeys };
   let data: unknown;
   if (kind === 'artists') {
     const image = loadImageSettings();
-    data = { artists: artistSettings({ artists: image.artists, positive: image.positive, negative: image.negative, activeArtistId: image.activeArtistId }) };
-  } else if (kind === 'presets') data = { presets: selectPreset(loadModelSettings()) };
-  else if (kind === 'worldbooks') {
+    data = { provider: image.provider, artists: artistSettings({ artists: image.artists, positive: image.positive, negative: image.negative, activeArtistId: image.activeArtistId }, image.provider) };
+  } else if (kind === 'presets') {
     const model = loadModelSettings();
+    data = { provider: model.presetProvider, presets: selectPreset(model) };
+  } else if (kind === 'worldbooks') {
+    const attachments = modelAttachments(loadAllModelSettings());
     const worldbooks = await loadWorldbookArchive();
-    checkWorldbookLinks(model.worldbooks, worldbooks);
-    data = { worldbooks, attachments: model.worldbooks };
+    checkWorldbookLinks(attachments, worldbooks);
+    data = { worldbooks, attachments };
   } else {
-    const image = loadImageSettings();
-    const model = loadModelSettings();
+    const image = loadAllImageSettings(), model = loadAllModelSettings();
     const [characters, worldbooks] = await Promise.all([loadAnchors(), loadWorldbookArchive()]);
-    checkWorldbookLinks(model.worldbooks, worldbooks);
+    checkWorldbookLinks(modelAttachments(model), worldbooks);
     if (!includeKeys) {
-      image.connection.key = '';
-      image.connectionProfiles.forEach(profile => { profile.key = ''; });
-      model.key = '';
+      for (const provider of IMAGE_PROVIDERS) {
+        image.profiles[provider].connection.key = '';
+        image.profiles[provider].connectionProfiles.forEach(profile => { profile.key = ''; });
+      }
+      model.api.key = '';
     }
     const portable: PortableAnchor[] = [];
     for (const character of characters) portable.push({ ...character, portrait: await encodePortrait(character.portrait) });
@@ -214,61 +264,78 @@ export async function exportArchive(kind: ArchiveKind, includeKeys: boolean, con
 }
 
 export function summarizeArchive(archive: ParsedArchive): ArchiveSummary[] {
+  const rows: ArchiveSummary[] = [];
+  if (archive.version === 1) rows.push({ title: '旧版配置兼容', detail: archive.kind === 'all'
+    ? '旧版单套配置将迁入 NAI；GPT 生图配置与预设将恢复为空的初始配置。'
+    : archive.kind === 'worldbooks' ? '旧版世界书挂载归入 NAI；GPT 的挂载将清空，以免引用替换前的书籍。'
+      : '旧版分享文件的目标为 NAI，不会替换 GPT 的画师串或预设。' });
+  if (archive.kind === 'artists') {
+    const artists = archive.data.artists;
+    rows.push({ title: `${providerName(archive.data.provider)} 画师串`, detail: `${artists.artists.length} 个命名配置及当前提示词、选用状态。${artists.artists.map(item => item.name).join('、')}` });
+    return rows;
+  }
   if (archive.kind === 'presets') {
     const preset = archive.data.presets;
-    return [{ title: '预设', detail: `“${preset.presetName || '未命名'}”，${preset.head.length + preset.tail.length} 个文本条目，含条目编排、功能层启用状态和标记设置。` }];
+    rows.push({ title: `${providerName(archive.data.provider)} 预设`, detail: `“${preset.presetName || '未命名'}”，${preset.head.length + preset.tail.length} 个文本条目，含条目编排、功能层启用状态；配图标记开关为两套共用设置。` });
+    return rows;
   }
   if (archive.kind === 'worldbooks') {
     const { worldbooks, attachments } = archive.data;
-    return [{ title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目。${worldbooks.map(book => book.name).join('、')}` },
-      { title: '条目挂载', detail: `${attachments.reduce((total, book) => total + book.entries.length, 0)} 个条目，来自 ${attachments.filter(book => book.entries.length).length} 本书；世界书层的启用状态和预设位置保留当前设置。` }];
+    rows.push({ title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目。${worldbooks.map(book => book.name).join('、')}` });
+    for (const provider of IMAGE_PROVIDERS) rows.push({ title: `${providerName(provider)} 条目挂载`, detail: `${attachments[provider].reduce((total, book) => total + book.entries.length, 0)} 个条目，来自 ${attachments[provider].filter(book => book.entries.length).length} 本书；该套世界书层的启用状态和预设位置保留当前设置。` });
+    return rows;
   }
-  const image = archive.kind === 'all' ? archive.data.image : archive.data.artists;
-  const rows = [{ title: '画师串', detail: `${image.artists.length} 个命名配置及当前正、负面提示词。${image.artists.map(item => item.name).join('、')}` }];
-  if (archive.kind === 'all') {
-    const { model, anchors, sharedOutfits, worldbooks } = archive.data;
-    rows.unshift({ title: '生图 API', detail: `${archive.data.image.connectionProfiles.length} 个保存连接；模型 ${archive.data.image.parameters.model}，${archive.data.image.parameters.width} × ${archive.data.image.parameters.height}，含全部生图参数。` },
-      { title: '模型 API 与预设', detail: `${model.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.model || '未选模型'}`}；预设“${model.presetName || '未命名'}”，${model.head.length + model.tail.length} 个文本条目，含编排、功能层选择和标记设置。` });
-    rows.push({ title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` },
-      { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装；完整导入将替换当前通用服装库。${sharedOutfits.map(outfit => outfit.name).join('、')}` },
-      { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含挂载关系。${worldbooks.map(book => book.name).join('、')}` },
-      { title: '使用偏好', detail: '页面记忆、悬浮球位置及位置记忆。' });
+  const { image, model, anchors, sharedOutfits, worldbooks } = archive.data;
+  rows.push({ title: '当前生图类型', detail: providerName(image.activeProvider) });
+  for (const provider of IMAGE_PROVIDERS) {
+    const settings = image.profiles[provider], preset = model.presets[provider];
+    const parameters = provider === 'novelai' ? settings.parameters : settings.openaiParameters;
+    rows.push({ title: `${providerName(provider)} 生图 API`, detail: `${settings.connectionProfiles.length} 个保存连接；模型 ${parameters.model || '未选模型'}，${parameters.width} × ${parameters.height}，含全部生图参数。` },
+      { title: `${providerName(provider)} 画师串`, detail: `${settings.artists.length} 个命名配置及当前提示词。${settings.artists.map(item => item.name).join('、')}` },
+      { title: `${providerName(provider)} 预设`, detail: `“${preset.presetName || '未命名'}”，${preset.head.length + preset.tail.length} 个文本条目，含编排、功能层选择和 ${preset.worldbooks.length} 本世界书挂载。` });
   }
+  rows.push({ title: '共用模型 API', detail: `${model.api.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.api.model || '未选模型'}`}；含回复参数及配图标记开关。` },
+    { title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` },
+    { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装；完整导入将替换当前通用服装库。${sharedOutfits.map(outfit => outfit.name).join('、')}` },
+    { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含两套挂载关系。${worldbooks.map(book => book.name).join('、')}` },
+    { title: '使用偏好', detail: '页面记忆、悬浮球位置及位置记忆。' });
   return rows;
 }
 
 /** Validate everything before writes; restore completed sections if a later storage operation fails. */
 export async function applyArchive(archive: ParsedArchive, context: TavernContext): Promise<void> {
   if (archive.kind === 'artists') {
-    const image = loadImageSettings();
-    try { saveImageSettings({ ...image, ...archive.data.artists }); }
+    const image = loadImageSettings(archive.data.provider);
+    try { await saveImageSettings({ ...image, ...archive.data.artists }); }
     catch (error) {
       let restored = true;
-      try { saveImageSettings(image); } catch { restored = false; }
+      try { await saveImageSettings(image); } catch { restored = false; }
       throw new Error(`${error instanceof Error ? error.message : '画师串导入失败。'}${restored ? '原配置已恢复。' : '原配置未能恢复，请检查浏览器存储。'}`);
     }
     return;
   }
   if (archive.kind === 'presets') {
-    const model = loadModelSettings();
-    try { saveModelSettings({ ...model, ...archive.data.presets }); }
+    const model = loadModelSettings(archive.data.provider);
+    try { await saveModelSettings({ ...model, ...archive.data.presets }); }
     catch (error) { await rollback(error, [() => saveModelSettings(model)]); }
     return;
   }
   if (archive.kind === 'worldbooks') {
-    const model = loadModelSettings(), previousBooks = await loadWorldbookArchive();
+    const model = loadAllModelSettings(), previousBooks = await loadWorldbookArchive();
     const undo: (() => void | Promise<void>)[] = [];
     try {
       checkWorldbookLinks(archive.data.attachments, archive.data.worldbooks);
       await replaceWorldbookArchive(archive.data.worldbooks);
       undo.push(() => replaceWorldbookArchive(previousBooks));
-      undo.push(() => saveModelSettings(model));
-      saveModelSettings({ ...model, worldbooks: archive.data.attachments });
+      undo.push(() => saveAllModelSettings(model));
+      const next = structuredClone(model);
+      for (const provider of IMAGE_PROVIDERS) next.presets[provider].worldbooks = archive.data.attachments[provider];
+      await saveAllModelSettings(next);
     } catch (error) { await rollback(error, undo); }
     return;
   }
-  const image = loadImageSettings();
-  const model = loadModelSettings(), previousPreferences = readSettings(context);
+  const image = loadAllImageSettings();
+  const model = loadAllModelSettings(), previousPreferences = readSettings(context);
   const previousSharedOutfits = loadSharedOutfits();
   const [previousAnchors, previousBooks] = await Promise.all([loadAnchors(), loadWorldbookArchive()]);
   const undo: (() => void | Promise<void>)[] = [];
@@ -276,13 +343,13 @@ export async function applyArchive(archive: ParsedArchive, context: TavernContex
     await replaceAnchors(archive.data.anchors);
     undo.push(() => replaceAnchors(previousAnchors));
     undo.push(() => replaceSharedOutfits(previousSharedOutfits));
-    replaceSharedOutfits(archive.data.sharedOutfits);
+    await replaceSharedOutfits(archive.data.sharedOutfits);
     await replaceWorldbookArchive(archive.data.worldbooks);
     undo.push(() => replaceWorldbookArchive(previousBooks));
-    undo.push(() => saveImageSettings(image));
-    saveImageSettings(archive.data.image);
-    undo.push(() => saveModelSettings(model));
-    saveModelSettings(archive.data.model);
+    undo.push(() => saveAllModelSettings(model));
+    await saveAllModelSettings(archive.data.model);
+    undo.push(() => saveAllImageSettings(image));
+    await saveAllImageSettings(archive.data.image);
     undo.push(() => saveSettings(context, previousPreferences));
     saveSettings(context, archive.data.preferences);
   } catch (error) { await rollback(error, undo); }

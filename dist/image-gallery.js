@@ -161,19 +161,23 @@ export function createImageGallery(summary, signal, handlers) {
         image.width = entry.parameters.width;
         image.height = entry.parameters.height;
         download.href = url;
-        download.download = `witch-paintbox-${entry.seed}.png`;
+        download.download = `witch-paintbox-${entry.seed ?? entry.id}.png`;
         download.removeAttribute('aria-disabled');
         download.removeAttribute('tabindex');
-        const params = entry.parameters;
         const fields = [
-            ['模型', NAI_MODELS.find(model => model.value === params.model)?.label ?? params.model],
-            ['尺寸', `${params.width} × ${params.height}`],
-            ['步数', params.steps], ['CFG', params.scale],
-            ['采样器', NAI_SAMPLERS.find(sampler => sampler.value === params.sampler)?.label ?? params.sampler],
-            ['噪声调度', params.model.startsWith('nai-diffusion-5') ? 'Karras' : params.sampler === 'k_dpm_fast' ? '不适用' : NAI_SCHEDULES.find(schedule => schedule.value === params.noiseSchedule)?.label ?? params.noiseSchedule],
-            ['实际种子', entry.seed], ['生成时间', new Date(entry.createdAt).toLocaleString('zh-CN', { hour12: false })],
-            ['引导重缩放', params.cfgRescale], ['SMEA', params.sm ? '开启' : '关闭'], ['SMEA DYN', params.smDyn ? '开启' : '关闭'],
+            ['生图服务', entry.provider === 'openai' ? 'GPT / OpenAI 兼容接口' : 'NovelAI'],
+            ['模型', entry.provider === 'openai' ? entry.parameters.model
+                    : NAI_MODELS.find(model => model.value === entry.parameters.model)?.label ?? entry.parameters.model],
+            ['尺寸', `${entry.parameters.width} × ${entry.parameters.height}`],
+            ['生成时间', new Date(entry.createdAt).toLocaleString('zh-CN', { hour12: false })],
         ];
+        if (entry.provider === 'openai') {
+            fields.push(['请求质量', entry.parameters.quality], ['输出格式', 'PNG']);
+        }
+        else {
+            const params = entry.parameters;
+            fields.push(['步数', params.steps], ['CFG', params.scale], ['采样器', NAI_SAMPLERS.find(sampler => sampler.value === params.sampler)?.label ?? params.sampler], ['噪声调度', params.model.startsWith('nai-diffusion-5') ? 'Karras' : params.sampler === 'k_dpm_fast' ? '不适用' : NAI_SCHEDULES.find(schedule => schedule.value === params.noiseSchedule)?.label ?? params.noiseSchedule], ['实际种子', entry.seed], ['引导重缩放', params.cfgRescale], ['SMEA', params.sm ? '开启' : '关闭'], ['SMEA DYN', params.smDyn ? '开启' : '关闭']);
+        }
         properties.replaceChildren(...fields.map(([label, value]) => {
             const field = document.createElement('div');
             const name = document.createElement('dt');
@@ -184,10 +188,9 @@ export function createImageGallery(summary, signal, handlers) {
             return field;
         }));
         const characterPrompts = entry.characters ?? [];
-        const promptFields = [
-            [characterPrompts.length ? '全局正面提示词' : '正面提示词', entry.positive],
-            [characterPrompts.length ? '全局负面提示词' : '负面提示词', entry.negative],
-        ];
+        const promptFields = [[characterPrompts.length ? '全局正面提示词' : '正面提示词', entry.positive]];
+        if (entry.provider !== 'openai')
+            promptFields.push([characterPrompts.length ? '全局负面提示词' : '负面提示词', entry.negative]);
         characterPrompts.forEach((character, index) => {
             promptFields.push([`角色 ${index + 1} · 正面提示词`, character.positive]);
             promptFields.push([`角色 ${index + 1} · 负面提示词`, character.negative]);
