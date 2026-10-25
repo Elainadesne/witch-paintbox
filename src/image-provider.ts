@@ -59,7 +59,9 @@ export async function generateConfiguredImage(
     const expanded = await resolveStoredAnchorPrompt(scene);
     prompt = { positive: [expanded, artistPositive].filter(value => value.trim()).join(', '), negative: '', characters: [] };
   } else {
-    prompt = await prepareImagePrompt(scene, snapshot.negative, artistPositive);
+    const model = snapshot.parameters.model;
+    const characterLimit = model === 'nai-diffusion-3' ? 0 : model.startsWith('nai-diffusion-5') ? 22 : 6;
+    prompt = await prepareImagePrompt(scene, snapshot.negative, artistPositive, characterLimit);
   }
   return generatePreparedImage(snapshot, prompt, signal, onProgress);
 }

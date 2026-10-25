@@ -41,46 +41,42 @@ function separators(source) {
         else if (')]}>'.includes(character) && brackets.pop() !== character)
             invalid = true;
     }
-    // Leave ordinary old single-string prompts alone. With protocol symbols,
-    // unmatched weights could hide an intended character boundary, so reject it.
-    if (hasOperator && (invalid || weighted || brackets.length)) {
-        throw new Error('角色分栏的括号或数字权重未闭合，请将 | 和 ~ 放在完整权重组之外。');
-    }
+    // Ambiguous delimiters mean ordinary text, not a failed generation.
+    if (hasOperator && (invalid || weighted || brackets.length))
+        return null;
     return found;
 }
-function parseScene(source) {
+function parseScene(source, characterLimit) {
+    const plain = { positive: source, characters: [] };
+    if (!characterLimit)
+        return plain;
     const operators = separators(source);
+    if (!operators)
+        return plain;
     const bars = operators.filter(item => item.value === '|');
     const tildes = operators.filter(item => item.value === '~');
-    if (!bars.length) {
-        if (tildes.length)
-            throw new Error('~ 仅用于角色分栏的专属负面词，请先用 | 分隔全局与角色提示词。');
-        return { positive: source, characters: [] };
-    }
-    if (bars.length > 22)
-        throw new Error('一张图片最多支持 22 个角色分栏，请减少角色数量。');
+    if (!bars.length || bars.length > characterLimit)
+        return plain;
     const positive = source.slice(0, bars[0].index).trim();
-    if (!positive)
-        throw new Error('角色分栏的第一栏不能为空，请填写人数、场景或整体构图。');
-    if (tildes.some(item => item.index < bars[0].index)) {
-        throw new Error('全局栏不能使用 ~，全局负面词请填写在画师工坊的负面提示词中。');
-    }
-    const characters = bars.map((bar, index) => {
+    if (!positive || tildes.some(item => item.index < bars[0].index))
+        return plain;
+    const characters = [];
+    for (const [index, bar] of bars.entries()) {
         const end = bars[index + 1]?.index ?? source.length;
         const negatives = tildes.filter(item => item.index > bar.index && item.index < end);
         if (negatives.length > 1)
-            throw new Error(`第 ${index + 1} 个角色栏只能使用一个 ~ 分隔正面与负面词。`);
+            return plain;
         const positive = source.slice(bar.index + 1, negatives[0]?.index ?? end).trim();
         const negative = negatives.length ? source.slice(negatives[0].index + 1, end).trim() : '';
         if (!positive)
-            throw new Error(`第 ${index + 1} 个角色栏的正面提示词不能为空，请删除多余的 | 或补全角色。`);
-        return { positive, negative };
-    });
+            return plain;
+        characters.push({ positive, negative });
+    }
     return { positive, characters };
 }
-/** Parse once, then expand each positive field independently from one library snapshot. */
-export async function prepareImagePrompt(scene, globalNegative, artistPositive = '') {
-    const parsed = parseScene(scene);
+/** Recognize optional columns, then expand positive fields from one library snapshot. */
+export async function prepareImagePrompt(scene, globalNegative, artistPositive = '', characterLimit = 22) {
+    const parsed = parseScene(scene, characterLimit);
     const positives = [parsed.positive, ...parsed.characters.map(character => character.positive)];
     const anchors = positives.some(prompt => /[\p{Script=Han}@]/u.test(prompt)) ? await loadAnchors() : [];
     const outfits = positives.some(prompt => prompt.includes('#')) ? loadSharedOutfits() : [];

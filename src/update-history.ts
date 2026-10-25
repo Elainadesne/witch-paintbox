@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-25', title: '多角色分栏改为可选增强',
+    changes: [
+      'NAI 提示词格式完整时使用角色分栏；普通单串、孤立 ~、不完整分栏或模型不支持时，保留整段提示词按普通模式生成，不再因分栏格式拦截。',
+      '普通模式继续展开标签锚定并拼接画师串，不自动拆分负面词；GPT 生图行为保持不变。',
+    ],
+  },
+  {
     date: '2026-10-25', title: '更新提醒与 GPT 图片格式兼容',
     changes: [
       '修复使用偏好中 TauriTavern 同步标题与说明文字重叠。',
