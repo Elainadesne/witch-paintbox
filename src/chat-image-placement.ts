@@ -242,7 +242,7 @@ function lineVariants(raw: string, messageId: number): Set<string> {
   const variants = new Set<string>();
   if (literal) variants.add(literal);
   const strippedTags = raw
-    .replace(/<\/?(?:now_plot|gametxt)\b[^>]*>/gi, '')
+    .replace(/<\/?(?:now_plot|gametxt|content)\b[^>]*>/gi, '')
     .replace(/<\/?台词(?:[：:][^<>\n]*)?>/g, '')
     .trim();
   if (strippedTags && strippedTags !== raw) {
@@ -297,7 +297,7 @@ export function locateImageInsertionPoints(element: HTMLElement, messageId: numb
   const source = compact(original);
   const narrativeEnd = (line: typeof lines[number]): number => {
     const raw = original.slice(line.start, line.contentEnd);
-    const close = /<\/(?:now_plot|gametxt)\s*>\s*$/i.exec(raw);
+    const close = /<\/(?:now_plot|gametxt|content)\s*>\s*$/i.exec(raw);
     return close ? line.start + close.index : line.end;
   };
   function findLine(line: typeof lines[number] | undefined): { start: number; end: number } | null {

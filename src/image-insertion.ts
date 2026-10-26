@@ -12,7 +12,7 @@ function newline(text: string): string { return /\r\n|\r|\n/.exec(text)?.[0] ?? 
 
 interface NarrativeSpan { start: number; end: number }
 
-/** Locate <now_plot> / <gametxt> narrative bodies outside code and image regions. */
+/** Locate <now_plot> / <gametxt> / <content> narrative bodies outside code and image regions. */
 export function narrativeSpans(text: string, regions = imageTextRegions(text)): NarrativeSpan[] {
   // HTML comments/scripts and code samples are opaque regions. Only standalone
   // tag regions can open/close a narrative body, including nested wrappers.
@@ -21,9 +21,9 @@ export function narrativeSpans(text: string, regions = imageTextRegions(text)): 
   for (const region of regions) {
     if (region.kind !== 'html' || !region.closed) continue;
     const token = text.slice(region.start, region.end);
-    const open = /^<(now_plot|gametxt)(?:\s[^<>]*)?>$/i.exec(token);
+    const open = /^<(now_plot|gametxt|content)(?:\s[^<>]*)?>$/i.exec(token);
     if (open) { stack.push({ tag: open[1].toLowerCase(), start: region.end }); continue; }
-    const close = /^<\/(now_plot|gametxt)\s*>$/i.exec(token);
+    const close = /^<\/(now_plot|gametxt|content)\s*>$/i.exec(token);
     if (!close || !stack.length) continue;
     const current = stack.at(-1)!;
     if (current.tag !== close[1].toLowerCase()) { stack.length = 0; continue; }
