@@ -37,22 +37,24 @@ export function createChatImageView(summary, signal) {
     slot.addEventListener('click', event => event.stopPropagation(), { signal });
     const root = slot.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>
-    :host { --button-surface: #45434e; --frame-inset: 8px; --image-width: 383px; --image-ratio: .6842; display: block; width: max-content; min-width: min(100%, calc(var(--image-width) + var(--frame-inset) + var(--frame-inset) + 2px)); max-width: 100%; margin: .8em auto; color: #3c3931; font: inherit; text-indent: 0; text-align: left; }
+    :host { --button-surface: #45434e; --frame-inset: 8px; --image-width: 383px; --image-ratio: .6842; display: block; box-sizing: border-box; width: max-content; min-width: min(100%, calc(var(--image-width) + var(--frame-inset) + var(--frame-inset) + 2px)); max-width: 100%; margin: .8em auto; color: #3c3931; font: inherit; text-indent: 0; text-align: left; }
     *, *::before, *::after { box-sizing: border-box; }
     /* Weather's metal rails and the attribute card's bevelled corner fittings. */
-    figure { position: relative; margin: 0; padding: var(--frame-inset); border: 1px solid #80683f; border-radius: 3px; background: linear-gradient(135deg, #e0c58e 0, #9c7843 24%, #ead5a1 52%, #a1814a 78%, #d2b779) border-box; box-shadow: 0 3px 10px #623d1a24, inset 0 1px 0 #fff3cf, inset 0 -1px 0 #5d472b88; }
+    figure { position: relative; width: 100%; min-width: 0; max-width: 100%; margin: 0; padding: var(--frame-inset); border: 1px solid #80683f; border-radius: 3px; background: linear-gradient(135deg, #e0c58e 0, #9c7843 24%, #ead5a1 52%, #a1814a 78%, #d2b779) border-box; box-shadow: 0 3px 10px #623d1a24, inset 0 1px 0 #fff3cf, inset 0 -1px 0 #5d472b88; }
     figure::before { content: ''; position: absolute; inset: 3px; border: 1px solid #bba06d; border-radius: 1px; background: #fdfaf2; box-shadow: inset 0 0 0 1px #fffcf0, 0 0 0 1px #71572e33; pointer-events: none; }
     .scene, .footer { position: relative; min-width: 0; }
+    .scene { width: 100%; max-width: 100%; }
     .frame-corner { position: absolute; z-index: 1; width: 24px; height: 24px; color: #8b6834; pointer-events: none; filter: drop-shadow(.5px .8px .3px #50391d55); }
     .frame-corner:nth-of-type(1) { top: 1px; left: 1px; }
     .frame-corner:nth-of-type(2) { top: 1px; right: 1px; transform: scaleX(-1); }
     .frame-corner:nth-of-type(3) { bottom: 1px; left: 1px; transform: scaleY(-1); }
     .frame-corner:nth-of-type(4) { bottom: 1px; right: 1px; transform: scale(-1); }
-    .scene > summary { position: relative; display: grid; gap: 2px; padding: 5px 96px; text-align: center; list-style: none; cursor: pointer; overflow-wrap: anywhere; }
+    .scene > summary { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 2px; padding: 5px 96px; text-align: center; list-style: none; cursor: pointer; overflow-wrap: anywhere; }
     .scene > summary::-webkit-details-marker { display: none; }
     .scene > summary::after { content: '⌄'; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); color: #8b6834; }
     .scene[open] > summary::after { content: '⌃'; }
-    .scene-body { display: grid; gap: 8px; padding-top: 8px; min-width: 0; }
+    /* Explicit tracks stop an image's intrinsic width from widening a narrow details/grid. */
+    .scene-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 100%; padding-top: 8px; min-width: 0; contain: inline-size; }
     .label { font-size: 10px; letter-spacing: .2em; opacity: .6; }
     .title { color: inherit; font: inherit; font-size: .95em; font-weight: 650; line-height: 1.65; text-wrap: balance; }
     .regenerate { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); width: 66px; min-height: 36px; padding: 6px 2px; border: 1px solid #ffffff38; border-radius: 3px; background: var(--button-surface); color: #fff; font-size: 12px; line-height: 1.4; white-space: nowrap; }
@@ -65,9 +67,9 @@ export function createChatImageView(summary, signal) {
     .generate:not(:disabled):hover { filter: brightness(1.1); }
     .generate:disabled { opacity: 1; color: #fff; }
     .generate .ornament { font-size: 15px; opacity: .7; }
-    .canvas { display: grid; place-items: center; justify-self: center; width: var(--image-width); max-width: 100%; min-width: 0; aspect-ratio: var(--image-ratio); overflow: hidden; background: #ece5d5; border-radius: 2px; box-shadow: 0 0 0 1px #8b68342e; }
-    .preview { display: grid; place-items: center; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
-    .preview img { display: block; max-width: 100%; max-height: 560px; width: auto; height: auto; object-fit: contain; }
+    .canvas { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; justify-self: center; width: min(100%, var(--image-width)); max-width: 100%; min-width: 0; min-height: 0; aspect-ratio: var(--image-ratio); overflow: hidden; background: #ece5d5; border-radius: 2px; box-shadow: 0 0 0 1px #8b68342e; }
+    .preview { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+    .preview img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; margin: 0; object-fit: contain; }
     .canvas[data-busy="true"] .preview { opacity: .65; }
     .placeholder { display: grid; place-items: center; opacity: .4; font-size: 26px; }
     .canvas[data-phase="generating"] .placeholder { animation: breathe 2s ease-in-out infinite; }

@@ -80,11 +80,12 @@ async function withRequest<T>(
   }
 }
 
-function parseJson(text: string): JsonRecord {
+function parseJson(text: string): JsonRecord | JsonRecord[] {
   try {
-    const parsed = record(JSON.parse(text));
-    if (!Object.keys(parsed).length || parsed.error) throw new Error();
-    return parsed;
+    const parsed: unknown = JSON.parse(text);
+    const items = (Array.isArray(parsed) ? parsed : [parsed]).map(record);
+    if (!items.length || items.some(item => !Object.keys(item).length || item.error)) throw new Error();
+    return Array.isArray(parsed) ? items : items[0];
   } catch { throw new ModelApiError('模型接口返回了错误或无法解析的数据。'); }
 }
 
@@ -123,7 +124,7 @@ export async function fetchModelList(
       method: 'POST', headers, body: JSON.stringify(connection), signal: requestSignal,
       credentials: 'same-origin', redirect: 'error', referrerPolicy: 'no-referrer',
     });
-    const payload = parseJson(await readBody(response, requestSignal));
+    const payload = record(parseJson(await readBody(response, requestSignal)));
     if (!Array.isArray(payload.data)) throw new ModelApiError('模型列表格式不受支持，请手动填写模型名称。');
     const models = [...new Set(payload.data.map(item => record(item).id)
       .filter((id): id is string => typeof id === 'string' && id.trim().length > 0 && id.length <= 512))];
@@ -139,14 +140,6 @@ function contentText(value: unknown): string {
     const item = record(part);
     return typeof item.text === 'string' && !item.thought && item.type !== 'thinking' ? item.text : '';
   }).join('');
-}
-
-function completeText(payload: JsonRecord): string {
-  const choice = first(payload.choices);
-  return contentText(record(choice.message).content) || contentText(choice.text)
-    || contentText(payload.content) || contentText(record(payload.message).content)
-    || contentText(record(first(payload.candidates).content).parts)
-    || contentText(record(payload.responseContent).parts) || contentText(payload.text);
 }
 
 /** Compatible mode tolerates JSON bodies and SSE events containing a complete message. */
@@ -165,7 +158,24 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
   const update = (next: string) => {
     if (next === text) return;
     text = next;
-    options.onText?.(text);
+    if (mode === 'stream') options.onText?.(text);
+  };
+  const consumePayload = (payload: JsonRecord) => {
+    const choice = first(payload.choices);
+    if (typeof choice.index === 'number' && choice.index > 0) return;
+    const snapshot = contentText(record(choice.message).content)
+      || contentText(payload.content) || contentText(record(payload.message).content)
+      || contentText(record(payload.responseContent).parts) || contentText(payload.text);
+    // Like folkloreTransport, an empty terminal snapshot must not erase received text.
+    if (snapshot.trim()) { update(snapshot); return; }
+    const delta = record(payload.delta);
+    update(text + (contentText(record(choice.delta).content) || contentText(choice.text)
+      || contentText(delta.text) || contentText(record(record(delta.message).content).text)
+      || contentText(record(first(payload.candidates).content).parts)));
+  };
+  const consumePayloads = (data: string) => {
+    const parsed = parseJson(data);
+    (Array.isArray(parsed) ? parsed : [parsed]).forEach(consumePayload);
   };
   const consumeEvent = () => {
     const data = eventData.join('\n');
@@ -175,18 +185,7 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
     if (name === 'error') throw new ModelApiError('模型接口返回了错误事件。');
     if (!data.trim()) return;
     if (data.trim() === '[DONE]') { finished = true; return; }
-    const payload = parseJson(data);
-    const choice = first(payload.choices);
-    if (typeof choice.index === 'number' && choice.index > 0) return;
-    const message = record(choice.message);
-    if (Object.hasOwn(message, 'content')) update(contentText(message.content));
-    else if (payload.type === 'message' && Array.isArray(payload.content)) update(contentText(payload.content));
-    else {
-      const delta = record(payload.delta);
-      update(text + (contentText(record(choice.delta).content) || contentText(choice.text)
-        || contentText(delta.text) || contentText(record(record(delta.message).content).text)
-        || contentText(record(first(payload.candidates).content).parts)));
-    }
+    consumePayloads(data);
   };
   const consumeLine = (line: string) => {
     if (!line) { consumeEvent(); return; }
@@ -201,8 +200,8 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
     buffer += chunk;
     if (!protocol) {
       const prefix = buffer.trimStart();
-      if (prefix.startsWith('{')) protocol = 'json';
-      else if (/^(?::|data:|event:|id:|retry:)/.test(prefix)) protocol = 'sse';
+      if (prefix.startsWith('{') || prefix.startsWith('[')) protocol = 'json';
+      else if (/^(?::|data:|event:|id:|retry:)/.test(prefix)) { protocol = 'sse'; buffer = prefix; }
       else if (prefix && (eof || !['data:', 'event:', 'id:', 'retry:'].some(field => field.startsWith(prefix)))) {
         throw new ModelApiError('模型接口响应格式不受支持。');
       }
@@ -213,7 +212,7 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
     if (protocol !== 'sse') return;
     while (!finished) {
       // Some relays send SSE heartbeats before an ordinary JSON completion.
-      if (mode === 'compatible' && !eventData.length && !text && buffer.trimStart().startsWith('{')) {
+      if (mode === 'compatible' && !eventData.length && !text && /^[{\[]/.test(buffer.trimStart())) {
         protocol = 'json';
         return;
       }
@@ -228,6 +227,8 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
       consumeEvent();
     }
   };
+  const abortReader = () => { void reader.cancel().catch(() => {}); };
+  options.signal?.addEventListener('abort', abortReader, { once: true });
   try {
     while (!finished) {
       options.signal?.throwIfAborted();
@@ -238,10 +239,13 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
       if (bytes > responseLimit) throw new ModelApiError('模型接口返回的数据过大。');
       consume(decoder.decode(chunk.value, { stream: true }));
     }
-    if (protocol === 'json') update(completeText(parseJson(buffer)));
+    options.signal?.throwIfAborted();
+    if (protocol === 'json') consumePayloads(buffer);
     if (!text.trim()) throw new ModelApiError('模型接口没有返回文本正文。');
+    if (mode !== 'stream') options.onText?.(text);
     return text;
   } finally {
+    options.signal?.removeEventListener('abort', abortReader);
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }

@@ -17,6 +17,6 @@ export interface ModelMessage {
 
 export interface ModelRequestOptions {
   signal?: AbortSignal;
-  /** The complete text received so far; never includes reasoning-only fields. */
+  /** Stream: text received so far. Nonstream/compatible: final text only. Excludes reasoning-only fields. */
   onText?: (text: string) => void;
 }

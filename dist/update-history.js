@@ -1,6 +1,14 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-10-26', title: '手机画框与假流兼容修正',
+        changes: [
+            '收紧画框内网格和图片的宽度约束，窄屏图片随容器等比缩放；保留完整画面、画题折叠与全屏查看。',
+            '参考风俗志的兼容传输处理，空的结束消息不再清空已接收正文，取消或超时时主动停止读取响应流。',
+            '假流兼容收齐正文后统一交付，兼容心跳后返回 JSON、JSON 数组及 SSE 完整文本，继续排除独立思考字段。',
+        ],
+    },
+    {
         date: '2026-10-25', title: '角色卡分类与绘制状态',
         changes: [
             '全部角色卡的生图回顾增加角色卡名称标签，可按卡筛选；同名卡分别收纳，未归属图片单独显示。',
