@@ -3,6 +3,19 @@
 const nativeEnvironment = 'Sifang' in globalThis;
 export const sifangHost = globalThis.Sifang;
 export function isSifangEnvironment() { return nativeEnvironment; }
+/** Request the browser viewport before mounting fixed-position UI in the native room. */
+export async function bindSifangWindowViewport(signal) {
+    const host = sifangHost;
+    if (signal.aborted || !host?.capabilities.includes('native-window-viewport') || !host.ui.windowViewport)
+        return;
+    const setViewport = host.ui.windowViewport.bind(host.ui);
+    await setViewport(true);
+    const release = () => { void setViewport(false).catch(() => { }); };
+    if (signal.aborted)
+        release();
+    else
+        signal.addEventListener('abort', release, { once: true });
+}
 export function requireSifangHost() {
     const host = sifangHost;
     if (!host || host.apiVersion !== 1

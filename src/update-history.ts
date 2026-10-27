@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-27', title: '独立前端悬浮窗口定位修正',
+    changes: [
+      '配合独立前端的新视口接口，悬浮球可在整个浏览器可视区拖动，设置窗口按完整画面居中。',
+      '保留空白区域点击穿透，关闭插件时释放视口申请；普通酒馆与 TT 沿用原有定位方式。',
+    ],
+  },
+  {
     date: '2026-10-26', title: '手机画框与假流兼容修正',
     changes: [
       '收紧画框内网格和图片的宽度约束，窄屏图片随容器等比缩放；保留完整画面、画题折叠与全屏查看。',

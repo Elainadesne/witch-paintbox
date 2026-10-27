@@ -43,6 +43,7 @@ interface SifangHost {
   };
   ui: {
     toast(text: string, kind?: string): Promise<unknown>;
+    windowViewport?(enabled: boolean): Promise<void>;
     imageMarkers(options: { saveId: string; node: string; expectedRaw: string; markers: SifangMarkerView[] }): Promise<unknown>;
     imageMarker(options: { saveId: string; node: string; id: string } & Pick<SifangMarkerView, 'state' | 'status' | 'blob'>): Promise<unknown>;
   };
@@ -55,6 +56,17 @@ interface SifangHost {
 const nativeEnvironment = 'Sifang' in globalThis;
 export const sifangHost = (globalThis as typeof globalThis & { Sifang?: SifangHost }).Sifang;
 export function isSifangEnvironment(): boolean { return nativeEnvironment; }
+
+/** Request the browser viewport before mounting fixed-position UI in the native room. */
+export async function bindSifangWindowViewport(signal: AbortSignal): Promise<void> {
+  const host = sifangHost;
+  if (signal.aborted || !host?.capabilities.includes('native-window-viewport') || !host.ui.windowViewport) return;
+  const setViewport = host.ui.windowViewport.bind(host.ui);
+  await setViewport(true);
+  const release = () => { void setViewport(false).catch(() => { /* The host also releases it when the room stops. */ }); };
+  if (signal.aborted) release();
+  else signal.addEventListener('abort', release, { once: true });
+}
 
 export function requireSifangHost(): SifangHost {
   const host = sifangHost;

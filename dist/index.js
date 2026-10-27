@@ -18,7 +18,7 @@ import { ImageReview } from './image-review.js';
 import { bindImageRetention, imageRetentionStatus } from './image-retention.js';
 import { bindImageHistorySync } from './image-history.js';
 import { bindSettingsEntry } from './settings-entry.js';
-import { isSifangEnvironment } from './sifang-host.js';
+import { bindSifangWindowViewport, isSifangEnvironment } from './sifang-host.js';
 import { initializeSifangChat } from './sifang-chat.js';
 import { bindSifangImages } from './sifang-images.js';
 async function mount() {
@@ -70,6 +70,7 @@ async function mount() {
     let nativeReady = false;
     let nativeError = '';
     if (isSifangEnvironment()) {
+        await bindSifangWindowViewport(signal).catch(error => console.warn(`[${pluginName}] 无法扩展插件窗口范围。`, error));
         try {
             await initializeSifangChat(signal);
             nativeReady = true;
