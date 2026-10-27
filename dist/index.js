@@ -9,7 +9,7 @@ import { registerBuiltinLayers } from './builtin-layers.js';
 import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName } from './pages.js';
 import { defaultSettings, extensionId, readSettings, saveSettings } from './settings.js';
-import { navigationView, pageView } from './views.js';
+import { guideDestination, navigationView, pageView } from './views.js';
 import { getHostStore, initializeHostStorage } from './host-storage.js';
 import { getSyncApiKeys, initializeSettingsStorage, setSyncApiKeys } from './host-settings.js';
 import { initializeNativeLibraries } from './host-library.js';
@@ -151,7 +151,16 @@ async function mount() {
         updateNotice.check();
         content.focus({ preventScroll: true });
     }
-    function navigate(next, focus = true, nextFeatureTab) {
+    function revealSection(selector) {
+        const target = content.querySelector(selector);
+        if (!target)
+            return;
+        if (!target.matches('button, input, select, textarea, [tabindex]'))
+            target.tabIndex = -1;
+        target.scrollIntoView({ block: 'start' });
+        target.focus({ preventScroll: true });
+    }
+    function navigate(next, focus = true, nextFeatureTab, destination) {
         if (transfer.isApplying || changingSyncKeys)
             return;
         imageConfig.unmount();
@@ -181,7 +190,7 @@ async function mount() {
         if (page === 'image-api' && imageContainer)
             imageConfig.mount(imageContainer);
         if (page === 'features' && anchorContainer)
-            anchorConfig.mount(anchorContainer);
+            anchorConfig.mount(anchorContainer, destination?.anchorTab);
         if (page === 'model-api' || page === 'features') {
             if (modelContainer)
                 modelConfig.mount(modelContainer, page === 'model-api' ? 'model' : featureTab === 'worldbook' ? 'worldbook' : 'features');
@@ -191,13 +200,15 @@ async function mount() {
             transfer.mount(transferContainer);
         const reviewContainer = content.querySelector('[data-image-review]');
         if (page === 'review' && reviewContainer)
-            imageReview.mount(reviewContainer);
+            imageReview.mount(reviewContainer, destination?.reviewScope);
         showCleanupStatus();
         content.scrollTop = 0;
         settings.lastPage = page;
         persist();
         if (focus)
             content.focus({ preventScroll: true });
+        if (destination?.selector)
+            revealSection(destination.selector);
     }
     // Wait for the isolated styles before measuring the floating button.
     stylesheet.addEventListener('load', () => {
@@ -252,6 +263,11 @@ async function mount() {
                 return;
             if (transfer.isApplying && !button.classList.contains('close-button'))
                 return;
+            const destination = guideDestination(button.dataset.guideTarget);
+            if (destination) {
+                navigate(destination.page, true, destination.featureTab, destination);
+                return;
+            }
             const nextFeatureTab = button.dataset.featureTab;
             if ((nextFeatureTab === 'anchors' || nextFeatureTab === 'worldbook') && (!button.dataset.page || button.dataset.page === 'features')) {
                 navigate('features', true, nextFeatureTab);
@@ -259,12 +275,7 @@ async function mount() {
             else if (isPageId(button.dataset.page))
                 navigate(button.dataset.page);
             if (button.dataset.section === 'config-transfer' && page === 'preferences') {
-                const target = content.querySelector('[data-config-transfer]');
-                if (target) {
-                    target.tabIndex = -1;
-                    target.scrollIntoView({ block: 'start' });
-                    target.focus({ preventScroll: true });
-                }
+                revealSection('[data-config-transfer]');
             }
             if (button.classList.contains('close-button'))
                 panel.close();

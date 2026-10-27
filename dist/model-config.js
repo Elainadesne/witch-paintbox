@@ -241,7 +241,7 @@ export class ModelConfig {
           <p class="config-status">可一次选择多个世界书 JSON，支持 character_book 条目，每个文件最大 20 MiB。上传后保存在${getHostStore() ? 'TT 扩展数据中' : '当前浏览器'}，同名书另存一份。</p>
           <p class="config-status${this.worldbookError ? ' is-error' : ''}" data-worldbook-status role="status">${escape(this.worldbookNotice)}</p>
         </section>
-        <section class="config-section">${worldbookSettingsView(this.settings, this.worldbook, true)}</section>
+        <section class="config-section" data-worldbook-mount>${worldbookSettingsView(this.settings, this.worldbook, true)}</section>
         <label class="prompt-enable"><input type="checkbox" data-layer-id="worldbook"${this.settings.enabledLayers.includes('worldbook') ? ' checked' : ''}>在预设中启用世界书层</label>
         <button type="button" class="text-button model-feature-link" data-page="model-api">前往模型 API 预设 →</button>
         <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() || this.saving ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status">${this.saving ? '正在保存…' : this.isSaved() ? '已保存。' : '选择条目后，点击保存配置生效。'}</p></div>

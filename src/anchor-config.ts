@@ -42,6 +42,8 @@ function selectableTags(prompt: string): string[] {
   return tags;
 }
 
+export type AnchorTab = 'round' | 'anchors' | 'shared-outfits';
+
 export class AnchorConfig {
   private container: HTMLElement | null = null;
   private listeners: AbortController | null = null;
@@ -49,7 +51,7 @@ export class AnchorConfig {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private roundRequest = 0;
   private anchorsRequest = 0;
-  private tab: 'round' | 'anchors' | 'shared-outfits' = 'round';
+  private tab: AnchorTab = 'round';
   private anchors: CharacterAnchor[] = [];
   private sharedOutfits: SharedOutfit[] = [];
   private sharedOutfitsError = '';
@@ -77,8 +79,9 @@ export class AnchorConfig {
 
   get hasPendingWrites(): boolean { return this.busy || this.portraitRequest !== null; }
 
-  mount(container: HTMLElement): void {
+  mount(container: HTMLElement, initialTab?: AnchorTab): void {
     this.unmount();
+    if (initialTab) this.tab = initialTab;
     this.container = container;
     this.listeners = new AbortController();
     const { signal } = this.listeners;

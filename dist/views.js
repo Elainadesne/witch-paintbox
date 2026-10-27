@@ -2,6 +2,37 @@ import { navigation, pages, pluginName } from './pages.js';
 import { updateHistoryView } from './update-history.js';
 import { getHostStore, isTauriHost } from './host-storage.js';
 import { getSyncApiKeys } from './host-settings.js';
+const guideLinks = {
+    imageConnection: { label: '密钥配置', page: 'image-api', selector: '[aria-labelledby="connection-heading"]' },
+    imageParameters: { label: '生图配置', page: 'image-api', selector: '[aria-labelledby="parameters-heading"]' },
+    artists: { label: '画师工坊', page: 'image-api', selector: '[aria-labelledby="artist-heading"]' },
+    modelConnection: { label: '模型连接', page: 'model-api', selector: '[aria-labelledby="model-connection-heading"]' },
+    presets: { label: '预设编排', page: 'model-api', selector: '[aria-labelledby="model-prompts-heading"]' },
+    markers: { label: '标记与隐藏', page: 'model-api', selector: '.marker-settings' },
+    round: { label: '本轮生图', page: 'features', featureTab: 'anchors', anchorTab: 'round' },
+    anchors: { label: '锚定配置', page: 'features', featureTab: 'anchors', anchorTab: 'anchors' },
+    outfits: { label: '通用服装库', page: 'features', featureTab: 'anchors', anchorTab: 'shared-outfits' },
+    worldbookUpload: { label: '上传世界书', page: 'features', featureTab: 'worldbook', selector: '[data-worldbook-file]' },
+    worldbookMount: { label: '挂载条目', page: 'features', featureTab: 'worldbook', selector: '[data-worldbook-mount]' },
+    currentImages: { label: '当前角色卡', page: 'review', reviewScope: 'current' },
+    allImages: { label: '全部角色卡', page: 'review', reviewScope: 'all' },
+    habits: { label: '配图与留存', page: 'preferences', selector: '[aria-labelledby="image-habits-heading"]' },
+    autoImages: { label: '自动生图', page: 'preferences', selector: '[name="autoGenerateImages"]' },
+    retention: { label: '自动清理', page: 'preferences', selector: '[name="imageRetentionDays"]' },
+    tia: { label: '桌宠缇娅', page: 'preferences', selector: '[aria-labelledby="pet-heading"]' },
+    exportConfig: { label: '导出配置', page: 'preferences', selector: '[data-config-transfer] .config-section' },
+    importConfig: { label: '导入配置', page: 'preferences', selector: '[data-transfer-file]' },
+    updates: { label: '更新历史', page: 'preferences', selector: '[aria-labelledby="update-history-heading"]' },
+};
+export function guideDestination(key) {
+    return key && Object.hasOwn(guideLinks, key) ? guideLinks[key] : undefined;
+}
+function guideLeaf(link, title, description, tags) {
+    return `<div class="map-leaf">
+    <button type="button" class="map-leaf-link" data-guide-target="${link}"><strong>${title}</strong><span>${description}</span></button>
+    <nav class="map-tags" aria-label="${title}快捷索引">${tags.map(key => `<button type="button" data-guide-target="${key}">${guideLinks[key].label}</button>`).join('')}</nav>
+  </div>`;
+}
 export function navigationView(page) {
     return navigation.map((item, index) => `
     <button type="button" class="nav-item" data-page="${item.page}"
@@ -9,15 +40,15 @@ export function navigationView(page) {
       <span class="nav-number" aria-hidden="true">0${index + 1}</span><span>${item.title}</span>
     </button>`).join('');
 }
-function node(page, className = 'map-node') {
-    return `<button type="button" class="${className}" data-page="${page}">
+function node(page) {
+    return `<button type="button" class="map-node" data-page="${page}">
     <strong>${pages[page].title}</strong><span>${pages[page].description}</span>
   </button>`;
 }
 function guideView() {
     return `
     <div class="next-step">
-      <div><strong>先逛逛${pluginName}</strong><p>连接服务、找到功能，再按你的习惯布置画匣。点击下面的节点即可前往。</p></div>
+      <div><strong>先逛逛${pluginName}</strong><p>连接服务、找到功能，再按你的习惯布置画匣。点击板块进入，标签可直达具体设置。</p></div>
       <button type="button" class="primary" data-page="image-api">查看接口配置</button>
     </div>
     <section class="map" aria-label="插件功能系谱图，从上向下展示各板块">
@@ -27,17 +58,23 @@ function guideView() {
           <button type="button" class="map-node" data-page="image-api">
             <strong>接口配置</strong><span>管理服务连接</span>
           </button>
-          <div class="map-leaves">${node('image-api', 'map-leaf')}${node('model-api', 'map-leaf')}</div>
+          <div class="map-leaves">
+            ${guideLeaf('imageConnection', pages['image-api'].title, pages['image-api'].description, ['imageConnection', 'imageParameters', 'artists'])}
+            ${guideLeaf('modelConnection', pages['model-api'].title, pages['model-api'].description, ['modelConnection', 'presets', 'markers'])}
+          </div>
         </div>
         <div class="map-branch">${node('features')}
           <div class="map-leaves">
-            <button type="button" class="map-leaf" data-page="features" data-feature-tab="anchors"><strong>标签锚定</strong><span>固定角色外貌与服装</span></button>
-            <button type="button" class="map-leaf" data-page="features" data-feature-tab="worldbook"><strong>世界书</strong><span>上传并挂载参考条目</span></button>
-            ${node('review', 'map-leaf')}
+            ${guideLeaf('round', '标签锚定', '固定角色外貌与服装', ['round', 'anchors', 'outfits'])}
+            ${guideLeaf('worldbookUpload', '世界书', '上传并挂载参考条目', ['worldbookUpload', 'worldbookMount'])}
+            ${guideLeaf('currentImages', pages.review.title, pages.review.description, ['currentImages', 'allImages'])}
           </div>
         </div>
         <div class="map-branch">${node('preferences')}
-          <div class="map-leaves"><button type="button" class="map-leaf" data-page="preferences" data-section="config-transfer"><strong>配置迁移与分享</strong><span>选择配置范围，迁移或分享</span></button></div>
+          <div class="map-leaves">
+            ${guideLeaf('habits', '使用习惯', '安排配图留存，调整缇娅的陪伴', ['autoImages', 'retention', 'tia', 'updates'])}
+            ${guideLeaf('exportConfig', '配置迁移与分享', '选择配置范围，迁移或分享', ['exportConfig', 'importConfig'])}
+          </div>
         </div>
       </div>
     </section>
@@ -79,7 +116,7 @@ function preferencesView(settings) {
       <label class="preference-row"><span><strong>自动生图</strong><span>仅限最新一楼。AI 回复结束、提示词稳定 1 秒后，按正文顺序依次绘制。会消耗生图额度；已有图片跳过，失败不自动重试，打开聊天或开启功能时不补跑历史标记。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
     </section>
     <section class="preference-section" aria-labelledby="pet-heading">
-      <header class="section-heading section-heading--plain"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><p class="section-description">点击菜单中的“关闭悬浮球”可让缇娅回到画匣，不影响后台生图；点击画匣再次唤出。</p></header>
+      <header class="section-heading section-heading--plain"><div class="pet-heading-line"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><small class="pet-credit">由 <strong>Lovéthia</strong> 宝宝制作，无比感谢！</small></div><p class="section-description">点击菜单中的“关闭悬浮球”可让缇娅回到画匣，不影响后台生图；点击画匣再次唤出。</p></header>
       <label class="preference-row"><span><strong>缇娅的台词</strong><span>仅在操作或有结果时触发，相同台词有冷却时间。关闭后不再说话，出错时仍显示报错文字。</span></span><input type="checkbox" name="petLines" ${settings.petLines ? 'checked' : ''}></label>
       <label class="preference-row"><span><strong>缇娅的动作</strong><span>关闭后仅保留呼吸和眨眼，取消走动、摆动及图片飞入楼层的动画。系统开启“减少动态效果”时同样生效。</span></span><input type="checkbox" name="petMotion" ${settings.petMotion ? 'checked' : ''}></label>
     </section>

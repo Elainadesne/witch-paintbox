@@ -2,6 +2,8 @@ import { imageChatContext, watchChatRendering } from './chat-host.js';
 import { loadImageHistoryPage, loadImageHistoryCategories, deleteImageHistory, historyScope, historySourceName, historyTitle, historyWasDeleted, onImageHistoryChanged, type ImageHistoryCategory } from './image-history.js';
 import { createImageGallery, type GalleryImage } from './image-gallery.js';
 
+export type ReviewScope = 'current' | 'all';
+
 /** A bounded page of local images. Switching pages releases every old object URL. */
 export class ImageReview {
   private container: HTMLElement | null = null;
@@ -22,8 +24,12 @@ export class ImageReview {
   private galleryController: AbortController | null = null;
   private selectedId: string | null = null;
 
-  mount(container: HTMLElement): void {
+  mount(container: HTMLElement, initialScope?: ReviewScope): void {
     this.unmount();
+    if (initialScope) {
+      this.all = initialScope === 'all';
+      this.category = null;
+    }
     this.container = container;
     this.controller = new AbortController();
     const { signal } = this.controller;

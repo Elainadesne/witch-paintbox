@@ -20,8 +20,12 @@ export class ImageReview {
     gallery = null;
     galleryController = null;
     selectedId = null;
-    mount(container) {
+    mount(container, initialScope) {
         this.unmount();
+        if (initialScope) {
+            this.all = initialScope === 'all';
+            this.category = null;
+        }
         this.container = container;
         this.controller = new AbortController();
         const { signal } = this.controller;

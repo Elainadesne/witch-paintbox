@@ -209,6 +209,30 @@ function notifyRendered(messageId?: number, change?: ImageDisplayChange): void {
   }
 }
 
+function jsonRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : null;
+}
+
+/** The read endpoint returns a header followed by messages, including full swipe history. */
+function matchesSavedChat(value: unknown, expected: ChatMessage[], metadata: Record<string, unknown>, snapshot: ChatSnapshot): boolean {
+  if (!Array.isArray(value) || value.length !== expected.length + 1) return false;
+  const storedMetadata = jsonRecord(jsonRecord(value[0])?.chat_metadata);
+  if (!storedMetadata || (metadata.integrity !== undefined && storedMetadata.integrity !== metadata.integrity)) return false;
+  // Compare narrative across the chat, but do not compare unloaded historical swipe slots.
+  if (!expected.every((message, index) => {
+    const stored = jsonRecord(value[index + 1]);
+    return stored && stored.mes === message.mes && stored.name === message.name
+      && Boolean(stored.is_user) === Boolean(message.is_user)
+      && Boolean(stored.is_system) === Boolean(message.is_system);
+  })) return false;
+  const target = jsonRecord(value[snapshot.messageId + 1])!;
+  return snapshot.swipeId === null
+    ? !Array.isArray(target.swipes)
+    : (target.swipe_id ?? 0) === snapshot.swipeId && Array.isArray(target.swipes)
+      && target.swipes[snapshot.swipeId] === expected[snapshot.messageId].mes;
+}
+
 /** Commit only after the host confirms storage; updating image controls never rebuilds the floor. */
 export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: ImageInsertionResult, signal?: AbortSignal): Promise<ChatSnapshot> {
   const nextText = result.text;
@@ -243,6 +267,9 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: Im
   const body = JSON.stringify(group
     ? { id: group.chat_id, chat: [header, ...chat], force: false }
     : { ch_name: character.name, avatar_url: character.avatar, file_name: character.chat, chat: [header, ...chat], force: false });
+  const readEndpoint = group ? '/api/chats/group/get' : '/api/chats/get';
+  const readBody = JSON.stringify(group ? { id: group.chat_id }
+    : { ch_name: character.name, avatar_url: character.avatar, file_name: character.chat });
   const headers = context.getRequestHeaders();
   requireSnapshot(snapshot);
   signal?.throwIfAborted();
@@ -257,8 +284,22 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: Im
       method: 'POST', headers, body, credentials: 'same-origin', redirect: 'error', signal: controller.signal,
     });
     if (!response.ok) throw new ChatHostError('聊天保存失败，服务端状态待确认；请检查连接或重新打开聊天。');
-    const confirmation = await response.json() as { ok?: boolean };
-    if (confirmation.ok !== true) throw new ChatHostError('酒馆没有确认聊天已保存，服务端状态待确认。');
+    const confirmation = jsonRecord(await response.json().catch(() => null));
+    if (confirmation?.error || confirmation?.ok === false || confirmation?.success === false) {
+      throw new ChatHostError('酒馆返回了保存失败的回执，插件未改动当前正文和界面。');
+    }
+    // ST 1.13.5 uses { result: 'ok' } for individual chats; newer ST and TT use { ok: true }.
+    if (confirmation?.ok !== true && confirmation?.result !== 'ok') {
+      // Unknown replies need proof from the same saved chat; never assume HTTP 200
+      // means saved or repeat the write.
+      const readback = await fetch(readEndpoint, {
+        method: 'POST', headers, body: readBody, credentials: 'same-origin', redirect: 'error', signal: controller.signal,
+      });
+      const stored: unknown = readback.ok ? await readback.json().catch(() => null) : null;
+      if (!matchesSavedChat(stored, chat, header.chat_metadata, snapshot)) {
+        throw new ChatHostError('保存回执异常，回读也未能确认配图已保存；请重新打开当前聊天检查，暂勿重复 AI 处理。');
+      }
+    }
     persisted = true;
     let current: ChatHost;
     try { current = requireSnapshot(snapshot); }

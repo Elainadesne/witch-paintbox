@@ -169,7 +169,7 @@ export function modelSettingsView(settings: ModelSettings, state: ModelViewState
   return `<div class="image-settings model-settings">
     <section class="config-section" aria-labelledby="model-connection-heading">
       <header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
-        <h2 class="section-title" id="model-connection-heading">模型连接</h2><p class="section-description">选择负责理解正文、编写场景提示词的 AI。连接与回复参数由两种生图接口共用。</p></header>
+        <h2 class="section-title" id="model-connection-heading">模型连接</h2><p class="section-description">理解正文，生成场景提示词并插入正文，交给生图 API 绘图。连接与回复参数由两种生图接口共用。</p></header>
       <label class="config-field channel-field"><span>连接方式</span>
         <select data-model-field="mode">${options([
           { value: 'tavern', label: '跟随酒馆主 API' },
@@ -218,7 +218,11 @@ export function modelSettingsView(settings: ModelSettings, state: ModelViewState
       <div class="artist-fields">
         <label class="config-field"><span>导入 JSON 预设</span><input type="file" data-preset-file accept=".json,application/json"></label>
         <p class="config-status${state.importError ? ' is-error' : ''}" data-preset-status role="status">${escape(state.importNotice ?? `导入后替换当前 ${providerName} 预设草稿，点击保存配置才会保留。`)}</p>
-        <label class="config-field"><span>${providerName} 预设名称</span><textarea data-model-field="presetName" rows="1" maxlength="256">${escape(settings.presetName)}</textarea></label>
+        <div class="model-save-line preset-save-line" data-saved="${state.saved}">
+          <label class="config-field"><span>${providerName} 预设名称</span><textarea data-model-field="presetName" rows="1" maxlength="256">${escape(settings.presetName)}</textarea></label>
+          <button type="button" class="text-button" data-model-action="save-model"${state.saved || state.saving ? ' disabled' : ''}>保存配置</button>
+          <p class="config-status" data-model-status role="status">${state.saving ? '正在保存…' : state.saved ? getHostStore() ? '已保存到 TT 扩展数据。' : '已保存在当前浏览器。' : ''}</p>
+        </div>
       </div>
       <div class="preset-workspace" data-preset-workspace>${presetWorkspaceView(settings, state)}</div>
       <div class="parameter-group marker-settings"><h3 class="subsection-title">标记解析</h3>
@@ -237,9 +241,5 @@ export function modelSettingsView(settings: ModelSettings, state: ModelViewState
       </div>
     </section>
 
-    <div class="model-save-line" data-saved="${state.saved}">
-      <button type="button" class="text-button" data-model-action="save-model"${state.saved || state.saving ? ' disabled' : ''}>保存配置</button>
-      <p class="config-status" data-model-status role="status">${state.saving ? '正在保存…' : state.saved ? getHostStore() ? '已保存到 TT 扩展数据。' : '已保存在当前浏览器。' : ''}</p>
-    </div>
   </div>`;
 }

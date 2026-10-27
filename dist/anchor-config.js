@@ -79,8 +79,10 @@ export class AnchorConfig {
     portraitError = false;
     portraitPet = null;
     get hasPendingWrites() { return this.busy || this.portraitRequest !== null; }
-    mount(container) {
+    mount(container, initialTab) {
         this.unmount();
+        if (initialTab)
+            this.tab = initialTab;
         this.container = container;
         this.listeners = new AbortController();
         const { signal } = this.listeners;

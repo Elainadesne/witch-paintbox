@@ -9,7 +9,7 @@ import { registerBuiltinLayers } from './builtin-layers.js';
 import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName, type PageId } from './pages.js';
 import { defaultSettings, extensionId, readSettings, saveSettings, type TavernContext } from './settings.js';
-import { navigationView, pageView, type FeatureTab } from './views.js';
+import { guideDestination, navigationView, pageView, type FeatureTab, type GuideDestination } from './views.js';
 import { getHostStore, initializeHostStorage } from './host-storage.js';
 import { getSyncApiKeys, initializeSettingsStorage, setSyncApiKeys } from './host-settings.js';
 import { initializeNativeLibraries } from './host-library.js';
@@ -139,7 +139,15 @@ async function mount() {
     content.focus({ preventScroll: true });
   }
 
-  function navigate(next: PageId, focus = true, nextFeatureTab?: FeatureTab) {
+  function revealSection(selector: string) {
+    const target = content.querySelector<HTMLElement>(selector);
+    if (!target) return;
+    if (!target.matches('button, input, select, textarea, [tabindex]')) target.tabIndex = -1;
+    target.scrollIntoView({ block: 'start' });
+    target.focus({ preventScroll: true });
+  }
+
+  function navigate(next: PageId, focus = true, nextFeatureTab?: FeatureTab, destination?: GuideDestination) {
     if (transfer.isApplying || changingSyncKeys) return;
     imageConfig.unmount();
     modelConfig.unmount();
@@ -162,19 +170,20 @@ async function mount() {
     const anchorContainer = content.querySelector<HTMLElement>('[data-anchor-settings]');
     const modelContainer = content.querySelector<HTMLElement>('[data-model-settings]');
     if (page === 'image-api' && imageContainer) imageConfig.mount(imageContainer);
-    if (page === 'features' && anchorContainer) anchorConfig.mount(anchorContainer);
+    if (page === 'features' && anchorContainer) anchorConfig.mount(anchorContainer, destination?.anchorTab);
     if (page === 'model-api' || page === 'features') {
       if (modelContainer) modelConfig.mount(modelContainer, page === 'model-api' ? 'model' : featureTab === 'worldbook' ? 'worldbook' : 'features');
     }
     const transferContainer = content.querySelector<HTMLElement>('[data-config-transfer]');
     if (page === 'preferences' && transferContainer) transfer.mount(transferContainer);
     const reviewContainer = content.querySelector<HTMLElement>('[data-image-review]');
-    if (page === 'review' && reviewContainer) imageReview.mount(reviewContainer);
+    if (page === 'review' && reviewContainer) imageReview.mount(reviewContainer, destination?.reviewScope);
     showCleanupStatus();
     content.scrollTop = 0;
     settings.lastPage = page;
     persist();
     if (focus) content.focus({ preventScroll: true });
+    if (destination?.selector) revealSection(destination.selector);
   }
 
   // Wait for the isolated styles before measuring the floating button.
@@ -227,13 +236,17 @@ async function mount() {
       const button = target.closest<HTMLButtonElement>('button');
       if (!button) return;
       if (transfer.isApplying && !button.classList.contains('close-button')) return;
+      const destination = guideDestination(button.dataset.guideTarget);
+      if (destination) {
+        navigate(destination.page, true, destination.featureTab, destination);
+        return;
+      }
       const nextFeatureTab = button.dataset.featureTab;
       if ((nextFeatureTab === 'anchors' || nextFeatureTab === 'worldbook') && (!button.dataset.page || button.dataset.page === 'features')) {
         navigate('features', true, nextFeatureTab);
       } else if (isPageId(button.dataset.page)) navigate(button.dataset.page);
       if (button.dataset.section === 'config-transfer' && page === 'preferences') {
-        const target = content.querySelector<HTMLElement>('[data-config-transfer]');
-        if (target) { target.tabIndex = -1; target.scrollIntoView({ block: 'start' }); target.focus({ preventScroll: true }); }
+        revealSection('[data-config-transfer]');
       }
       if (button.classList.contains('close-button')) panel.close();
       if (button.dataset.action === 'reset-preferences') {
