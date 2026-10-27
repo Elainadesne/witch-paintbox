@@ -4,6 +4,7 @@ import { resolveStoredAnchorPrompt } from './anchor-resolver.js';
 import { generateImage, type ImageParameters } from './novelai.js';
 import { generateOpenAIImage, type OpenAIImageParameters } from './openai-image.js';
 import type { ImageGenerationProgress } from './image-queue.js';
+import { withFault } from './pet-events.js';
 
 interface ImageResult {
   blob: Blob;
@@ -28,13 +29,13 @@ export async function generatePreparedImage(
   const connection = { ...settings.connection };
   if (settings.provider === 'openai') {
     const parameters = { ...settings.openaiParameters };
-    if (prompt.negative.trim()) throw new Error('GPT 生图接口不支持独立负面提示词，请在当前配置中清空负面词后生成。');
-    if (prompt.characters.length) throw new Error('GPT 生图接口不支持 NAI 角色分栏，请使用普通正面提示词。');
+    if (prompt.negative.trim()) throw withFault(new Error('GPT 生图接口不支持独立负面提示词，请在当前配置中清空负面词后生成。'), 'setup');
+    if (prompt.characters.length) throw withFault(new Error('GPT 生图接口不支持 NAI 角色分栏，请使用普通正面提示词。'), 'setup');
     const positive = prompt.positive;
     const result = await generateOpenAIImage(connection, parameters, positive, signal, onProgress);
     return { ...result, provider: 'openai', positive, negative: '', characters: [] };
   }
-  if (settings.provider && settings.provider !== 'novelai') throw new Error('当前生图服务类型不受支持。');
+  if (settings.provider && settings.provider !== 'novelai') throw withFault(new Error('当前生图服务类型不受支持。'), 'setup');
   const parameters = { ...settings.parameters };
   const prepared = { positive: prompt.positive, negative: prompt.negative, characters: prompt.characters.map(character => ({ ...character })) };
   const result = await generateImage(connection, parameters, prepared.positive, prepared.negative, signal, onProgress, prepared.characters);
@@ -54,7 +55,7 @@ export async function generateConfiguredImage(
     parameters: { ...settings.parameters }, openaiParameters: { ...settings.openaiParameters } };
   let prompt: PreparedImagePrompt;
   if (snapshot.provider === 'openai') {
-    if (snapshot.negative.trim()) throw new Error('GPT 生图接口不支持独立负面提示词，请在当前配置中清空负面词后生成。');
+    if (snapshot.negative.trim()) throw withFault(new Error('GPT 生图接口不支持独立负面提示词，请在当前配置中清空负面词后生成。'), 'setup');
     // No NAI column parsing, weight conversion, or hidden instructions are added to a GPT prompt.
     const expanded = await resolveStoredAnchorPrompt(scene);
     prompt = { positive: [expanded, artistPositive].filter(value => value.trim()).join(', '), negative: '', characters: [] };

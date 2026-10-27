@@ -1,5 +1,11 @@
 class ModelApiError extends Error {
+    fault;
+    constructor(message, fault = 'format') {
+        super(message);
+        this.fault = fault;
+    }
 }
+const statusFault = (status) => status === 401 || status === 403 ? 'auth' : status === 402 ? 'quota' : status === 429 ? 'busy' : 'unknown';
 const responseLimit = 8 * 1024 * 1024;
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const first = (value) => Array.isArray(value) ? record(value[0]) : {};
@@ -9,10 +15,10 @@ function customBaseUrl(address) {
         url = new URL(address.trim());
     }
     catch {
-        throw new ModelApiError('请填写有效的 API 地址。');
+        throw new ModelApiError('请填写有效的 API 地址。', 'setup');
     }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
-        throw new ModelApiError('API 地址只支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。');
+        throw new ModelApiError('API 地址只支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。', 'setup');
     }
     const path = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|models)$/, '');
     url.pathname = path || '/v1';
@@ -21,7 +27,7 @@ function customBaseUrl(address) {
 function customConnection(settings) {
     const normalized = settings.key.trim().replace(/^Bearer\s+/i, '');
     if (/[^\x21-\x7e]/.test(normalized))
-        throw new ModelApiError('API 密钥包含空格或无效字符。');
+        throw new ModelApiError('API 密钥包含空格或无效字符。', 'setup');
     return {
         chat_completion_source: 'custom',
         custom_url: customBaseUrl(settings.url),
@@ -37,7 +43,7 @@ function tavernContext() {
 }
 function requestHeaders(host = tavernContext()) {
     if (typeof host.getRequestHeaders !== 'function')
-        throw new ModelApiError('当前环境未提供酒馆后端连接。');
+        throw new ModelApiError('当前环境未提供酒馆后端连接。', 'setup');
     return host.getRequestHeaders();
 }
 async function withRequest(signal, timeout, operation) {
@@ -56,10 +62,10 @@ async function withRequest(signal, timeout, operation) {
         if (signal?.aborted)
             throw new DOMException('请求已取消。', 'AbortError');
         if (timedOut)
-            throw new ModelApiError('模型接口响应超时。');
+            throw new ModelApiError('模型接口响应超时。', 'timeout');
         if (error instanceof ModelApiError)
             throw error;
-        throw new ModelApiError('模型接口请求失败，请检查连接设置与酒馆后端连接。');
+        throw new ModelApiError('模型接口请求失败，请检查连接设置与酒馆后端连接。', 'network');
     }
     finally {
         clearTimeout(timer);
@@ -81,7 +87,7 @@ function parseJson(text) {
 }
 async function readBody(response, signal) {
     if (!response.ok)
-        throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`);
+        throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`, statusFault(response.status));
     if (!response.body)
         throw new ModelApiError('模型接口没有返回正文。');
     const reader = response.body.getReader();
@@ -138,7 +144,7 @@ function contentText(value) {
 /** Compatible mode tolerates JSON bodies and SSE events containing a complete message. */
 async function readCompletion(response, mode, options) {
     if (!response.ok)
-        throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`);
+        throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`, statusFault(response.status));
     if (!response.body)
         throw new ModelApiError('模型接口没有返回正文。');
     const reader = response.body.getReader();
@@ -280,13 +286,13 @@ async function readCompletion(response, mode, options) {
 function tavernHost() {
     const host = tavernContext();
     if (host.mainApi !== 'openai') {
-        throw new ModelApiError('跟随酒馆主 API 目前支持“聊天补全”；请切换主 API 类型或使用自定义接口。');
+        throw new ModelApiError('跟随酒馆主 API 目前支持“聊天补全”；请切换主 API 类型或使用自定义接口。', 'setup');
     }
     const service = host.ChatCompletionService;
     if (typeof service?.presetToGeneratePayload !== 'function'
         || typeof host.getRequestHeaders !== 'function' || typeof host.getChatCompletionModel !== 'function'
         || !host.chatCompletionSettings) {
-        throw new ModelApiError('当前酒馆版本未提供独立模型请求接口，请升级酒馆或使用自定义接口。');
+        throw new ModelApiError('当前酒馆版本未提供独立模型请求接口，请升级酒馆或使用自定义接口。', 'setup');
     }
     return host;
 }
@@ -296,12 +302,12 @@ export async function requestModel(settings, messages, options = {}) {
         || !Number.isFinite(settings.temperature) || settings.temperature < 0 || settings.temperature > 2
         || !['tavern', 'custom'].includes(settings.mode)
         || !['nonstream', 'stream', 'compatible'].includes(settings.transport)) {
-        throw new ModelApiError('请检查模型参数。');
+        throw new ModelApiError('请检查模型参数。', 'setup');
     }
     if (!messages.length
         || messages.some(message => !message || !['system', 'user', 'assistant'].includes(message.role) || typeof message.content !== 'string')
         || !messages.some(message => message.content.trim())) {
-        throw new ModelApiError('没有可发送的有效预设或功能层内容。');
+        throw new ModelApiError('没有可发送的有效预设或功能层内容。', 'setup');
     }
     const stream = settings.transport !== 'nonstream';
     const copiedMessages = messages.map(({ role, content }) => ({ role, content }));
@@ -311,7 +317,7 @@ export async function requestModel(settings, messages, options = {}) {
         let payload;
         if (settings.mode === 'custom') {
             if (!settings.model.trim())
-                throw new ModelApiError('请填写模型名称。');
+                throw new ModelApiError('请填写模型名称。', 'setup');
             headers = requestHeaders();
             payload = {
                 ...customConnection(settings),
@@ -323,7 +329,7 @@ export async function requestModel(settings, messages, options = {}) {
             const host = tavernHost();
             const model = host.getChatCompletionModel(host.chatCompletionSettings);
             if (!model)
-                throw new ModelApiError('请先在酒馆主 API 中选择模型。');
+                throw new ModelApiError('请先在酒馆主 API 中选择模型。', 'setup');
             headers = host.getRequestHeaders();
             payload = await host.ChatCompletionService.presetToGeneratePayload({}, {
                 openai_max_tokens: settings.maxTokens, temperature: settings.temperature,

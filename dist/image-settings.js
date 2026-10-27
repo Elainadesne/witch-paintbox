@@ -1,5 +1,6 @@
 import { createSettingsStorage } from './host-settings.js';
 import { defaultOpenAIImageParameters, validateOpenAIImageParameters } from './openai-image.js';
+import { withFault } from './pet-events.js';
 export const IMAGE_PROVIDERS = ['novelai', 'openai'];
 import { defaultImageParameters, NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES, } from './novelai.js';
 const storageKey = 'witch-paintbox:image-settings:v1';
@@ -17,7 +18,7 @@ export function defaultImageSettings(provider = 'novelai') {
     };
 }
 function invalid() {
-    throw new Error('生图配置格式无效，请检查参数和配置条目。');
+    throw withFault(new Error('生图配置格式无效，请检查参数和配置条目。'), 'setup');
 }
 function record(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value))

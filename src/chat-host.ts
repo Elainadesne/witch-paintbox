@@ -3,6 +3,7 @@ import { captureEmbeddedWrite, readEmbeddedTurn } from './embedded-chat.js';
 import { isSifangEnvironment } from './sifang-host.js';
 import { assertSifangSnapshot, captureSifangAssistant, isSifangChatReady, readSifangAssistantMessages,
   replaceSifangAssistant, sifangImageChatContext, watchSifangChat } from './sifang-chat.js';
+import type { PetFault } from './pet-events.js';
 
 type ChatMessage = Record<string, unknown> & {
   mes: string;
@@ -62,7 +63,7 @@ interface SnapshotState {
   embedded: ReturnType<typeof captureEmbeddedWrite>;
 }
 
-class ChatHostError extends Error {}
+class ChatHostError extends Error { readonly fault: PetFault = 'host'; }
 const snapshots = new WeakMap<ChatSnapshot, SnapshotState>();
 const renderListeners = new Set<ChatRenderListener>();
 let saving = false;

@@ -2,6 +2,7 @@ import { ImageResponseError } from './image-response.js';
 import { readRasterImage } from './raster-image.js';
 import { queueImageGeneration, type ImageGenerationProgress } from './image-queue.js';
 import type { ImageConnection } from './novelai.js';
+import type { PetFault } from './pet-events.js';
 
 export const OPENAI_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
@@ -20,7 +21,7 @@ export function defaultOpenAIImageParameters(): OpenAIImageParameters {
   return { model: '', width: 1024, height: 1536, quality: 'auto' };
 }
 
-function fail(message: string): never { throw new ImageResponseError(message); }
+function fail(message: string, fault?: PetFault): never { throw new ImageResponseError(message, fault); }
 
 export function validateOpenAIImageParameters(value: unknown, dimensions: 'request' | 'image' = 'request'): OpenAIImageParameters {
   const params = value as OpenAIImageParameters | null;
@@ -28,22 +29,22 @@ export function validateOpenAIImageParameters(value: unknown, dimensions: 'reque
     || ![params.width, params.height].every(size => Number.isInteger(size) && size >= (dimensions === 'image' ? 1 : 64)
       && size <= 4096 && (dimensions === 'image' || size % 16 === 0))
     || !OPENAI_IMAGE_QUALITIES.includes(params.quality)) {
-    fail('GPT 生图参数无效，请检查模型、尺寸和质量设置。');
+    fail('GPT 生图参数无效，请检查模型、尺寸和质量设置。', 'setup');
   }
   return { model: params.model.trim(), width: params.width, height: params.height, quality: params.quality };
 }
 
 /** Accept an API base or a complete generations endpoint without guessing other protocols. */
 export function validateOpenAIImageConnection(connection: ImageConnection): ImageConnection {
-  if (!connection || !['official', 'custom'].includes(connection.channel)) fail('请选择官方或自定义渠道。');
+  if (!connection || !['official', 'custom'].includes(connection.channel)) fail('请选择官方或自定义渠道。', 'setup');
   const key = typeof connection.key === 'string' ? connection.key.trim().replace(/^Bearer\s+/i, '') : '';
-  if (!key || /[^\x21-\x7e]/.test(key)) fail('请填写有效的 API 密钥。');
+  if (!key || /[^\x21-\x7e]/.test(key)) fail('请填写有效的 API 密钥。', 'setup');
   if (connection.channel === 'official') return { channel: 'official', url: OFFICIAL_ENDPOINT, key };
   let url: URL;
   try { url = new URL(connection.url.trim()); }
-  catch { return fail('请输入完整的自定义 URL，包含 https:// 或 http://。'); }
+  catch { return fail('请输入完整的自定义 URL，包含 https:// 或 http://。', 'setup'); }
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
-    fail('GPT 生图 URL 仅支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。');
+    fail('GPT 生图 URL 仅支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。', 'setup');
   }
   const path = url.pathname.replace(/\/+$/, '');
   url.pathname = path.endsWith('/images/generations') ? path : `${path || '/v1'}/images/generations`;
@@ -64,9 +65,9 @@ async function withRequest<T>(signal: AbortSignal, timeout: number, operation: (
     return result;
   } catch (error) {
     if (signal.aborted) throw new DOMException('本次请求已取消。', 'AbortError');
-    if (timedOut) fail('接口响应超时，请确认服务端任务状态后再操作；没有自动重试。');
+    if (timedOut) fail('接口响应超时，请确认服务端任务状态后再操作；没有自动重试。', 'timeout');
     if (error instanceof ImageResponseError) throw error;
-    return fail('接口请求未完成，请检查网络、浏览器跨域限制和服务设置；没有自动重试。');
+    return fail('接口请求未完成，请检查网络、浏览器跨域限制和服务设置；没有自动重试。', 'network');
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', cancel);
@@ -77,10 +78,10 @@ async function withRequest<T>(signal: AbortSignal, timeout: number, operation: (
 function requireSuccess(response: Response): void {
   if (response.ok) return;
   void response.body?.cancel().catch(() => {});
-  if (response.status === 401 || response.status === 403) fail('密钥无效、已过期或没有接口权限。');
-  if (response.status === 402) fail('接口额度不足，请检查账号。');
-  if (response.status === 429) fail('接口请求过多或额度受限，请稍后手动重试。');
-  fail(`接口请求失败（HTTP ${response.status}），请检查模型和参数；没有自动重试。`);
+  if (response.status === 401 || response.status === 403) fail('密钥无效、已过期或没有接口权限。', 'auth');
+  if (response.status === 402) fail('接口额度不足，请检查账号。', 'quota');
+  if (response.status === 429) fail('接口请求过多或额度受限，请稍后手动重试。', 'busy');
+  fail(`接口请求失败（HTTP ${response.status}），请检查模型和参数；没有自动重试。`, 'unknown');
 }
 
 async function readBytes(response: Response, limit: number, signal: AbortSignal): Promise<Uint8Array> {
@@ -153,12 +154,12 @@ function decodeImageBase64(value: string, signal: AbortSignal): Uint8Array {
   const source = value.trim().replace(/^data:image\/(?:png|jpe?g|webp);base64,/i, '').replace(/[\t\r\n ]/g, '');
   if (!source || source.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 || source.length % 4 === 1
     || !/^[A-Za-z0-9+/]+={0,2}$/.test(source) || (source.includes('=') && source.length % 4)) {
-    fail('接口返回的 base64 图片无效或超过 32 MiB。');
+    fail('接口返回的 base64 图片无效或超过 32 MiB。', 'decode');
   }
   let decoded: string;
   try { decoded = atob(source); }
-  catch { return fail('接口返回的 base64 图片无法解码。'); }
-  if (decoded.length > MAX_IMAGE_BYTES) fail('接口返回的图片超过 32 MiB。');
+  catch { return fail('接口返回的 base64 图片无法解码。', 'decode'); }
+  if (decoded.length > MAX_IMAGE_BYTES) fail('接口返回的图片超过 32 MiB。', 'decode');
   signal.throwIfAborted();
   return Uint8Array.from(decoded, character => character.charCodeAt(0));
 }
@@ -188,15 +189,15 @@ export async function generateOpenAIImage(
   signal.throwIfAborted();
   const configured = validateOpenAIImageConnection(connection);
   const params = validateOpenAIImageParameters(parameters);
-  if (!params.model) fail('请先填写或拉取生图模型名称。');
+  if (!params.model) fail('请先填写或拉取生图模型名称。', 'setup');
   if (/^gpt-image-2(?:\.5-(?:sunburst|flare))?(?:-|$)/.test(params.model)) {
     const area = params.width * params.height;
     if (Math.max(params.width, params.height) > 3840 || area < 655_360 || area > 8_294_400
       || params.width > params.height * 3 || params.height > params.width * 3) {
-      fail('该 GPT Image 模型要求最长边不超过 3840、宽高比在 1:3 至 3:1 之间、总像素在 655,360 至 8,294,400 之间。');
+      fail('该 GPT Image 模型要求最长边不超过 3840、宽高比在 1:3 至 3:1 之间、总像素在 655,360 至 8,294,400 之间。', 'setup');
     }
   }
-  if (typeof prompt !== 'string' || !prompt.trim()) fail('请填写正面提示词。');
+  if (typeof prompt !== 'string' || !prompt.trim()) fail('请填写正面提示词。', 'setup');
   const body = JSON.stringify({ model: params.model, prompt, n: 1, size: `${params.width}x${params.height}`, quality: params.quality, output_format: 'png' });
   return queueImageGeneration(() => withRequest(signal, 300_000, async requestSignal => {
     const response = await fetch(configured.url, {

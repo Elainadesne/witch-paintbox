@@ -1,4 +1,5 @@
 import { getHostStore, HOST_NAMESPACE, readHostJson, withHostLock, writeHostJson } from './host-storage.js';
+import { withFault } from './pet-events.js';
 
 export interface AnchorOutfit {
   id: string;
@@ -38,7 +39,7 @@ function database(): Promise<IDBDatabase> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      reject(new Error(message));
+      reject(withFault(new Error(message), 'storage'));
     }
     let request: IDBOpenDBRequest;
     try { request = window.indexedDB.open(databaseName, 1); }
@@ -77,9 +78,9 @@ function database(): Promise<IDBDatabase> {
 }
 
 function operationError(action: string, error?: DOMException | null): Error {
-  if (error?.name === 'QuotaExceededError') return new Error(`角色锚定${action}失败，浏览器存储空间不足。`);
-  if (error?.name === 'ConstraintError') return new Error('已有同名角色，请更换角色名称。');
-  return new Error(`角色锚定${action}失败，请检查站点存储权限后重试。`);
+  if (error?.name === 'QuotaExceededError') return withFault(new Error(`角色锚定${action}失败，浏览器存储空间不足。`), 'storage');
+  if (error?.name === 'ConstraintError') return withFault(new Error('已有同名角色，请更换角色名称。'), 'storage');
+  return withFault(new Error(`角色锚定${action}失败，请检查站点存储权限后重试。`), 'storage');
 }
 
 async function transact<T>(mode: IDBTransactionMode, action: string, makeRequest: (store: IDBObjectStore, fail: (error: Error) => void) => IDBRequest<T>): Promise<T> {
@@ -91,7 +92,7 @@ async function transact<T>(mode: IDBTransactionMode, action: string, makeRequest
     let settled = false;
     const timer = setTimeout(() => {
       try { transaction.abort(); } catch { /* Completion may already be pending. */ }
-      fail(new Error(`角色锚定${action}超时，尚未确认完成，请重试。`));
+      fail(withFault(new Error(`角色锚定${action}超时，尚未确认完成，请重试。`), 'storage'));
     }, 30_000);
     const fail = (error: Error) => {
       if (settled) return;

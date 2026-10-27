@@ -2,9 +2,14 @@
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PNG_MAGIC = [137, 80, 78, 71, 13, 10, 26, 10];
 export class ImageResponseError extends Error {
+    fault;
+    constructor(message, fault = 'format') {
+        super(message);
+        this.fault = fault;
+    }
 }
-function fail(message) {
-    throw new ImageResponseError(message);
+function fail(message, fault) {
+    throw new ImageResponseError(message, fault);
 }
 async function readBoundedStream(stream, limit, signal, ensureActive) {
     const reader = stream.getReader();
@@ -61,7 +66,7 @@ function crc32(bytes) {
 }
 function requirePng(bytes) {
     if (bytes.length < 45 || bytes.length > MAX_IMAGE_BYTES || !PNG_MAGIC.every((byte, i) => bytes[i] === byte)) {
-        fail('图片内容不是有效的 PNG。');
+        fail('图片内容不是有效的 PNG。', 'decode');
     }
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     let offset = 8;
@@ -70,39 +75,39 @@ function requirePng(bytes) {
     while (offset + 12 <= bytes.length) {
         const length = view.getUint32(offset);
         if (length > bytes.length - offset - 12)
-            fail('PNG 图片数据不完整。');
+            fail('PNG 图片数据不完整。', 'decode');
         const name = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
         if (crc32(bytes.subarray(offset + 4, offset + 8 + length)) !== view.getUint32(offset + 8 + length)) {
-            fail('PNG 图片校验失败。');
+            fail('PNG 图片校验失败。', 'decode');
         }
         if (!sawHeader) {
             if (name !== 'IHDR' || length !== 13)
-                fail('PNG 图片缺少有效尺寸。');
+                fail('PNG 图片缺少有效尺寸。', 'decode');
             const width = view.getUint32(offset + 8);
             const height = view.getUint32(offset + 12);
             if (!width || !height || width > 4096 || height > 4096)
-                fail('PNG 图片尺寸无效。');
+                fail('PNG 图片尺寸无效。', 'decode');
             sawHeader = true;
         }
         else if (name === 'IHDR')
-            fail('PNG 图片包含重复头信息。');
+            fail('PNG 图片包含重复头信息。', 'decode');
         if (name === 'IDAT')
             sawData = true;
         offset += length + 12;
         if (name === 'IEND') {
             if (length !== 0 || !sawData || offset !== bytes.length)
-                fail('PNG 图片结束标记无效。');
+                fail('PNG 图片结束标记无效。', 'decode');
             return;
         }
     }
-    fail('PNG 图片数据不完整。');
+    fail('PNG 图片数据不完整。', 'decode');
 }
 export function requireImageSupport() {
     try {
         new DecompressionStream('deflate-raw');
     }
     catch {
-        fail('当前浏览器不支持图片解压，请升级浏览器后再生成；尚未发送生图请求。');
+        fail('当前浏览器不支持图片解压，请升级浏览器后再生成；尚未发送生图请求。', 'setup');
     }
 }
 /** Read bounded, single-disk ZIP/ZIP64 archives; never extract names to the filesystem. */

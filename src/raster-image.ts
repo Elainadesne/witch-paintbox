@@ -1,18 +1,19 @@
 import { ImageResponseError, readImageResponse } from './image-response.js';
+import type { PetFault } from './pet-events.js';
 
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PNG_MAGIC = [137, 80, 78, 71, 13, 10, 26, 10];
 type Dimensions = { width: number; height: number };
 
-function fail(message: string): never { throw new ImageResponseError(message); }
+function fail(message: string, fault?: PetFault): never { throw new ImageResponseError(message, fault); }
 
 function dimensions(width: number, height: number): Dimensions {
-  if (!width || !height || width > 4096 || height > 4096) fail('图片尺寸无效或超过 4096 像素。');
+  if (!width || !height || width > 4096 || height > 4096) fail('图片尺寸无效或超过 4096 像素。', 'decode');
   return { width, height };
 }
 
 function jpegDimensions(bytes: Uint8Array): Dimensions {
-  const invalid = () => fail('JPEG 图片结构无效或数据不完整。');
+  const invalid = () => fail('JPEG 图片结构无效或数据不完整。', 'decode');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let frame: Dimensions | undefined;
   let components = 0;
@@ -58,7 +59,7 @@ function jpegDimensions(bytes: Uint8Array): Dimensions {
 }
 
 function webpDimensions(bytes: Uint8Array): Dimensions {
-  const invalid = () => fail('WebP 图片结构无效或数据不完整。');
+  const invalid = () => fail('WebP 图片结构无效或数据不完整。', 'decode');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length < 20 || view.getUint32(4, true) !== bytes.length - 8) return invalid();
   const uint24 = (at: number) => bytes[at] | (bytes[at + 1] << 8) | (bytes[at + 2] << 16);
@@ -72,11 +73,11 @@ function webpDimensions(bytes: Uint8Array): Dimensions {
     const start = offset + 8;
     const next = start + length + (length & 1);
     if (next > bytes.length) return invalid();
-    if (name === 'ANIM' || name === 'ANMF') fail('接口返回了动态 WebP；当前仅支持单张静态图片。');
+    if (name === 'ANIM' || name === 'ANMF') fail('接口返回了动态 WebP；当前仅支持单张静态图片。', 'decode');
     if (name === 'VP8X') {
       if (offset !== 12 || length !== 10 || canvas || bytes[start] & 0xc1
         || bytes[start + 1] || bytes[start + 2] || bytes[start + 3]) return invalid();
-      if (bytes[start] & 2) fail('接口返回了动态 WebP；当前仅支持单张静态图片。');
+      if (bytes[start] & 2) fail('接口返回了动态 WebP；当前仅支持单张静态图片。', 'decode');
       canvas = dimensions(uint24(start + 4) + 1, uint24(start + 7) + 1);
     } else if (name === 'VP8 ') {
       if (frame || length < 10 || bytes[start] & 1 || bytes[start + 3] !== 0x9d
@@ -97,7 +98,7 @@ function webpDimensions(bytes: Uint8Array): Dimensions {
 async function decodeImage(blob: Blob, expected: Dimensions, signal: AbortSignal): Promise<Dimensions> {
   signal.throwIfAborted();
   if (typeof Image !== 'function' || typeof URL.createObjectURL !== 'function') {
-    fail('当前浏览器不支持图片解码，请升级浏览器或 WebView 后重试。');
+    fail('当前浏览器不支持图片解码，请升级浏览器或 WebView 后重试。', 'setup');
   }
   let image: HTMLImageElement;
   let url: string;
@@ -105,7 +106,7 @@ async function decodeImage(blob: Blob, expected: Dimensions, signal: AbortSignal
     image = new Image();
     url = URL.createObjectURL(blob);
   } catch {
-    return fail('当前浏览器无法读取图片，请检查浏览器或 WebView 支持。');
+    return fail('当前浏览器无法读取图片，请检查浏览器或 WebView 支持。', 'setup');
   }
   return new Promise<Dimensions>((resolve, reject) => {
     let settled = false;
@@ -121,7 +122,7 @@ async function decodeImage(blob: Blob, expected: Dimensions, signal: AbortSignal
       else resolve(value!);
     };
     const abort = () => finish(new DOMException('图片读取已取消。', 'AbortError'));
-    const invalid = () => finish(new ImageResponseError('图片无法解码：数据可能损坏，或当前浏览器不支持此图片格式。'));
+    const invalid = () => finish(new ImageResponseError('图片无法解码：数据可能损坏，或当前浏览器不支持此图片格式。', 'decode'));
     const loaded = () => {
       if (settled) return;
       if (signal.aborted) { abort(); return; }

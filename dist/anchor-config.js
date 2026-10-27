@@ -6,6 +6,7 @@ import { loadImageSettings } from './image-settings.js';
 import { generatePreparedImage } from './image-provider.js';
 import { getHostStore } from './host-storage.js';
 import { loadSharedOutfits, saveSharedOutfit, deleteSharedOutfit, onSharedOutfitsChanged, } from './shared-outfit-store.js';
+import { withFault } from './pet-events.js';
 function escape(value) {
     return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 }
@@ -533,7 +534,7 @@ export class AnchorConfig {
         this.syncPortrait();
         try {
             if (!appearance.trim())
-                throw new Error('请先填写角色的固定外貌 tag。');
+                throw withFault(new Error('请先填写角色的固定外貌 tag。'), 'setup');
             const settings = loadImageSettings();
             const positive = [settings.positive, appearance, outfitTags].map(part => part.trim()).filter(Boolean).join(', ');
             const result = await generatePreparedImage(settings, { positive, negative: settings.negative, characters: [] }, request.signal, progress => {
@@ -546,9 +547,9 @@ export class AnchorConfig {
             if (request.signal.aborted || !current())
                 return;
             if (!result.blob.size || result.blob.size > ANCHOR_PORTRAIT_LIMIT)
-                throw new Error('生成的角色图超过 10 MiB 或为空，请调小生图尺寸后重试。');
+                throw withFault(new Error('生成的角色图超过 10 MiB 或为空，请调小生图尺寸后重试。'), 'decode');
             if (!['image/png', 'image/jpeg', 'image/webp'].includes(result.blob.type))
-                throw new Error('生成结果不是支持的角色图片格式。');
+                throw withFault(new Error('生成结果不是支持的角色图片格式。'), 'decode');
             draft.portrait = result.blob;
             this.sourcePrompt = positive;
             this.dirty = true;

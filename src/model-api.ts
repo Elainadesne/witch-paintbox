@@ -1,4 +1,5 @@
 import type { ModelApiSettings, ModelMessage, ModelRequestOptions, ModelTransport } from './model-types.js';
+import type { PetFault } from './pet-events.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -12,7 +13,12 @@ interface TavernModelHost {
   };
 }
 
-class ModelApiError extends Error {}
+class ModelApiError extends Error {
+  constructor(message: string, readonly fault: PetFault = 'format') { super(message); }
+}
+
+const statusFault = (status: number): PetFault =>
+  status === 401 || status === 403 ? 'auth' : status === 402 ? 'quota' : status === 429 ? 'busy' : 'unknown';
 
 const responseLimit = 8 * 1024 * 1024;
 const record = (value: unknown): JsonRecord =>
@@ -22,9 +28,9 @@ const first = (value: unknown): JsonRecord => Array.isArray(value) ? record(valu
 function customBaseUrl(address: string): string {
   let url: URL;
   try { url = new URL(address.trim()); }
-  catch { throw new ModelApiError('请填写有效的 API 地址。'); }
+  catch { throw new ModelApiError('请填写有效的 API 地址。', 'setup'); }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
-    throw new ModelApiError('API 地址只支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。');
+    throw new ModelApiError('API 地址只支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。', 'setup');
   }
   const path = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|models)$/, '');
   url.pathname = path || '/v1';
@@ -33,7 +39,7 @@ function customBaseUrl(address: string): string {
 
 function customConnection(settings: Pick<ModelApiSettings, 'url' | 'key'>): JsonRecord {
   const normalized = settings.key.trim().replace(/^Bearer\s+/i, '');
-  if (/[^\x21-\x7e]/.test(normalized)) throw new ModelApiError('API 密钥包含空格或无效字符。');
+  if (/[^\x21-\x7e]/.test(normalized)) throw new ModelApiError('API 密钥包含空格或无效字符。', 'setup');
   return {
     chat_completion_source: 'custom',
     custom_url: customBaseUrl(settings.url),
@@ -50,7 +56,7 @@ function tavernContext(): JsonRecord {
 }
 
 function requestHeaders(host = tavernContext()): HeadersInit {
-  if (typeof host.getRequestHeaders !== 'function') throw new ModelApiError('当前环境未提供酒馆后端连接。');
+  if (typeof host.getRequestHeaders !== 'function') throw new ModelApiError('当前环境未提供酒馆后端连接。', 'setup');
   return (host.getRequestHeaders as () => HeadersInit)();
 }
 
@@ -70,9 +76,9 @@ async function withRequest<T>(
     return await operation(controller.signal);
   } catch (error) {
     if (signal?.aborted) throw new DOMException('请求已取消。', 'AbortError');
-    if (timedOut) throw new ModelApiError('模型接口响应超时。');
+    if (timedOut) throw new ModelApiError('模型接口响应超时。', 'timeout');
     if (error instanceof ModelApiError) throw error;
-    throw new ModelApiError('模型接口请求失败，请检查连接设置与酒馆后端连接。');
+    throw new ModelApiError('模型接口请求失败，请检查连接设置与酒馆后端连接。', 'network');
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);
@@ -90,7 +96,7 @@ function parseJson(text: string): JsonRecord | JsonRecord[] {
 }
 
 async function readBody(response: Response, signal: AbortSignal): Promise<string> {
-  if (!response.ok) throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`);
+  if (!response.ok) throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`, statusFault(response.status));
   if (!response.body) throw new ModelApiError('模型接口没有返回正文。');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -144,7 +150,7 @@ function contentText(value: unknown): string {
 
 /** Compatible mode tolerates JSON bodies and SSE events containing a complete message. */
 async function readCompletion(response: Response, mode: ModelTransport, options: ModelRequestOptions): Promise<string> {
-  if (!response.ok) throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`);
+  if (!response.ok) throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`, statusFault(response.status));
   if (!response.body) throw new ModelApiError('模型接口没有返回正文。');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -254,13 +260,13 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
 function tavernHost(): TavernModelHost {
   const host = tavernContext();
   if (host.mainApi !== 'openai') {
-    throw new ModelApiError('跟随酒馆主 API 目前支持“聊天补全”；请切换主 API 类型或使用自定义接口。');
+    throw new ModelApiError('跟随酒馆主 API 目前支持“聊天补全”；请切换主 API 类型或使用自定义接口。', 'setup');
   }
   const service = host.ChatCompletionService as Partial<TavernModelHost['ChatCompletionService']> | undefined;
   if (typeof service?.presetToGeneratePayload !== 'function'
     || typeof host.getRequestHeaders !== 'function' || typeof host.getChatCompletionModel !== 'function'
     || !host.chatCompletionSettings) {
-    throw new ModelApiError('当前酒馆版本未提供独立模型请求接口，请升级酒馆或使用自定义接口。');
+    throw new ModelApiError('当前酒馆版本未提供独立模型请求接口，请升级酒馆或使用自定义接口。', 'setup');
   }
   return host as unknown as TavernModelHost;
 }
@@ -275,12 +281,12 @@ export async function requestModel(
     || !Number.isFinite(settings.temperature) || settings.temperature < 0 || settings.temperature > 2
     || !['tavern', 'custom'].includes(settings.mode)
     || !['nonstream', 'stream', 'compatible'].includes(settings.transport)) {
-    throw new ModelApiError('请检查模型参数。');
+    throw new ModelApiError('请检查模型参数。', 'setup');
   }
   if (!messages.length
     || messages.some(message => !message || !['system', 'user', 'assistant'].includes(message.role) || typeof message.content !== 'string')
     || !messages.some(message => message.content.trim())) {
-    throw new ModelApiError('没有可发送的有效预设或功能层内容。');
+    throw new ModelApiError('没有可发送的有效预设或功能层内容。', 'setup');
   }
   const stream = settings.transport !== 'nonstream';
   const copiedMessages = messages.map(({ role, content }) => ({ role, content }));
@@ -289,7 +295,7 @@ export async function requestModel(
     let headers: HeadersInit;
     let payload: JsonRecord;
     if (settings.mode === 'custom') {
-      if (!settings.model.trim()) throw new ModelApiError('请填写模型名称。');
+      if (!settings.model.trim()) throw new ModelApiError('请填写模型名称。', 'setup');
       headers = requestHeaders();
       payload = {
         ...customConnection(settings),
@@ -299,7 +305,7 @@ export async function requestModel(
     } else {
       const host = tavernHost();
       const model = host.getChatCompletionModel(host.chatCompletionSettings);
-      if (!model) throw new ModelApiError('请先在酒馆主 API 中选择模型。');
+      if (!model) throw new ModelApiError('请先在酒馆主 API 中选择模型。', 'setup');
       headers = host.getRequestHeaders();
       payload = await host.ChatCompletionService.presetToGeneratePayload({}, {
         openai_max_tokens: settings.maxTokens, temperature: settings.temperature,

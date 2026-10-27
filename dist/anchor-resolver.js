@@ -1,5 +1,6 @@
 import { loadAnchors } from './anchor-store.js';
 import { loadSharedOutfits } from './shared-outfit-store.js';
+import { withFault } from './pet-events.js';
 const alternateClothing = new Set(['nude', 'completely nude', 'topless', 'bikini', 'swimsuit', 'nightgown', 'towel']);
 export async function resolveStoredAnchorPrompt(prompt) {
     if (!/[\p{Script=Han}@#]/u.test(prompt))
@@ -54,7 +55,7 @@ function wrapper(token) {
 /** Visit independent tags, preserving separators, whitespace, and original weight syntax. */
 function mapTags(source, visit, depth = 0, active = true) {
     if (depth > 64)
-        throw new Error('生图 tag 的权重嵌套过深，请简化后重试。');
+        throw withFault(new Error('生图 tag 的权重嵌套过深，请简化后重试。'), 'reference');
     function part(value) {
         const token = value.trim();
         if (!token)
@@ -129,14 +130,14 @@ export function resolveAnchorPrompt(prompt, anchors, sharedOutfits = []) {
                 return outfit.tags;
             // A pre-existing literal name beginning with # keeps its legacy meaning.
             if (nested || !reference(token, false))
-                throw new Error(`通用服装“${token.slice(1).trim() || '（空）'}”不存在，请检查标签。`);
+                throw withFault(new Error(`通用服装“${token.slice(1).trim() || '（空）'}”不存在，请检查标签。`), 'reference');
         }
         const prefixed = token.startsWith('@');
         const match = prefixed ? reference(token, true) ?? (!nested ? reference(token, false) : null)
             : !nested ? reference(token, false) : null;
         if (!match) {
             if (prefixed)
-                throw new Error(`角色调用“${token}”未匹配到已保存的角色或别名，请检查标签。`);
+                throw withFault(new Error(`角色调用“${token}”未匹配到已保存的角色或别名，请检查标签。`), 'reference');
             return token;
         }
         const { anchor, outfit: outfitName } = match;
@@ -147,14 +148,14 @@ export function resolveAnchorPrompt(prompt, anchors, sharedOutfits = []) {
                 if (!outfit && prefixed && outfitName === 'default')
                     outfit = anchor.outfits.find(item => item.id === anchor.selectedOutfitId);
                 else if (!outfit && !(prefixed && outfitName === 'base')) {
-                    throw new Error(`角色“${anchor.name}”没有名为“${outfitName || '（空）'}”的服装，请检查标签。`);
+                    throw withFault(new Error(`角色“${anchor.name}”没有名为“${outfitName || '（空）'}”的服装，请检查标签。`), 'reference');
                 }
             }
         }
         else if (!prefixed || !omitDefault) {
             outfit = anchor.outfits.find(item => item.id === anchor.selectedOutfitId);
             if (anchor.selectedOutfitId && !outfit)
-                throw new Error(`角色“${anchor.name}”选中的服装不存在，请重新选择。`);
+                throw withFault(new Error(`角色“${anchor.name}”选中的服装不存在，请重新选择。`), 'reference');
         }
         return [anchor.appearance, outfit?.tags].filter(Boolean).join(', ');
     });

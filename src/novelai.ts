@@ -1,6 +1,7 @@
 import { ImageResponseError, readImageResponse, requireImageSupport } from './image-response.js';
 import { queueImageGeneration, type ImageGenerationProgress } from './image-queue.js';
 import type { CharacterPrompt } from './image-prompt.js';
+import type { PetFault } from './pet-events.js';
 
 export type { ImageGenerationProgress } from './image-queue.js';
 
@@ -72,24 +73,24 @@ export function defaultImageParameters(): ImageParameters {
   };
 }
 
-function fail(message: string): never {
-  throw new ImageResponseError(message);
+function fail(message: string, fault?: PetFault): never {
+  throw new ImageResponseError(message, fault);
 }
 
 export function validateImageConnection(connection: ImageConnection): ImageConnection {
-  if (!connection || !['official', 'custom'].includes(connection.channel)) fail('请选择官方或自定义渠道。');
+  if (!connection || !['official', 'custom'].includes(connection.channel)) fail('请选择官方或自定义渠道。', 'setup');
   const key = typeof connection.key === 'string' ? connection.key.trim().replace(/^Bearer\s+/i, '') : '';
-  if (!key || /[^\x21-\x7e]/.test(key)) fail('请填写有效的 API 密钥。');
+  if (!key || /[^\x21-\x7e]/.test(key)) fail('请填写有效的 API 密钥。', 'setup');
   const url = typeof connection.url === 'string' ? connection.url.trim() : '';
   if (connection.channel === 'official') return { channel: 'official', url, key };
   let endpoint: URL;
   try {
     endpoint = new URL(url);
   } catch {
-    return fail('请输入完整的自定义 URL，包含 https:// 或 http://。');
+    return fail('请输入完整的自定义 URL，包含 https:// 或 http://。', 'setup');
   }
   if (!['https:', 'http:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.hash) {
-    fail('自定义 URL 仅支持 HTTP 或 HTTPS，且不能包含账号、密码或 # 片段。');
+    fail('自定义 URL 仅支持 HTTP 或 HTTPS，且不能包含账号、密码或 # 片段。', 'setup');
   }
   if (endpoint.pathname === '/') endpoint.pathname = '/ai/generate-image';
   return { channel: 'custom', url: endpoint.href, key };
@@ -98,25 +99,25 @@ export function validateImageConnection(connection: ImageConnection): ImageConne
 function validateParameters(params: ImageParameters): void {
   const within = (value: number, min: number, max: number, integer = false) =>
     Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));
-  if (!NAI_MODELS.some(item => item.value === params.model)) fail('请选择支持的 NAI 模型。');
+  if (!NAI_MODELS.some(item => item.value === params.model)) fail('请选择支持的 NAI 模型。', 'setup');
   if (![params.width, params.height].every(value => within(value, 64, 4096, true) && value % 64 === 0)) {
-    fail('宽度和高度须为 64 至 4096 之间的 64 倍数。');
+    fail('宽度和高度须为 64 至 4096 之间的 64 倍数。', 'setup');
   }
-  if (!within(params.steps, 1, 50, true)) fail('采样步数须为 1 至 50 的整数。');
-  if (!within(params.scale, 0, 100)) fail('提示词引导须在 0 至 100 之间。');
-  if (!within(params.seed, -1, 4294967295, true)) fail('种子须为 -1 至 4294967295 的整数。');
-  if (!within(params.cfgRescale, 0, 1)) fail('引导重缩放须在 0 至 1 之间。');
-  if (!NAI_SAMPLERS.some(item => item.value === params.sampler)) fail('请选择支持的采样器。');
-  if (!NAI_SCHEDULES.some(item => item.value === params.noiseSchedule)) fail('请选择支持的噪声调度。');
-  if (typeof params.sm !== 'boolean' || typeof params.smDyn !== 'boolean') fail('SMEA 设置无效。');
-  if (params.model !== 'nai-diffusion-3' && (params.sm || params.smDyn)) fail('SMEA 和 SMEA DYN 仅适用于 V3。');
-  if (params.smDyn && !params.sm) fail('请先启用 SMEA，再启用 SMEA DYN。');
+  if (!within(params.steps, 1, 50, true)) fail('采样步数须为 1 至 50 的整数。', 'setup');
+  if (!within(params.scale, 0, 100)) fail('提示词引导须在 0 至 100 之间。', 'setup');
+  if (!within(params.seed, -1, 4294967295, true)) fail('种子须为 -1 至 4294967295 的整数。', 'setup');
+  if (!within(params.cfgRescale, 0, 1)) fail('引导重缩放须在 0 至 1 之间。', 'setup');
+  if (!NAI_SAMPLERS.some(item => item.value === params.sampler)) fail('请选择支持的采样器。', 'setup');
+  if (!NAI_SCHEDULES.some(item => item.value === params.noiseSchedule)) fail('请选择支持的噪声调度。', 'setup');
+  if (typeof params.sm !== 'boolean' || typeof params.smDyn !== 'boolean') fail('SMEA 设置无效。', 'setup');
+  if (params.model !== 'nai-diffusion-3' && (params.sm || params.smDyn)) fail('SMEA 和 SMEA DYN 仅适用于 V3。', 'setup');
+  if (params.smDyn && !params.sm) fail('请先启用 SMEA，再启用 SMEA DYN。', 'setup');
   if (params.sampler !== 'k_dpm_fast') {
     if (params.model.startsWith('nai-diffusion-5') && params.noiseSchedule !== 'karras') {
-      fail('V5 使用 Karras 噪声调度。');
+      fail('V5 使用 Karras 噪声调度。', 'setup');
     }
     if (params.model.startsWith('nai-diffusion-4') && params.noiseSchedule === 'native') {
-      fail('V4 和 V4.5 不支持 Native 噪声调度。');
+      fail('V4 和 V4.5 不支持 Native 噪声调度。', 'setup');
     }
   }
 }
@@ -128,15 +129,15 @@ function abortError(): Error {
 }
 
 function snapshotCharacters(characters: readonly CharacterPrompt[], model: string): CharacterPrompt[] {
-  if (!Array.isArray(characters)) fail('角色分栏格式无效，请使用角色提示词列表。');
-  if (characters.length && model === 'nai-diffusion-3') fail('NAI V3 不支持角色分栏，请选择 V4、V4.5 或 V5。');
+  if (!Array.isArray(characters)) fail('角色分栏格式无效，请使用角色提示词列表。', 'setup');
+  if (characters.length && model === 'nai-diffusion-3') fail('NAI V3 不支持角色分栏，请选择 V4、V4.5 或 V5。', 'setup');
   const limit = model.startsWith('nai-diffusion-5') ? 22 : 6;
-  if (characters.length > limit) fail(`当前模型最多支持 ${limit} 个角色分栏。`);
+  if (characters.length > limit) fail(`当前模型最多支持 ${limit} 个角色分栏。`, 'setup');
   return Array.from(characters, (character, index) => {
     if (!character || typeof character !== 'object' || Array.isArray(character)
       || typeof character.positive !== 'string' || !character.positive.trim()
       || typeof character.negative !== 'string') {
-      fail(`第 ${index + 1} 个角色分栏无效：正面提示词不能为空，负面提示词须为文本。`);
+      fail(`第 ${index + 1} 个角色分栏无效：正面提示词不能为空，负面提示词须为文本。`, 'setup');
     }
     return { positive: character.positive, negative: character.negative };
   });
@@ -157,7 +158,7 @@ export async function generateImage(
   params = { ...params };
   validateParameters(params);
   if (typeof positive !== 'string' || !positive.trim() || typeof negative !== 'string') {
-    fail('请填写正面提示词。');
+    fail('请填写正面提示词。', 'setup');
   }
   const characterSnapshot = snapshotCharacters(characters, params.model);
   requireImageSupport();
@@ -229,7 +230,7 @@ async function requestImage(
   signal.addEventListener('abort', cancel, { once: true });
   if (signal.aborted) cancel();
   const timer = setTimeout(
-    () => interrupt(new ImageResponseError('生图等待超时，请确认服务端任务状态后再操作；没有自动重试。')),
+    () => interrupt(new ImageResponseError('生图等待超时，请确认服务端任务状态后再操作；没有自动重试。', 'timeout')),
     GENERATION_TIMEOUT_MS,
   );
   try {
@@ -243,10 +244,10 @@ async function requestImage(
     ensureActive();
     if (!response.ok) {
       void response.body?.cancel().catch(() => {});
-      if (response.status === 401 || response.status === 403) fail('密钥无效、已过期或没有生图权限。');
-      if (response.status === 402) fail('生图额度或订阅不足，请检查账号。');
-      if (response.status === 429) fail('当前请求过多，请稍后手动重试。');
-      fail(`生图失败（HTTP ${response.status}），请检查渠道和参数；没有自动重试。`);
+      if (response.status === 401 || response.status === 403) fail('密钥无效、已过期或没有生图权限。', 'auth');
+      if (response.status === 402) fail('生图额度或订阅不足，请检查账号。', 'quota');
+      if (response.status === 429) fail('当前请求过多，请稍后手动重试。', 'busy');
+      fail(`生图失败（HTTP ${response.status}），请检查渠道和参数；没有自动重试。`, 'unknown');
     }
     const blob = await readImageResponse(response, controller.signal, ensureActive);
     ensureActive();
@@ -254,7 +255,7 @@ async function requestImage(
   } catch (error) {
     if (interruption) throw interruption;
     if (error instanceof ImageResponseError) throw error;
-    return fail('生图未完成，请检查网络或浏览器跨域限制；没有自动重试。');
+    return fail('生图未完成，请检查网络或浏览器跨域限制；没有自动重试。', 'network');
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', cancel);

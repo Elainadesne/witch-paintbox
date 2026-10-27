@@ -1,4 +1,5 @@
 import { getHostStore, HOST_NAMESPACE, readHostJson, withHostLock, writeHostJson } from './host-storage.js';
+import { withFault } from './pet-events.js';
 export const ANCHOR_NAME_LIMIT = 80;
 export const ANCHOR_ALIAS_LIMIT = 20;
 export const ANCHOR_TAG_LIMIT = 32_768;
@@ -20,7 +21,7 @@ function database() {
                 return;
             settled = true;
             clearTimeout(timer);
-            reject(new Error(message));
+            reject(withFault(new Error(message), 'storage'));
         }
         let request;
         try {
@@ -74,10 +75,10 @@ function database() {
 }
 function operationError(action, error) {
     if (error?.name === 'QuotaExceededError')
-        return new Error(`角色锚定${action}失败，浏览器存储空间不足。`);
+        return withFault(new Error(`角色锚定${action}失败，浏览器存储空间不足。`), 'storage');
     if (error?.name === 'ConstraintError')
-        return new Error('已有同名角色，请更换角色名称。');
-    return new Error(`角色锚定${action}失败，请检查站点存储权限后重试。`);
+        return withFault(new Error('已有同名角色，请更换角色名称。'), 'storage');
+    return withFault(new Error(`角色锚定${action}失败，请检查站点存储权限后重试。`), 'storage');
 }
 async function transact(mode, action, makeRequest) {
     const db = await database();
@@ -98,7 +99,7 @@ async function transact(mode, action, makeRequest) {
                 transaction.abort();
             }
             catch { /* Completion may already be pending. */ }
-            fail(new Error(`角色锚定${action}超时，尚未确认完成，请重试。`));
+            fail(withFault(new Error(`角色锚定${action}超时，尚未确认完成，请重试。`), 'storage'));
         }, 30_000);
         const fail = (error) => {
             if (settled)
