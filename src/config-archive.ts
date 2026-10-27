@@ -3,7 +3,7 @@ import { defaultModelSettings, loadModelSettings, saveModelSettings, validateMod
 import { loadAnchors, replaceAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT, type CharacterAnchor } from './anchor-store.js';
 import { loadSharedOutfits, replaceSharedOutfits, validateSharedOutfits, type SharedOutfit } from './shared-outfit-store.js';
 import { loadWorldbookArchive, replaceWorldbookArchive, validateWorldbookArchive, type StoredWorldbook } from './worldbook-source.js';
-import { defaultSettings, readSettings, saveSettings, type Settings, type TavernContext } from './settings.js';
+import { defaultSettings, readPetPlacement, readSettings, saveSettings, type Settings, type TavernContext } from './settings.js';
 import { isPageId } from './pages.js';
 
 export const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
@@ -69,6 +69,13 @@ function preferences(value: unknown): Settings {
     if (typeof source.autoGenerateImages !== 'boolean') throw new Error('自动生图偏好格式无效。');
     optional.autoGenerateImages = source.autoGenerateImages;
   }
+  for (const name of ['petLines', 'petMotion', 'petAway'] as const) {
+    const value = source[name];
+    if (value === undefined) continue;
+    if (typeof value !== 'boolean') throw new Error('使用偏好格式无效。');
+    optional[name] = value;
+  }
+  if (source.petPlacement !== undefined) optional.petPlacement = readPetPlacement(source.petPlacement);
   return { ...optional, rememberPage: source.rememberPage, rememberPosition: source.rememberPosition, lastPage: source.lastPage, position };
 }
 

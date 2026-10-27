@@ -21,6 +21,8 @@ import { bindSettingsEntry } from './settings-entry.js';
 import { bindSifangWindowViewport, isSifangEnvironment } from './sifang-host.js';
 import { initializeSifangChat } from './sifang-chat.js';
 import { bindSifangImages } from './sifang-images.js';
+import { bindPet, type PetHandle } from './pet/index.js';
+import { emitPetEvent } from './pet-events.js';
 
 declare const SillyTavern: { getContext(): TavernContext };
 declare const $: (ready: () => void) => void;
@@ -39,7 +41,8 @@ async function mount() {
   const modelConfig = new ModelConfig();
   const imageReview = new ImageReview();
   let anchorConfig = new AnchorConfig();
-  let floating: ReturnType<typeof bindLauncher> | null = null;
+  let floating: ReturnType<typeof bindLauncher> | PetHandle | null = null;
+  let pet: PetHandle | null = null;
   let changingSyncKeys = false;
   const transfer = new ConfigTransfer(context, (kind, provider) => {
     if (kind === 'all' || kind === 'artists') imageConfig.reloadSaved(kind === 'artists');
@@ -52,10 +55,12 @@ async function mount() {
       modelConfig.reloadSaved();
       anchorConfig.destroy(); anchorConfig = new AnchorConfig();
       settings = readSettings(context);
-      if (settings.rememberPosition && settings.position) floating?.setPosition(settings.position);
+      if (pet && settings.rememberPosition && settings.petPlacement) pet.setPlacement(settings.petPlacement);
+      else if (settings.rememberPosition && settings.position) floating?.setPosition(settings.position);
       else floating?.reset();
       for (const input of Array.from(content.querySelectorAll<HTMLInputElement>('.preference-row input'))) {
-        if (input.name === 'rememberPage' || input.name === 'rememberPosition' || input.name === 'autoGenerateImages') input.checked = settings[input.name];
+        if (input.name === 'rememberPage' || input.name === 'rememberPosition' || input.name === 'autoGenerateImages'
+          || input.name === 'petLines' || input.name === 'petMotion') input.checked = settings[input.name];
       }
       const retention = content.querySelector<HTMLSelectElement>('[name="imageRetentionDays"]');
       if (retention) retention.value = String(settings.imageRetentionDays);
@@ -118,7 +123,10 @@ async function mount() {
     if (status) status.textContent = imageRetentionStatus();
   };
   window.addEventListener('witch-paintbox:cleanup-status', showCleanupStatus, { signal });
-  const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'));
+  const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'), {
+    anchor: () => pet?.anchor() ?? launcher.getBoundingClientRect(),
+    onDismiss: () => { if (pet) pet.dismiss(); else launcher.hidden = true; },
+  });
 
   function openPanel(target: PageId, opener: HTMLElement = launcher) {
     if (panel.open) return;
@@ -126,6 +134,7 @@ async function mount() {
     launcherMenu.close();
     navigate(target, false);
     panel.showModal();
+    emitPetEvent({ type: 'ui', action: 'panel-open' });
     updateNotice.check();
     content.focus({ preventScroll: true });
   }
@@ -179,7 +188,22 @@ async function mount() {
       if (toast) toast.error(nativeError);
       else console.error(`[${pluginName}] ${nativeError}`);
     }
-    floating = bindLauncher(
+    pet = bindPet({
+      root, launcher, signal,
+      initial: settings.rememberPosition ? settings.position : null,
+      placement: settings.rememberPosition ? settings.petPlacement : null,
+      preferences: () => ({ lines: settings.petLines, motion: settings.petMotion, away: settings.petAway }),
+      onMove(position, placement) {
+        if (!settings.rememberPosition || transfer.isApplying) return;
+        settings.position = position;
+        settings.petPlacement = placement;
+        persist();
+      },
+      onAway(away) { settings.petAway = away; persist(); },
+      onOpen: launcherMenu.toggle,
+      onDrag: launcherMenu.close,
+    });
+    floating = pet ?? bindLauncher(
       launcher,
       settings.rememberPosition ? settings.position : null,
       position => {
@@ -244,8 +268,8 @@ async function mount() {
         persist();
         return;
       }
-      if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition', 'autoGenerateImages'].includes(input.name)) return;
-      if (transfer.isApplying) { input.checked = settings[input.name as 'rememberPage' | 'rememberPosition' | 'autoGenerateImages']; return; }
+      if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition', 'autoGenerateImages', 'petLines', 'petMotion'].includes(input.name)) return;
+      if (transfer.isApplying) { input.checked = settings[input.name as 'rememberPage' | 'rememberPosition' | 'autoGenerateImages' | 'petLines' | 'petMotion']; return; }
       if (input.name === 'rememberPage') {
         settings.rememberPage = input.checked;
         settings.lastPage = page;
@@ -253,8 +277,11 @@ async function mount() {
       if (input.name === 'rememberPosition') {
         settings.rememberPosition = input.checked;
         settings.position = input.checked ? floating!.getPosition() : null;
+        settings.petPlacement = null;
       }
       if (input.name === 'autoGenerateImages') settings.autoGenerateImages = input.checked;
+      if (input.name === 'petLines') settings.petLines = input.checked;
+      if (input.name === 'petMotion') settings.petMotion = input.checked;
       persist();
       content.querySelector<HTMLElement>('[data-feedback]')!.textContent = '更改会自动保存。';
     }, { signal });
@@ -266,9 +293,11 @@ async function mount() {
     modelConfig.maskKey();
     launcher.setAttribute('aria-expanded', 'false');
     if (panelOpener.isConnected && panelOpener.getClientRects().length) panelOpener.focus({ preventScroll: true });
+    emitPetEvent({ type: 'ui', action: 'panel-close' });
   }, { signal });
   stylesheet.addEventListener('error', () => {
     console.error(`[${pluginName}] 样式加载失败，请检查扩展文件是否完整。`);
+    emitPetEvent({ type: 'stop' });
     controller.abort();
     imageConfig.destroy();
     modelConfig.destroy();
@@ -281,6 +310,7 @@ async function mount() {
     imageConfig.maskKey();
     modelConfig.maskKey();
     if (event.persisted) return;
+    emitPetEvent({ type: 'stop' });
     controller.abort();
     imageConfig.destroy();
     modelConfig.destroy();
