@@ -214,22 +214,29 @@ async function mount() {
             else
                 console.error(`[${pluginName}] ${nativeError}`);
         }
-        pet = bindPet({
-            root, launcher, signal,
-            initial: settings.rememberPosition ? settings.position : null,
-            placement: settings.rememberPosition ? settings.petPlacement : null,
-            preferences: () => ({ lines: settings.petLines, motion: settings.petMotion, away: settings.petAway }),
-            onMove(position, placement) {
-                if (!settings.rememberPosition || transfer.isApplying)
-                    return;
-                settings.position = position;
-                settings.petPlacement = placement;
-                persist();
-            },
-            onAway(away) { settings.petAway = away; persist(); },
-            onOpen: launcherMenu.toggle,
-            onDrag: launcherMenu.close,
-        });
+        try {
+            pet = bindPet({
+                root, launcher, signal,
+                initial: settings.rememberPosition ? settings.position : null,
+                placement: settings.rememberPosition ? settings.petPlacement : null,
+                preferences: () => ({ lines: settings.petLines, motion: settings.petMotion, away: settings.petAway }),
+                onMove(position, placement) {
+                    if (!settings.rememberPosition || transfer.isApplying)
+                        return;
+                    settings.position = position;
+                    settings.petPlacement = placement;
+                    persist();
+                },
+                onAway(away) { settings.petAway = away; persist(); },
+                onOpen: launcherMenu.toggle,
+                onDrag: launcherMenu.close,
+            });
+        }
+        catch (error) {
+            // (the old floating ball takes over)
+            console.error(`[${pluginName}] 桌宠加载失败，已换回悬浮球。`, error);
+            pet = null;
+        }
         floating = pet ?? bindLauncher(launcher, settings.rememberPosition ? settings.position : null, position => {
             if (!settings.rememberPosition || transfer.isApplying)
                 return;

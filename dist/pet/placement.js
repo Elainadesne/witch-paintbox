@@ -66,9 +66,10 @@ export class Places {
         this.changed();
     }
     checkKeyboard() {
+        // (by the visible viewport only: the send box keeps its focus when the keyboard is put away, and the tavern focuses
+        // it by itself when a chat opens)
         const m = this.m, vv = window.visualViewport;
-        const typing = document.activeElement?.id === 'send_textarea';
-        const up = m.view.narrow && ((vv ? vv.height < window.innerHeight - 120 : false) || typing);
+        const up = m.view.narrow && !!vv && vv.height < window.innerHeight - 120;
         if (up === this.keyboard)
             return;
         this.keyboard = up;
