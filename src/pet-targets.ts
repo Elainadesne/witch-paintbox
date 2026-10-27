@@ -1,6 +1,20 @@
 type Side = 'in' | 'above' | 'below';
 
-export interface FloorTarget { rect: DOMRect; visible: boolean; side: Side }
+type Band = { left: number; top: number; right: number; bottom: number };
+
+/** view: the band of the story that shows (a host's frame); without it the chat's box is the band. */
+export interface FloorTarget { rect: DOMRect; visible: boolean; side: Side; view?: Band }
+
+/** A frame the host draws (Sifang), from its reported box; null for a box that is not one. */
+export function nativeTarget(box: { left: number; top: number; width: number; height: number; view?: Band }): FloorTarget | null {
+  const numbers = [box.left, box.top, box.width, box.height];
+  if (!numbers.every(Number.isFinite) || box.width <= 0 || box.height <= 0) return null;
+  const v = box.view;
+  const view = v && [v.left, v.top, v.right, v.bottom].every(Number.isFinite) ? v : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+  const rect = new DOMRect(box.left, box.top, box.width, box.height);
+  const visible = rect.bottom > view.top && rect.top < view.bottom && rect.right > view.left && rect.left < view.right;
+  return { rect, visible, side: visible ? 'in' : rect.bottom <= view.top ? 'above' : 'below', view };
+}
 
 /** Top-window viewport rect of a floor frame, or null when it has no layout. Read it at flight start and landing only. */
 export function floorTarget(slot: HTMLElement): FloorTarget | null {

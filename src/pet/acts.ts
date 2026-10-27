@@ -366,7 +366,7 @@ export class Acts {
     const box = (r: DOMRect): Box4 => ({ x: r.left, y: r.top, w: r.width, h: r.height });
     if (t.visible) return { to: box(t.rect), frame: true, again: () => { const n = read(); return n?.visible ? box(n.rect) : null; } };
     // scrolled away: to the top or bottom edge of the chat, where it went
-    const chat = document.getElementById('chat')?.getBoundingClientRect();
+    const chat = t.view ?? document.getElementById('chat')?.getBoundingClientRect();
     const top = Math.max(chat?.top ?? 0, 0), bottom = Math.min(chat?.bottom ?? this.m.view.h, this.m.view.h);
     const w = from.w * 0.6, h = from.h * 0.6;
     const x = clamp(t.rect.left + t.rect.width / 2 - w / 2, chat?.left ?? 0, (chat?.right ?? this.m.view.w) - w);

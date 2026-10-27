@@ -1,3 +1,14 @@
+/** A frame the host draws (Sifang), from its reported box; null for a box that is not one. */
+export function nativeTarget(box) {
+    const numbers = [box.left, box.top, box.width, box.height];
+    if (!numbers.every(Number.isFinite) || box.width <= 0 || box.height <= 0)
+        return null;
+    const v = box.view;
+    const view = v && [v.left, v.top, v.right, v.bottom].every(Number.isFinite) ? v : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+    const rect = new DOMRect(box.left, box.top, box.width, box.height);
+    const visible = rect.bottom > view.top && rect.top < view.bottom && rect.right > view.left && rect.left < view.right;
+    return { rect, visible, side: visible ? 'in' : rect.bottom <= view.top ? 'above' : 'below', view };
+}
 /** Top-window viewport rect of a floor frame, or null when it has no layout. Read it at flight start and landing only. */
 export function floorTarget(slot) {
     const root = slot.shadowRoot;

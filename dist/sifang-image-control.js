@@ -5,6 +5,7 @@ import { createImageGallery } from './image-gallery.js';
 import { loadImageHistory, saveImageHistory, deleteImageHistory, historyWasDeleted } from './image-history.js';
 import { currentPreferences } from './settings.js';
 import { awaitSifangChatRefresh } from './sifang-chat.js';
+import { emitPetEvent, petEnd, petFault, petTaskId } from './pet-events.js';
 /** The native view is transient. History, gallery and requests keep the plugin's existing storage and queue. */
 export function createSifangImageControl(entry, root, hooks) {
     const controller = new AbortController();
@@ -15,6 +16,8 @@ export function createSifangImageControl(entry, root, hooks) {
     let selectedId = null;
     let historyAvailable = false;
     let deletedBefore = 0;
+    let veils = 0;
+    let veiled = false;
     const deletedIds = new Set();
     const saves = new Map();
     const historyKey = entry.historyKey;
@@ -37,7 +40,7 @@ export function createSifangImageControl(entry, root, hooks) {
         if (controller.signal.aborted)
             return;
         gallery.setImages(history, selectedId);
-        hooks.update({ state: phase, status, blob: history.find(item => item.entry.id === selectedId)?.entry.blob ?? null });
+        hooks.update({ state: phase, status, blob: history.find(item => item.entry.id === selectedId)?.entry.blob ?? null, veiled });
     }
     function report(text) { status = text; show(); }
     function remove(change) {
@@ -51,6 +54,21 @@ export function createSifangImageControl(entry, root, hooks) {
             status = history.length ? `剩余 ${history.length} 张图片` : '图片已清理，可重新生成。';
         show();
         removed.forEach(item => URL.revokeObjectURL(item.url));
+    }
+    // The desktop pet hides a new picture while it flies in; the frame shows it again after 4 s at the latest.
+    function veil(stop) {
+        const current = ++veils;
+        veiled = true;
+        show();
+        const release = () => {
+            if (veils !== current)
+                return;
+            stop();
+            veiled = false;
+            show();
+        };
+        setTimeout(release, 4000);
+        return release;
     }
     const ready = (historyKey ? loadImageHistory(historyKey) : Promise.resolve([])).then(entries => {
         if (controller.signal.aborted)
@@ -71,8 +89,16 @@ export function createSifangImageControl(entry, root, hooks) {
         request = job;
         phase = 'queued';
         report('正在加入队列…');
+        const pet = petTaskId();
+        const source = autoSignal ? 'auto' : 'floor';
+        const floor = hooks.floor();
+        const endPet = petEnd();
+        const petImage = { type: 'end', id: pet, task: 'image', source, floor };
         try {
             const settings = loadImageSettings();
+            const parameters = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
+            emitPetEvent({ type: 'image', id: pet, source, phase: 'start', provider: settings.provider, floor, turn: true,
+                summary: entry.marker.summary, again: history.length > 0, width: parameters.width, height: parameters.height });
             await ready;
             await awaitSifangChatRefresh();
             job.signal.throwIfAborted();
@@ -91,10 +117,15 @@ export function createSifangImageControl(entry, root, hooks) {
                 }
                 phase = progress.state;
                 report(progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…');
+                emitPetEvent({ type: 'image', id: pet, source, phase: progress.state, floor,
+                    position: progress.state === 'queued' ? progress.position : undefined, columns: progress.columns,
+                    width: parameters.width, height: parameters.height });
             }, settings.positive);
             await awaitSifangChatRefresh();
-            if (job.signal.aborted || controller.signal.aborted || !hooks.current())
+            if (job.signal.aborted || controller.signal.aborted || !hooks.current()) {
+                endPet({ ...petImage, result: 'dropped', paid: true, message: '' });
                 return;
+            }
             const item = {
                 id: `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`,
                 ...result, markerKey: historyKey ?? entry.key, createdAt: Date.now(), scenePrompt: entry.marker.prompt,
@@ -105,21 +136,38 @@ export function createSifangImageControl(entry, root, hooks) {
             history.push({ entry: item, url: URL.createObjectURL(item.blob) });
             selectedId = item.id;
             report('绘制完成，正在保存图片历史…');
+            const place = hooks.watch();
+            setTimeout(place.stop, 8000);
+            endPet({ ...petImage, result: 'done', message: '', picture: {
+                    blob: result.blob, width: result.parameters.width, height: result.parameters.height, target: place.target, veil: () => veil(place.stop),
+                } });
             try {
                 await save;
-                report(historyKey ? `已保存 ${history.length} 张图片 · 点击查看历史` : '图片仅保留在当前页面，可下载保存。');
+                const saved = historyKey ? `已保存 ${history.length} 张图片 · 点击查看历史` : '图片仅保留在当前页面，可下载保存。';
+                report(saved);
+                emitPetEvent({ type: 'history', id: pet, saved: true, pageOnly: !historyKey, message: saved });
             }
             catch (error) {
-                report(`图片已生成，但历史未保存：${error instanceof Error ? error.message : '浏览器存储不可用。'}`);
+                const failed = `图片已生成，但历史未保存：${error instanceof Error ? error.message : '浏览器存储不可用。'}`;
+                report(failed);
+                emitPetEvent({ type: 'history', id: pet, saved: false, message: failed });
             }
             finally {
                 saves.delete(item.id);
             }
         }
         catch (error) {
-            report(job.signal.aborted ? '已取消本次等待，服务端任务可能仍在继续。' : error instanceof Error ? error.message : '生图未完成，请稍后重试。');
+            if (controller.signal.aborted) {
+                endPet({ ...petImage, result: 'dropped', serverMayContinue: phase !== 'queued', message: '' });
+                return;
+            }
+            const cancelled = job.signal.aborted;
+            report(cancelled ? '已取消本次等待，服务端任务可能仍在继续。' : error instanceof Error ? error.message : '生图未完成，请稍后重试。');
+            endPet({ ...petImage, result: cancelled ? 'cancelled' : 'failed', message: status,
+                fault: cancelled ? undefined : petFault(error), serverMayContinue: cancelled && phase !== 'queued' });
         }
         finally {
+            endPet({ ...petImage, result: 'dropped', message: '' });
             controller.signal.removeEventListener('abort', cancel);
             autoSignal?.removeEventListener('abort', cancel);
             request = null;
