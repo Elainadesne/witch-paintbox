@@ -19,6 +19,8 @@
 //   palettePoint(F)                 where paint lifts off (one of the pans)
 //   tint(colours)                   the pans take a picture's eight colours (fades in over the old body)
 //   crackPoint(F)                   where light shows when it opens a crack
+//   rackPoint(F, ang) / keyPoint(F) a type block in the lid's rack, the keyhole under the clasp (the faults' acts)
+//   dry(on)                         the pans run dry, or take their paint back
 //   shutPicture()                   the shut box as one 2D picture, for the still mode without WebGL2
 import { gridMesh, loadBitmap, pixels } from './gl.js';
 import { clamp, lerp, sm } from './state.js';
@@ -28,6 +30,11 @@ const DEPTH = 0.8; // the lid is about 1 wide by 0.8 deep: (s, r) to lengths
 const FILES = { body: 'box_body.webp', lidOut: 'box_lid_out.webp', lidIn: 'box_lid_in.webp', drawer: 'box_drawer.webp', stay: 'box_stay.webp' };
 const ease = (k) => k * k * (3 - 2 * k);
 const GLOW = { tint: [0.96, 0.8, 0.46], mix: 1 };
+// (frame px, as drawn open) a type block a little right of the middle of the rack's upper row; the keyhole on the
+// front under the clasp's knob; the pans' porcelain, bare
+const RACK = [632, 377];
+const KEYHOLE = [587, 868];
+const PORCELAIN = [238, 233, 222];
 export class Paintbox {
     rig;
     bitmaps = {};
@@ -45,6 +52,9 @@ export class Paintbox {
     sweep = [0, 0, 1, 1];
     colours = null;
     tinted = null;
+    rack = [0.5, 0.2];
+    // the pans' colours from before they ran dry (null: as drawn); undefined while they have paint
+    wet = undefined;
     openAngle = 105;
     async load(url, signal) {
         for (const b of Object.values(this.bitmaps))
@@ -115,6 +125,7 @@ export class Paintbox {
         this.faces.shut = [sh.front, sh.right, sh.out].map(f => gfx.add(this.faceMesh(f.uv, f.rig, L.lidOut)));
         this.faces.open = [op.top, op.right, op.in].map(f => gfx.add(this.faceMesh(f.uv, f.rig, L.lidIn)));
         this.board = this.rig.board.map(p => this.insideAt(p));
+        this.rack = this.insideAt(RACK);
         this.shade = gfx.add(this.faceMesh(this.rig.trayShade.map(p => this.inLayer(L.body, p)), this.rig.trayShade.map(() => [0, 0, 0]), L.body, 1));
         // the stay: a strip of its texture between the pivot's end and the feet's
         const m = gridMesh(1, 6), Q = this.rig.stay.quad.map(p => this.inLayer(L.stay, p));
@@ -274,6 +285,13 @@ export class Paintbox {
         return this.onScreen(F, [p[0] + (Math.random() - 0.5) * 40, p[1] + (Math.random() - 0.5) * 18]);
     }
     crackPoint(F) { return this.onScreen(F, this.rigAt(0, 0.5, 1, 0.5)); }
+    /** A type block in the lid's rack, on the screen, with the lid at ang; and the way out of the rack (unit). */
+    rackPoint(F, ang) {
+        const [s, r] = this.rack, at = this.onScreen(F, this.rigAt(ang, s, r, 0)), off = this.onScreen(F, this.rigAt(ang, s, r, -0.3));
+        const dx = off[0] - at[0], dy = off[1] - at[1], d = Math.hypot(dx, dy) || 1;
+        return { at, out: [dx / d, dy / d] };
+    }
+    keyPoint(F) { return this.onScreen(F, KEYHOLE); }
     drawSheets(F, a, look, alpha) {
         const gfx = this.gfx, T = this.tex, P = look.paint, live = !!P && !P.lifted, n = Math.min(4, look.queued), asp = P?.aspect ?? 0.684;
         if (!live && !n)
@@ -385,6 +403,30 @@ export class Paintbox {
     // the paint in the pans takes the picture's colours, baked into a copy of the box's body that fades in over the old
     // one (at once when it comes back from the last visit)
     tint(cols, fade = true) {
+        if (this.wet !== undefined) {
+            this.wet = cols.map(q => q.slice());
+            return;
+        }
+        this.bake(cols, fade, false);
+    }
+    /** The pans run dry (bare porcelain, a trace of paint left), or take their paint back. */
+    dry(on) {
+        if (on === (this.wet !== undefined))
+            return;
+        if (on) {
+            this.wet = this.colours ? this.colours.map(q => q.slice()) : null;
+            this.bake(Array.from({ length: 8 }, () => PORCELAIN), true, true);
+            return;
+        }
+        const back = this.wet;
+        this.wet = undefined;
+        if (back)
+            this.bake(back, true, false);
+        else
+            this.untint();
+    }
+    // the pans painted over: a picture's colours on the cakes' own light and shade, or flat (bare porcelain)
+    bake(cols, fade, flat) {
         const body = this.bitmaps.body, map = this.paintMap;
         if (!body || !map || cols.length < 8)
             return;
@@ -401,10 +443,10 @@ export class Paintbox {
                 continue;
             const q = cols[pan], l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2], lq = Math.max(30, 0.299 * q[0] + 0.587 * q[1] + 0.114 * q[2]);
             for (let ch = 0; ch < 3; ch++)
-                d[i + ch] = d[i + ch] * (1 - k) + Math.min(255, q[ch] * l / lq) * k;
+                d[i + ch] = d[i + ch] * (1 - k) + (flat ? q[ch] : Math.min(255, q[ch] * l / lq)) * k;
         }
         x.putImageData(id, 0, 0);
-        this.colours = cols.map(q => q.slice());
+        this.colours = flat ? null : cols.map(q => q.slice());
         this.tinted = c;
         const gfx = this.gfx;
         if (!gfx)
@@ -418,7 +460,21 @@ export class Paintbox {
         T.body = gfx.texture(c, W, H);
         this.fadeIn = fade ? 0 : 1;
     }
-    get palette() { return this.colours; }
+    // back to the pans as drawn, fading in
+    untint() {
+        this.colours = null;
+        this.tinted = null;
+        const gfx = this.gfx, T = this.tex;
+        if (!gfx || !T.base)
+            return;
+        if (T.prev && T.prev !== T.base)
+            gfx.free(T.prev);
+        T.prev = T.body;
+        T.body = T.base;
+        this.fadeIn = 0;
+    }
+    /** The pans' colours to keep (the ones they had before they ran dry). */
+    get palette() { return this.wet !== undefined ? this.wet : this.colours; }
     /** The shut box as one picture (the frame, texture px), for the still mode: the body, then the shut lid's faces. */
     shutPicture() {
         const body = this.tinted ?? this.bitmaps.body, out = this.bitmaps.lidOut;

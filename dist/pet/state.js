@@ -40,6 +40,10 @@ export function createState() {
         // flap's angle from up (rad, clockwise), v how fast it turns, bend how far its far end trails, t how long it has
         // been on its way down
         brim: { up: false, k: 0, a: 0, v: 0, bend: 0, t: 0 },
+        // a fault's act on the 2D layer, and nap: the seconds she has left dozing over the easel (it took too long); gaze is
+        // where she watches it go wrong, tilt her head's puzzled tilt; waitFrom (performance.now ms) is when the picture
+        // under way began, so a long wait can send her to sleep over the easel (easel: she is, or is going)
+        fault: null, nap: 0, gaze: null, tilt: 0, waitFrom: 0, easel: false,
         // (new in the plugin) her own size and opacity, for climbing into the paintbox and the still mode's fades; away: she
         // is in the paintbox; duck: on a phone she has ducked behind the input bar for the keyboard; inFront draws her over
         // the paintbox while she climbs in or out of it

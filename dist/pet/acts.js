@@ -1,6 +1,8 @@
 import { pictureColours } from './box.js';
 import { R } from './tia.js';
 import { clamp, lerp } from './state.js';
+// how a fault is acted out (the others: the plain puff and shake)
+const ACT = { reference: 'blank', auth: 'key', quota: 'dry', network: 'thread', timeout: 'nap' };
 const PAPER = 832 / 1216;
 export class Acts {
     m;
@@ -480,24 +482,55 @@ export class Acts {
             st.paint = null;
         void this.refresh();
     }
-    async fail(line, fact) {
+    // a fault, acted out by its kind: no name on the type block for a tag that matches nobody, the key that will not turn,
+    // the pans run dry, the thread the paint comes along snapping, asleep over the easel when it took too long (the long
+    // wait sent her off, the error wakes her with a start; not asleep yet, she nods off first); then her line with the
+    // plugin's own message under it
+    async fail(line, fact, fault) {
         const st = this.st, m = this.m;
         if (st.away) {
             st.box.shake = 1;
             this.hooks.wake();
             return;
         }
+        const slept = st.asleep && st.easel;
         st.failing = true;
+        // (the work is off: the brim comes down now, and does not flip up again as she wakes)
+        st.brim.up = false;
         await this.out();
         this.openBox();
         await m.wait(0.3);
-        this.fx.puff();
-        st.box.shake = 1;
+        const act = m.still ? 'plain' : (fault && ACT[fault]) || 'plain';
+        if (act === 'nap') {
+            if (!slept) {
+                st.nap = 2.4;
+                this.hooks.wake();
+                await m.until(() => st.nap <= 0 || this.dead);
+            }
+            // (awake with a start, she blinks at the easel a moment)
+            await m.wait(slept ? 0.7 : 0.35);
+        }
+        else if (act === 'plain') {
+            this.fx.puff();
+            st.box.shake = 1;
+        }
+        else {
+            st.fault = { act, t: 0, at: null, cues: 0 };
+            if (act === 'dry') {
+                m.box.dry(true);
+                this.fx.dust();
+            }
+            this.hooks.wake();
+            // (she watches it go wrong first)
+            await m.wait(act === 'dry' ? 0.6 : 0.95);
+        }
         m.want('dismay');
         this.hooks.wake();
         await m.wait(0.35);
         this.speech.say(line, fact);
         await m.wait(5.3);
+        if (act === 'dry')
+            m.box.dry(false);
         st.failing = false;
         this.closeBox();
         if (st.want === 'dismay')

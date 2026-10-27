@@ -34,6 +34,9 @@ export function conduct(m: Motion, acts: Acts, speech: Speech, hooks: ConductorH
       if (task.phase === 'generating' && !drawing) drawing = { id, aspect: task.aspect };
       else waiting.push({ id, aspect: task.aspect });
     }
+    // (how long the one under way has taken: a long wait sends her to sleep over the easel)
+    if (!drawing) m.st.waitFrom = 0;
+    else if (drawing.id !== acts.work.drawing?.id || !m.st.waitFrom) m.st.waitFrom = performance.now();
     acts.work = { drawing, waiting };
     // (the blank sheets behind the one under way: the queue's waiting ones and the automatic ones not started)
     m.st.box.queued = queued + autoWaiting;
@@ -85,7 +88,7 @@ export function conduct(m: Motion, acts: Acts, speech: Speech, hooks: ConductorH
           if (processId !== null && processId !== event.id) break;
           processId = null;
           if (event.result === 'done') acts.found(event.message);
-          else if (event.result === 'failed') { acts.stopReading(); void acts.fail(faultLine(event.fault), event.message); }
+          else if (event.result === 'failed') { acts.stopReading(); void acts.fail(faultLine(event.fault), event.message, event.fault); }
           else acts.stopReading();
           hooks.readTarget(null);
           break;
@@ -99,7 +102,7 @@ export function conduct(m: Motion, acts: Acts, speech: Speech, hooks: ConductorH
           } else if (event.result === 'failed') {
             acts.drop(event.id);
             sync();
-            void acts.fail(faultLine(event.fault), event.message);
+            void acts.fail(faultLine(event.fault), event.message, event.fault);
           } else {
             // cancelled while it still waited: the blank sheet goes back into the box; dropped: silent
             if (event.result === 'cancelled' && task && task.phase !== 'generating') speech.say('unqueued');

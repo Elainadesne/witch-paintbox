@@ -3,6 +3,8 @@
 import { SHUT_WIDTH } from './box.js';
 import { BRIM_DOWN, R, SIDE, TH } from './tia.js';
 import { clamp, createState, FACES, lerp, springs, step, wind } from './state.js';
+/** A picture still not in after this long (s) and she nods off over the easel (the plugin gives up at five minutes). */
+export const LONG_WAIT = 60;
 export class Motion {
     rig;
     box;
@@ -40,6 +42,12 @@ export class Motion {
         const st = this.st, s = this.scale(), c = Math.cos(st.rot), n = Math.sin(st.rot);
         const lx = (x - st.piv[0]) * s * (2 - st.sq) ** 0.5, ly = (y - st.piv[1]) * s * st.sq;
         return [st.P[0] + lx * c - ly * n, st.P[1] + lx * n + ly * c];
+    }
+    /** A point on her head (texture px) -> screen: with the head's turn and sink and her breath, as the mesh has it. */
+    headToScreen(x, y) {
+        const S = this.S, n = R.neck, sn = Math.sin(S.head.x), co = Math.cos(S.head.x), dx = x - n[0], dy = y - n[1];
+        const br = (Math.sin(this.st.t * (Math.PI * 2 / 3.8)) + 1) * 0.5;
+        return this.toScreen(n[0] + dx * co - dy * sn, n[1] + dx * sn + dy * co + S.hx.x * 0.6 - 2.6 * br);
     }
     toTex(X, Y) {
         const st = this.st, s = this.scale(), c = Math.cos(-st.rot), n = Math.sin(-st.rot);
@@ -285,12 +293,13 @@ export class Motion {
         // where she looks: at the pointer when it is near, else a slow drift; a sleepy nod now and then
         const head = this.toScreen(464, 480);
         // (reading, she looks along the reply's lines instead)
-        const rd = st.reading ? this.readAt : null;
-        const at = rd ? [rd.x + rd.w * (0.5 + 0.4 * Math.sin(t * 1.3)), rd.y + rd.h * 0.5] : st.ptr;
+        // (a fault's act: she watches it go wrong)
+        const rd = st.reading ? this.readAt : null, gz = st.gaze;
+        const at = rd ? [rd.x + rd.w * (0.5 + 0.4 * Math.sin(t * 1.3)), rd.y + rd.h * 0.5] : gz ?? st.ptr;
         const dx = at[0] - head[0], dy = at[1] - head[1];
         // (which way that is for her, turned as she is)
         const cl = Math.cos(-st.rot), sl = Math.sin(-st.rot), fx = dx * cl - dy * sl, fy = dx * sl + dy * cl;
-        const near = rd ? 1 : st.ptr[0] >= 0 && Math.hypot(dx, dy) < (view.narrow ? 260 : 620) ? 1 : 0;
+        const near = rd || gz ? 1 : st.ptr[0] >= 0 && Math.hypot(dx, dy) < (view.narrow ? 260 : 620) ? 1 : 0;
         st.lookOn += (near * (1 - st.doze) - st.lookOn) * Math.min(1, dt * 3);
         // the edge: with the pointer close she leans out awake; quiet long enough near her corner she curls up in it, and
         // there she soon dozes off (put down elsewhere, she dozes where she stands, later)
@@ -313,16 +322,22 @@ export class Motion {
         const idleFor = this.idleSeconds();
         if (st.spot && st.mode === 'idle' && !st.tucked && !busy && st.idle > idleFor)
             this.hooks.backToSide();
-        const sleepy = st.idle > (st.tucked ? 1.5 : side ? 3 : idleFor + 20);
+        st.nap = Math.max(0, st.nap - dt);
+        // (over the easel: a picture that will not come, or the timeout's nap)
+        st.easel = st.nap > 0 || (st.waitFrom > 0 && !st.failing && performance.now() - st.waitFrom > LONG_WAIT * 1000);
+        const sleepy = st.easel || st.idle > (st.tucked ? 1.5 : side ? 3 : idleFor + 20);
         if (sleepy && st.doze > 0.9)
             st.asleep = true;
-        // woken with a start: the ahoge flicks, her eyes fly open for a moment
+        // woken with a start: the ahoge flicks, the hat jumps, her eyes fly open for a moment
         if (!sleepy && st.asleep) {
             st.asleep = false;
             if (!still) {
                 S.ah.v -= 7;
                 st.sqV += 1.6;
+                S.hat.v -= 0.8;
+                S.tip.v -= 3;
             }
+            st.nod = 0;
             if (st.want === 'base') {
                 this.want('focus');
                 st.wakeT = 1.2;
@@ -330,7 +345,7 @@ export class Motion {
         }
         if (st.wakeT > 0 && (st.wakeT -= dt) <= 0 && st.want === 'focus' && !st.reading && !st.casting && !st.failing)
             this.want('base');
-        st.doze += ((sleepy ? 1 : 0) - st.doze) * Math.min(1, dt * (sleepy ? 1.2 : 8));
+        st.doze += ((sleepy ? 1 : 0) - st.doze) * Math.min(1, dt * (sleepy ? (st.nap > 0 ? 2.6 : st.easel ? 0.9 : 1.2) : 8));
         if (st.mode === 'idle' && !st.tucked && !st.spot && !busy && st.idle > idleFor && st.P[0] > view.w - this.fig() * 1.2)
             this.hooks.tuckIn();
         if (!still && st.doze > 0.9 && st.nod <= 0 && Math.random() < dt / 7)
@@ -344,10 +359,12 @@ export class Motion {
         }
         else {
             const lookA = clamp(fx / 520, -1, 1) * 0.065 * st.lookOn + wind(t, 0.21, 0.13) * 0.015 * (1 - st.lookOn);
-            const lookY = clamp(fy / 600, -1, 1) * 5 * st.lookOn;
+            // (dozing over the easel her head sinks forward)
+            const sink = st.easel ? st.doze : 0;
+            const lookY = clamp(fy / 600, -1, 1) * 5 * st.lookOn + sink * 6;
             const nodA = st.nod > 0 ? Math.sin(Math.PI * Math.min(1, (2.4 - st.nod) / 2.4)) * 0.095 : 0;
-            const edgeA = st.tk * lerp(0.06, -0.05, st.peek) + st.doze * Math.sin(t * 1.3) * 0.012;
-            step(S.head, lookA + nodA + edgeA + (st.want === 'dismay' ? -0.05 : 0) + (st.want === 'happy' ? 0.04 : 0), dt);
+            const edgeA = st.tk * lerp(0.06, -0.05, st.peek) + st.doze * Math.sin(t * 1.3) * 0.012 + sink * 0.1;
+            step(S.head, lookA + nodA + edgeA + st.tilt + (st.want === 'dismay' ? -0.05 : 0) + (st.want === 'happy' ? 0.04 : 0), dt);
             step(S.hx, lookY, dt);
             const headV = S.head.v;
             // loose parts: wind, the head's swing, gravity when she is turned (in the side the edge is her floor), the
@@ -389,14 +406,15 @@ export class Motion {
         st.ahDroop += ((st.want === 'dismay' ? 1 : 0) - st.ahDroop) * Math.min(1, dt * 4);
         // her working look: the brim's right side flips up against the brush pinned in the band, quick and overshooting;
         // when the work is done it slips off the pin, tips over slowly and droops softly back, its far end trailing, and
-        // only where the old brim hangs do the two cross-fade (still: a cross-fade, the flap in place)
-        const H = st.brim;
+        // only where the old brim hangs do the two cross-fade (still: a cross-fade, the flap in place); asleep over the
+        // easel it slips off the pin too, and flips back up when she wakes to work on
+        const H = st.brim, up = H.up && !st.asleep;
         if (still) {
             H.a = 0;
             H.v = 0;
-            H.k += Math.sign((H.up ? 1 : 0) - H.k) * Math.min(Math.abs((H.up ? 1 : 0) - H.k), dt / 0.2);
+            H.k += Math.sign((up ? 1 : 0) - H.k) * Math.min(Math.abs((up ? 1 : 0) - H.k), dt / 0.2);
         }
-        else if (H.up) {
+        else if (up) {
             if (H.k === 0) {
                 H.a = BRIM_DOWN;
                 H.v = 0;

@@ -42,8 +42,13 @@ export interface Sheet {
   acc: number;
 }
 
+/** How a fault is acted out: a blank type block, a key that will not turn, the thread snapping, the pans running dry, a
+ * nap over the easel, or the plain puff. */
+export type FaultAct = 'blank' | 'key' | 'thread' | 'dry' | 'nap' | 'plain';
+export interface FaultFx { act: FaultAct; t: number; at: Vec | null; cues: number }
+
 export interface Mote { x: number; y: number; x0: number; y0: number; tx: number; ty: number; t: number; life: number; r: number; c: string; sw: number }
-export interface Puff { x: number; y: number; vx: number; vy: number; r: number; t: number; life: number; c: string }
+export interface Puff { x: number; y: number; vx: number; vy: number; r: number; t: number; life: number; c: string; grow?: number }
 export interface Spark { x: number; y: number; r: number; a: number; t: number; life: number }
 export interface Box4 { x: number; y: number; w: number; h: number }
 export interface Flight {
@@ -89,6 +94,10 @@ export function createState() {
     // flap's angle from up (rad, clockwise), v how fast it turns, bend how far its far end trails, t how long it has
     // been on its way down
     brim: { up: false, k: 0, a: 0, v: 0, bend: 0, t: 0 },
+    // a fault's act on the 2D layer, and nap: the seconds she has left dozing over the easel (it took too long); gaze is
+    // where she watches it go wrong, tilt her head's puzzled tilt; waitFrom (performance.now ms) is when the picture
+    // under way began, so a long wait can send her to sleep over the easel (easel: she is, or is going)
+    fault: null as FaultFx | null, nap: 0, gaze: null as Vec | null, tilt: 0, waitFrom: 0, easel: false,
     // (new in the plugin) her own size and opacity, for climbing into the paintbox and the still mode's fades; away: she
     // is in the paintbox; duck: on a phone she has ducked behind the input bar for the keyboard; inFront draws her over
     // the paintbox while she climbs in or out of it

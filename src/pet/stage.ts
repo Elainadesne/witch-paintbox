@@ -92,6 +92,7 @@ export class Stage {
     const [bitmaps] = await Promise.all([
       Promise.all(names.map(n => loadBitmap(p.url(TIA_FILES[n]), signal))),
       p.m.box.load(p.url, signal),
+      p.effects.load(p.url, signal),
     ]);
     const base = bitmaps[0];
     p.rig.buildHit(pixels(base, TW, TH, Math.round(TW / 4), Math.round(TH / 4)), Math.round(TW / 4), Math.round(TH / 4));
