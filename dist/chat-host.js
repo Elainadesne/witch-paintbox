@@ -1,4 +1,6 @@
 import { captureEmbeddedWrite, readEmbeddedTurn } from './embedded-chat.js';
+import { isSifangEnvironment } from './sifang-host.js';
+import { assertSifangSnapshot, captureSifangAssistant, isSifangChatReady, readSifangAssistantMessages, replaceSifangAssistant, sifangImageChatContext, watchSifangChat } from './sifang-chat.js';
 class ChatHostError extends Error {
 }
 const snapshots = new WeakMap();
@@ -44,6 +46,8 @@ function requireIdle(state) {
 }
 /** Automatic generation waits for the native reply and any floor edits to finish. */
 export async function isChatReadyForImages() {
+    if (isSifangEnvironment())
+        return isSifangChatReady();
     try {
         requireIdle(await nativeState());
         return true;
@@ -53,6 +57,8 @@ export async function isChatReadyForImages() {
     }
 }
 export function imageChatContext() {
+    if (isSifangEnvironment())
+        return sifangImageChatContext();
     try {
         const context = host();
         const id = chatId(context);
@@ -133,6 +139,8 @@ function requireSnapshot(snapshot) {
     return context;
 }
 export async function captureLatestAssistant() {
+    if (isSifangEnvironment())
+        return captureSifangAssistant();
     const state = await nativeState();
     requireIdle(state);
     const context = host();
@@ -142,6 +150,10 @@ export async function captureLatestAssistant() {
     return takeSnapshot(context, id);
 }
 export async function assertChatSnapshot(snapshot) {
+    if (isSifangEnvironment()) {
+        await assertSifangSnapshot(snapshot);
+        return;
+    }
     const state = await nativeState();
     requireIdle(state);
     requireSnapshot(snapshot);
@@ -159,6 +171,8 @@ export async function replaceAssistantMessage(snapshot, result, signal) {
     const nextText = result.text;
     if (typeof nextText !== 'string' || !nextText.trim())
         throw new ChatHostError('处理结果为空，原回复已保留。');
+    if (isSifangEnvironment())
+        return replaceSifangAssistant(snapshot, nextText, signal);
     const change = {
         previousText: snapshot.text, text: nextText, added: result.added.map(marker => ({ ...marker })),
     };
@@ -277,6 +291,8 @@ function historyIdentities(messages) {
     return new Map([...current].filter(([, id]) => counts.get(id) === 1));
 }
 export function readAssistantMessages() {
+    if (isSifangEnvironment())
+        return readSifangAssistantMessages();
     const context = host();
     const id = chatId(context);
     const scope = context.groupId !== undefined && context.groupId !== null && context.groupId !== ''
@@ -300,6 +316,8 @@ export function readAssistantMessages() {
 }
 /** Uses the host sanitizer; rendering transient text never writes it into chat storage. */
 export function formatChatText(text, messageId) {
+    if (isSifangEnvironment())
+        throw new ChatHostError('独立前端的正文由原生配图接口渲染。');
     const context = host();
     const message = context.chat[messageId];
     if (!message || typeof context.messageFormatting !== 'function')
@@ -310,6 +328,8 @@ export function formatChatText(text, messageId) {
     return context.messageFormatting(text, message.name ?? '', Boolean(message.is_system), Boolean(message.is_user), formattingId);
 }
 export function watchChatRendering(callback) {
+    if (isSifangEnvironment())
+        return watchSifangChat((messageId, event) => callback(messageId, undefined, event));
     const context = host();
     renderListeners.add(callback);
     const subscriptions = [];

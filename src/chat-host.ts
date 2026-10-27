@@ -1,5 +1,8 @@
 import type { ImageInsertionResult } from './image-insertion.js';
 import { captureEmbeddedWrite, readEmbeddedTurn } from './embedded-chat.js';
+import { isSifangEnvironment } from './sifang-host.js';
+import { assertSifangSnapshot, captureSifangAssistant, isSifangChatReady, readSifangAssistantMessages,
+  replaceSifangAssistant, sifangImageChatContext, watchSifangChat } from './sifang-chat.js';
 
 type ChatMessage = Record<string, unknown> & {
   mes: string;
@@ -106,10 +109,12 @@ function requireIdle(state: Awaited<ReturnType<typeof nativeState>>): void {
 
 /** Automatic generation waits for the native reply and any floor edits to finish. */
 export async function isChatReadyForImages(): Promise<boolean> {
+  if (isSifangEnvironment()) return isSifangChatReady();
   try { requireIdle(await nativeState()); return true; } catch { return false; }
 }
 
 export function imageChatContext(): { scope: string; name: string; chatId: string; latestMessageId: number } | null {
+  if (isSifangEnvironment()) return sifangImageChatContext();
   try {
     const context = host();
     const id = chatId(context);
@@ -181,6 +186,7 @@ function requireSnapshot(snapshot: ChatSnapshot): ChatHost {
 }
 
 export async function captureLatestAssistant(): Promise<ChatSnapshot> {
+  if (isSifangEnvironment()) return captureSifangAssistant();
   const state = await nativeState();
   requireIdle(state);
   const context = host();
@@ -190,6 +196,7 @@ export async function captureLatestAssistant(): Promise<ChatSnapshot> {
 }
 
 export async function assertChatSnapshot(snapshot: ChatSnapshot): Promise<void> {
+  if (isSifangEnvironment()) { await assertSifangSnapshot(snapshot); return; }
   const state = await nativeState();
   requireIdle(state);
   requireSnapshot(snapshot);
@@ -205,6 +212,7 @@ function notifyRendered(messageId?: number, change?: ImageDisplayChange): void {
 export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: ImageInsertionResult, signal?: AbortSignal): Promise<ChatSnapshot> {
   const nextText = result.text;
   if (typeof nextText !== 'string' || !nextText.trim()) throw new ChatHostError('处理结果为空，原回复已保留。');
+  if (isSifangEnvironment()) return replaceSifangAssistant(snapshot, nextText, signal);
   const change: ImageDisplayChange = {
     previousText: snapshot.text, text: nextText, added: result.added.map(marker => ({ ...marker })),
   };
@@ -308,6 +316,7 @@ function historyIdentities(messages: ChatMessage[]): Map<number, string> {
 }
 
 export function readAssistantMessages(): Array<{ scope: string; chatId: string; messageId: number; swipeId: number | null; historyId: string | null; turnId: string | null; text: string }> {
+  if (isSifangEnvironment()) return readSifangAssistantMessages();
   const context = host();
   const id = chatId(context);
   const scope = context.groupId !== undefined && context.groupId !== null && context.groupId !== ''
@@ -330,6 +339,7 @@ export function readAssistantMessages(): Array<{ scope: string; chatId: string; 
 
 /** Uses the host sanitizer; rendering transient text never writes it into chat storage. */
 export function formatChatText(text: string, messageId: number): string {
+  if (isSifangEnvironment()) throw new ChatHostError('独立前端的正文由原生配图接口渲染。');
   const context = host();
   const message = context.chat[messageId];
   if (!message || typeof context.messageFormatting !== 'function') throw new ChatHostError('当前楼层无法渲染。');
@@ -340,6 +350,7 @@ export function formatChatText(text: string, messageId: number): string {
 }
 
 export function watchChatRendering(callback: ChatRenderListener): () => void {
+  if (isSifangEnvironment()) return watchSifangChat((messageId, event) => callback(messageId, undefined, event));
   const context = host();
   renderListeners.add(callback);
   const subscriptions: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];

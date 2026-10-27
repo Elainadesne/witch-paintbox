@@ -17,6 +17,10 @@ import { bindUpdateNotice, updateNoticeView } from './extension-updates.js';
 import { ImageReview } from './image-review.js';
 import { bindImageRetention, imageRetentionStatus } from './image-retention.js';
 import { bindImageHistorySync } from './image-history.js';
+import { bindSettingsEntry } from './settings-entry.js';
+import { isSifangEnvironment } from './sifang-host.js';
+import { initializeSifangChat } from './sifang-chat.js';
+import { bindSifangImages } from './sifang-images.js';
 async function mount() {
     if (document.getElementById(extensionId))
         return;
@@ -63,6 +67,17 @@ async function mount() {
     }, () => imageConfig.hasPendingWrites || modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites || changingSyncKeys ? '配置仍在保存或角色图仍在生成，请完成后再导入或导出。' : undefined);
     const controller = new AbortController();
     const { signal } = controller;
+    let nativeReady = false;
+    let nativeError = '';
+    if (isSifangEnvironment()) {
+        try {
+            await initializeSifangChat(signal);
+            nativeReady = true;
+        }
+        catch (error) {
+            nativeError = error instanceof Error ? error.message : '独立前端接口未能初始化，请检查前端与画匣版本。';
+        }
+    }
     bindImageHistorySync(signal);
     bindImageRetention(signal);
     signal.addEventListener('abort', unregisterLayers, { once: true });
@@ -98,6 +113,7 @@ async function mount() {
     </dialog>`;
     root.prepend(stylesheet);
     const launcher = root.querySelector('.launcher');
+    let panelOpener = launcher;
     const panel = root.querySelector('.panel');
     const sidebar = root.querySelector('.sidebar');
     const content = root.querySelector('.content');
@@ -111,9 +127,10 @@ async function mount() {
     };
     window.addEventListener('witch-paintbox:cleanup-status', showCleanupStatus, { signal });
     const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'));
-    function openPanel(target) {
+    function openPanel(target, opener = launcher) {
         if (panel.open)
             return;
+        panelOpener = opener;
         launcherMenu.close();
         navigate(target, false);
         panel.showModal();
@@ -171,7 +188,18 @@ async function mount() {
     // Wait for the isolated styles before measuring the floating button.
     stylesheet.addEventListener('load', () => {
         host.hidden = false;
-        bindChatImages(signal);
+        bindSettingsEntry(button => openPanel(settings.rememberPage ? settings.lastPage : 'guide', button), signal);
+        if (nativeReady)
+            bindSifangImages(root, signal);
+        else if (!isSifangEnvironment())
+            bindChatImages(signal);
+        if (nativeError) {
+            const toast = window.toastr;
+            if (toast)
+                toast.error(nativeError);
+            else
+                console.error(`[${pluginName}] ${nativeError}`);
+        }
         floating = bindLauncher(launcher, settings.rememberPosition ? settings.position : null, position => {
             if (!settings.rememberPosition || transfer.isApplying)
                 return;
@@ -279,7 +307,8 @@ async function mount() {
         imageConfig.maskKey();
         modelConfig.maskKey();
         launcher.setAttribute('aria-expanded', 'false');
-        launcher.focus({ preventScroll: true });
+        if (panelOpener.isConnected && panelOpener.getClientRects().length)
+            panelOpener.focus({ preventScroll: true });
     }, { signal });
     stylesheet.addEventListener('error', () => {
         console.error(`[${pluginName}] 样式加载失败，请检查扩展文件是否完整。`);
