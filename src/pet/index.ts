@@ -75,6 +75,7 @@ async function start(options: PetOptions, placement: () => PetPlacement | null, 
     backToSide: () => { void acts?.backToSide(); },
     enterSide: spot => acts?.enterSide(spot),
     landed: () => acts?.landed(),
+    shy: () => acts?.shy(),
   });
   const effects = new Effects(m);
   const parts: StageParts = { m, rig, effects, speech: undefined as unknown as Speech, acts: undefined as unknown as Acts, input: () => input, url };

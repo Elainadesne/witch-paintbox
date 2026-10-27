@@ -133,6 +133,25 @@ export class Acts {
         st.onLeft = false;
         await this.hopTo(() => this.m.tuckP(), 0.55, 0.1);
     }
+    // patted too long: flustered, she leans back from the hand and, standing free, hops a step away from it (in her
+    // corner, the side or at work she only leans back)
+    shy() {
+        const st = this.st, m = this.m, before = st.want;
+        m.want('dismay');
+        this.hooks.wake();
+        const away = st.ptr[0] < st.P[0] ? 1 : -1;
+        if (!m.still && st.mode === 'idle' && !st.tucked)
+            st.rotV += away * 1.3;
+        if (!m.still && st.mode === 'idle' && !st.tucked && !st.hop && !st.casting && !st.reading && !st.menu && !this.leaving) {
+            const f = m.fig(), x = clamp(st.P[0] + away * f * 0.22, f * 0.3, m.view.w - f * 0.3);
+            void this.hopTo(() => [x, m.view.floor], 0.3, 0.07);
+        }
+        void (async () => {
+            await m.wait(1.1);
+            if (st.want === 'dismay' && !st.failing)
+                m.want(before === 'dismay' ? 'base' : before);
+        })();
+    }
     landed() {
         const st = this.st;
         // (the box keeps to the page's middle side of her)

@@ -1,4 +1,5 @@
 import { HIT_SHAPES } from './tia.js';
+const PRESS_MS = 420;
 export class Input {
     m;
     launcher;
@@ -11,6 +12,9 @@ export class Input {
     moved = false;
     suppressClick = false;
     hot = false;
+    // (a touch held still on her head: after PRESS_MS it is a pat)
+    pressTimer = 0;
+    pressed = false;
     herT = '';
     boxT = '';
     boxR = '';
@@ -48,6 +52,17 @@ export class Input {
             }
             catch { /* the pointer is gone already */ }
             this.m.st.ptr = [event.clientX, event.clientY];
+            if (this.drag.touch && !small && this.m.onHead(event.clientX, event.clientY)) {
+                const d = this.drag;
+                this.pressTimer = window.setTimeout(() => {
+                    this.pressTimer = 0;
+                    if (this.drag !== d || this.moved)
+                        return;
+                    this.pressed = true;
+                    this.m.press(true);
+                    hooks.wake();
+                }, PRESS_MS);
+            }
             hooks.wake();
         }, { signal });
         launcher.addEventListener('pointermove', event => {
@@ -60,6 +75,8 @@ export class Input {
             if (!this.moved) {
                 if (!d.small && !hooks.canDrag())
                     return;
+                // (moved off a pat: then it is a drag)
+                this.endPress();
                 this.moved = true;
                 launcher.classList.add('dragging');
                 if (!d.small)
@@ -72,7 +89,8 @@ export class Input {
             const d = this.drag;
             if (!d || event.pointerId !== d.pointerId)
                 return;
-            this.suppressClick = this.moved || event.type === 'pointercancel';
+            this.suppressClick = this.moved || this.pressed || event.type === 'pointercancel';
+            this.endPress();
             this.drag = null;
             launcher.classList.remove('dragging');
             if (this.moved) {
@@ -114,6 +132,16 @@ export class Input {
         launcher.addEventListener('keyup', focus, { signal });
     }
     get dragging() { return !!this.drag && this.moved; }
+    endPress() {
+        if (this.pressTimer) {
+            clearTimeout(this.pressTimer);
+            this.pressTimer = 0;
+        }
+        if (this.pressed) {
+            this.pressed = false;
+            this.m.press(false);
+        }
+    }
     over(x, y) { return this.m.hit(x, y) || this.m.boxHit(x, y); }
     track(event) {
         const m = this.m;
@@ -124,6 +152,8 @@ export class Input {
         if (this.drag || !this.fine.matches)
             return;
         this.setHot(this.over(event.clientX, event.clientY));
+        if (event.buttons === 0)
+            m.stroke(event.clientX, event.clientY);
     }
     setHot(hot) {
         if (hot === this.hot)

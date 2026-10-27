@@ -284,8 +284,9 @@ export class Paintbox {
     const bw = s1 - s0, bh = (rT - rB) * DEPTH;
     let h = bh * 0.86, w = h * aspect;
     if (w > bw * 0.9) { w = bw * 0.9; h = w / aspect; }
-    const side = i % 2 ? 1 : -1, ang = i ? side * 0.03 * Math.min(i, 3) : 0;
-    const cx = (s0 + s1) / 2 + (i ? side * 0.012 * i : 0), cy = rB * DEPTH + bh * 0.03 + h / 2 + i * 0.004;
+    // (fanned out to either side in turn, the farther back the wider, so how many wait can be seen at a glance)
+    const side = i % 2 ? 1 : -1, lv = Math.ceil(i / 2), ang = i ? side * 0.055 * lv : 0;
+    const cx = (s0 + s1) / 2 + (i ? side * 0.03 * lv : 0), cy = rB * DEPTH + bh * 0.03 + h / 2 + lv * 0.01;
     const c = Math.cos(ang), n = Math.sin(ang), m = inset * w;
     return ([[-1, 1], [1, 1], [1, -1], [-1, -1]] as Vec[]).map(([sx, sy]) => {
       const x = sx * (w / 2 - m), y = sy * (h / 2 - m);

@@ -44,6 +44,9 @@ export function createState() {
         // where she watches it go wrong, tilt her head's puzzled tilt; waitFrom (performance.now ms) is when the picture
         // under way began, so a long wait can send her to sleep over the easel (easel: she is, or is going)
         fault: null, nap: 0, gaze: null, tilt: 0, waitFrom: 0, easel: false,
+        // her head under a hand: pat is how far she has given in to it (eyes narrowed), patT how long this bout has gone
+        // on, shyT the seconds after she ducked away when she will not take it again
+        pat: 0, patT: 0, shyT: 0,
         // (new in the plugin) her own size and opacity, for climbing into the paintbox and the still mode's fades; away: she
         // is in the paintbox; duck: on a phone she has ducked behind the input bar for the keyboard; inFront draws her over
         // the paintbox while she climbs in or out of it

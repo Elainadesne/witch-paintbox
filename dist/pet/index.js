@@ -65,6 +65,7 @@ async function start(options, placement, interim) {
         backToSide: () => { void acts?.backToSide(); },
         enterSide: spot => acts?.enterSide(spot),
         landed: () => acts?.landed(),
+        shy: () => acts?.shy(),
     });
     const effects = new Effects(m);
     const parts = { m, rig, effects, speech: undefined, acts: undefined, input: () => input, url };

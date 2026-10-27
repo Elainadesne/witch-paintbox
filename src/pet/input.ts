@@ -1,8 +1,11 @@
 // The plugin's own launcher button stays the hit shape (aria, focus, keyboard and the menu's outside-click test rely
 // on it): emptied to a 0x0 box, with hit parts inside it that follow her and the paintbox. Fine pointers turn the parts
-// on only over her opaque pixels or the paintbox; touch keeps them on. Drag as the old ball's (launcher.ts).
+// on only over her opaque pixels or the paintbox; touch keeps them on. Drag as the old ball's (launcher.ts). A fine
+// pointer going to and fro over her head pats it; on a phone a press held there does (no menu after it).
 import type { Motion } from './motion.js';
 import { HIT_SHAPES } from './tia.js';
+
+const PRESS_MS = 420;
 
 export interface InputHooks {
   pickUp(x: number, y: number): void;
@@ -26,6 +29,9 @@ export class Input {
   private moved = false;
   private suppressClick = false;
   private hot = false;
+  // (a touch held still on her head: after PRESS_MS it is a pat)
+  private pressTimer = 0;
+  private pressed = false;
   private herT = '';
   private boxT = '';
   private boxR = '';
@@ -58,6 +64,16 @@ export class Input {
       this.moved = this.suppressClick = false;
       try { launcher.setPointerCapture(event.pointerId); } catch { /* the pointer is gone already */ }
       this.m.st.ptr = [event.clientX, event.clientY];
+      if (this.drag.touch && !small && this.m.onHead(event.clientX, event.clientY)) {
+        const d = this.drag;
+        this.pressTimer = window.setTimeout(() => {
+          this.pressTimer = 0;
+          if (this.drag !== d || this.moved) return;
+          this.pressed = true;
+          this.m.press(true);
+          hooks.wake();
+        }, PRESS_MS);
+      }
       hooks.wake();
     }, { signal });
     launcher.addEventListener('pointermove', event => {
@@ -67,6 +83,8 @@ export class Input {
       if (!this.moved && Math.hypot(event.clientX - d.x, event.clientY - d.y) < (d.touch ? 10 : 6)) return;
       if (!this.moved) {
         if (!d.small && !hooks.canDrag()) return;
+        // (moved off a pat: then it is a drag)
+        this.endPress();
         this.moved = true;
         launcher.classList.add('dragging');
         if (!d.small) hooks.pickUp(d.x, d.y);
@@ -76,7 +94,8 @@ export class Input {
     const end = (event: PointerEvent) => {
       const d = this.drag;
       if (!d || event.pointerId !== d.pointerId) return;
-      this.suppressClick = this.moved || event.type === 'pointercancel';
+      this.suppressClick = this.moved || this.pressed || event.type === 'pointercancel';
+      this.endPress();
       this.drag = null;
       launcher.classList.remove('dragging');
       if (this.moved) { if (d.small) hooks.dropSmall(); else hooks.letGo(event.clientX, event.clientY); }
@@ -105,6 +124,11 @@ export class Input {
 
   get dragging() { return !!this.drag && this.moved; }
 
+  private endPress() {
+    if (this.pressTimer) { clearTimeout(this.pressTimer); this.pressTimer = 0; }
+    if (this.pressed) { this.pressed = false; this.m.press(false); }
+  }
+
   private over(x: number, y: number) { return this.m.hit(x, y) || this.m.boxHit(x, y); }
 
   private track(event: PointerEvent) {
@@ -114,6 +138,7 @@ export class Input {
     if (Math.hypot(event.clientX - head[0], event.clientY - head[1]) < (m.view.narrow ? 260 : 620)) this.hooks.near();
     if (this.drag || !this.fine.matches) return;
     this.setHot(this.over(event.clientX, event.clientY));
+    if (event.buttons === 0) m.stroke(event.clientX, event.clientY);
   }
 
   private setHot(hot: boolean) {

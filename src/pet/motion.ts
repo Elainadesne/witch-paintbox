@@ -10,12 +10,20 @@ export interface MotionHooks {
   enterSide(spot: SideSpot): void;
   /** Down on the floor after a fall. */
   landed(): void;
+  /** Patted too long: she ducks away. */
+  shy(): void;
 }
 
 interface Waiter { done(): boolean; resolve(): void; each?(): void }
 
 /** A picture still not in after this long (s) and she nods off over the easel (the plugin gives up at five minutes). */
 export const LONG_WAIT = 60;
+// her head under a hand: a rub is the pointer going to and fro over her hat or head (a turn after at least TURN_PX
+// one way), two turns within RUB_S and she gives in to it, a held press does the same on a phone; patted SHY_S she
+// has had enough
+const TURN_PX = 5;
+const RUB_S = 1.1;
+const SHY_S = 3.2;
 
 export class Motion {
   readonly st = createState();
@@ -28,8 +36,31 @@ export class Motion {
   /** The still mode's paintbox: the open state's share in its cross-fade. */
   fadeOpen = 0;
   private waiters: Waiter[] = [];
+  // the rub: the times of its turns, where the pointer last was over her head, which way it went and how far
+  private rub = { turns: [] as number[], x: -1, dir: 0, run: 0, last: -9, press: false };
 
   constructor(readonly rig: Rig, readonly box: Paintbox, public view: View, public hooks: MotionHooks) {}
+
+  /** Over her hat or head (a screen point)? */
+  onHead(x: number, y: number) { return this.hit(x, y) && this.toTex(x, y)[1] < R.neck[1] + 10; }
+
+  /** A fine pointer moved (screen point, no button down): over her head, to and fro, it is a rub. */
+  stroke(x: number, y: number) {
+    const st = this.st, U = this.rub;
+    if (!this.onHead(x, y)) { U.x = -1; return; }
+    const dx = U.x < 0 ? 0 : x - U.x;
+    U.x = x;
+    if (!dx) return;
+    const dir = Math.sign(dx);
+    if (dir !== U.dir) { if (U.run >= TURN_PX) U.turns.push(st.t); U.dir = dir; U.run = 0; }
+    U.run += Math.abs(dx);
+    U.last = st.t;
+    // (the hand pushes her hat and the ahoge along)
+    if (!this.still && st.pat > 0.3) { const k = clamp(dx, -24, 24); this.S.hat.v += k * 0.004; this.S.tip.v += k * 0.012; this.S.ah.v += k * 0.04; }
+  }
+
+  /** A press held on her head (touch), or let go. */
+  press(on: boolean) { this.rub.press = on; if (on) this.rub.last = this.st.t; }
 
   fig() { return this.view.narrow ? 160 : 296; }         // her texture's height on screen (CSS px); she is 89% of it
   scale() { return this.fig() / TH * this.st.shrink; }
@@ -279,6 +310,16 @@ export class Motion {
     if (st.mode === 'idle' && !st.tucked && !st.spot && !busy && st.idle > idleFor && st.P[0] > view.w - this.fig() * 1.2) this.hooks.tuckIn();
     if (!still && st.doze > 0.9 && st.nod <= 0 && Math.random() < dt / 7) st.nod = 2.4;
     st.nod = Math.max(0, st.nod - dt);
+    // under a hand she narrows her eyes and leans into it; patted too long she has had enough and ducks away
+    const U = this.rub;
+    U.turns = U.turns.filter(t0 => t - t0 < RUB_S);
+    st.shyT = Math.max(0, st.shyT - dt);
+    const petted = st.shyT <= 0 && !st.away && !st.failing && st.mode !== 'drag' && st.mode !== 'fall'
+      && (U.press || (U.turns.length >= 2 && t - U.last < 0.35));
+    st.patT = petted ? st.patT + dt : Math.max(0, st.patT - dt * 2);
+    st.pat += ((petted ? 1 : 0) - st.pat) * Math.min(1, dt * (petted ? 7 : 4));
+    if (petted) st.idle = 0;
+    if (petted && st.patT > SHY_S) { st.shyT = 4; st.patT = 0; U.press = false; U.turns = []; this.hooks.shy(); }
     if (still) {
       for (const s of Object.values(S)) { s.x = 0; s.v = 0; }
     } else {
@@ -288,7 +329,9 @@ export class Motion {
       const lookY = clamp(fy / 600, -1, 1) * 5 * st.lookOn + sink * 6;
       const nodA = st.nod > 0 ? Math.sin(Math.PI * Math.min(1, (2.4 - st.nod) / 2.4)) * 0.095 : 0;
       const edgeA = st.tk * lerp(0.06, -0.05, st.peek) + st.doze * Math.sin(t * 1.3) * 0.012 + sink * 0.1;
-      step(S.head, lookA + nodA + edgeA + st.tilt + (st.want === 'dismay' ? -0.05 : 0) + (st.want === 'happy' ? 0.04 : 0), dt);
+      // (patted, her head tips towards the hand)
+      const patA = st.pat * 0.07 * clamp((st.ptr[0] - head[0]) / 50, -1, 1);
+      step(S.head, lookA + nodA + edgeA + st.tilt + patA + (st.want === 'dismay' ? -0.05 : 0) + (st.want === 'happy' ? 0.04 : 0), dt);
       step(S.hx, lookY, dt);
       const headV = S.head.v;
       // loose parts: wind, the head's swing, gravity when she is turned (in the side the edge is her floor), the
@@ -311,15 +354,18 @@ export class Motion {
     }
     // expressions: the wanted face eases in; blinks on their own clock
     for (const k of FACES) st.expr[k] += ((st.want === k ? 1 : 0) - st.expr[k]) * Math.min(1, dt * 14);
+    // (worked out afresh each step, so her eyes open again as soon as the doze, the nod or the hand lets them)
+    let shut = 0;
     if (st.blinkT < 0 && t > st.blinkAt && st.want !== 'happy') st.blinkT = 0;
     if (st.blinkT >= 0) {
       st.blinkT += dt;
       const b = st.blinkT;
-      st.expr.blink = b < 0.06 ? b / 0.06 : b < 0.1 ? 1 : b < 0.17 ? 1 - (b - 0.1) / 0.07 : 0;
+      shut = b < 0.06 ? b / 0.06 : b < 0.1 ? 1 : b < 0.17 ? 1 - (b - 0.1) / 0.07 : 0;
       if (b > 0.17) { st.blinkT = -1; st.blinkAt = t + (Math.random() < 0.2 ? 0.25 : 2.4 + Math.random() * 3.6); }
     }
-    if (st.nod > 0) st.expr.blink = Math.max(st.expr.blink, 0.85 * Math.sin(Math.PI * Math.min(1, (2.4 - st.nod) / 2.4)));
-    st.expr.blink = Math.max(st.expr.blink, st.doze);
+    if (st.nod > 0) shut = Math.max(shut, 0.85 * Math.sin(Math.PI * Math.min(1, (2.4 - st.nod) / 2.4)));
+    // (her eyes narrowed under the hand: the happy face has them shut already)
+    st.expr.blink = Math.max(shut, st.doze, st.want === 'happy' ? 0 : st.pat * 0.94);
     st.ahDroop += ((st.want === 'dismay' ? 1 : 0) - st.ahDroop) * Math.min(1, dt * 4);
     // her working look: the brim's right side flips up against the brush pinned in the band, quick and overshooting;
     // when the work is done it slips off the pin, tips over slowly and droops softly back, its far end trailing, and
