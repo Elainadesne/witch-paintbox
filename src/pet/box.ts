@@ -1,10 +1,14 @@
-// The paintbox: a hollow old book, its cover the lid. GPT drew it shut and open from one camera; the cut gave the book
-// without its cover, the cover's outside and its inside, and book_rig.json: the cover is a slab hinged at the back, its
-// corners h + r (cos a A + sin a B) + q t (cos a B - sin a A) at either end of the hinge (texture px; r across the cover,
-// q through it, a its angle). Each face is flat and the view orthographic, so a face maps affinely from its drawing to
-// any angle: the shut drawing's faces until the outside goes edge-on, the open drawing's after.
+// The paintbox: the old walnut box, redrawn shut and open from one camera. Shut it is a thick old book; open, its lid
+// stands as an easel over the tray of pans, the brass type blocks racked on its inside, a folding stay propping it from
+// behind with its feet in a drawer that slides out at the back. The cut gave it as layers (each cropped: its corner o
+// and size wh in the frame, texture px) and box_rig.json: the lid is a slab on a hinge at the back, its corners
+// h(a) + r (cos a A + sin a B) + q t (cos a B - sin a A) at either end of the hinge (r across the lid, q through it, a its
+// angle; the drawings have a little perspective, so the hinge h runs from the rim, shut, to where the open drawing
+// stands the lid). A face maps from its drawing to any angle: the shut drawing's faces until the outside goes edge-on,
+// the open drawing's after. The stay is a rigid strut from the lid's back to the drawer's floor, so the lid coming down
+// pushes the drawer in (its travel, per degree, is in the rig); lower still the stay folds away into the lid.
 //
-// Everything book-specific lives in this file, behind a small interface (the rest of the pet uses only these):
+// Everything box-specific lives in this file, behind a small interface (the rest of the pet uses only these):
 //   load(url, signal)               the rig and the pictures; upload(gfx) makes the GL side (again after a lost context)
 //   SHUT_WIDTH                      the shut box's width as a share of her figure's height
 //   frame(cx, cy, w, dx, dy)        where its texture lies on the screen: w the shut box's width, (cx, cy) its middle
@@ -20,12 +24,19 @@ import { gridMesh, loadBitmap, pixels, type Gfx, type Mesh, type Tex } from './g
 import { clamp, lerp, sm, type Box4, type Sheet, type Vec } from './state.js';
 
 interface RigFace { rig: [number, number, number][]; uv: Vec[] }
-interface BookRig {
-  size: Vec; open: number; edgeOn: number; t: number; h: [Vec, Vec]; A: [Vec, Vec]; B: [Vec, Vec];
-  shut: { out: RigFace; front: RigFace; left: RigFace };
-  open_faces: { in: RigFace; top: RigFace; left: RigFace };
-  board: Vec[]; clip: Vec[]; closed: [number, number, number, number]; openBox: [number, number, number, number];
-  pans: Vec[]; trayShade: Vec[]; bodyFoot: Vec;
+interface Layer { o: Vec; wh: Vec }
+interface BoxRig {
+  size: Vec; open: number; edgeOn: number; t: number;
+  hS: [Vec, Vec]; hO: [Vec, Vec]; A: [Vec, Vec]; B: [Vec, Vec];
+  layers: { body: Layer; drawer: Layer; stay: Layer; lidOut: Layer; lidIn: Layer };
+  shut: { out: RigFace; front: RigFace; right: RigFace };
+  openFaces: { in: RigFace; top: RigFace; right: RigFace };
+  board: Vec[]; pans: Vec[]; trayShade: Vec[];
+  closed: [number, number, number, number]; openBox: [number, number, number, number];
+  /** The drawer slides along the box's depth (du): travel[a] frame px for the lid at a degrees (0 as drawn open). */
+  drawer: { du: Vec; travel: number[] };
+  /** The stay: its top on the lid's back ((s, r) on the outside), its texture quad as drawn open, folded away below fold. */
+  stay: { pivot: Vec; quad: Vec[]; fold: Vec };
 }
 
 export interface BoxFrame { k: number; ox: number; oy: number }
@@ -41,24 +52,27 @@ export interface BoxLook {
 }
 
 /** The shut box's width as a share of her figure's height (FIG). */
-export const SHUT_WIDTH = 0.6;
-const DEPTH = 0.76;                       // the cover is about 1 wide by 0.76 deep, as drawn: (s, r) to lengths
-const FILES = { body: 'book_body.webp', out: 'book_cover_out.webp', inside: 'book_cover_in.webp' } as const;
+export const SHUT_WIDTH = 0.385;
+const DEPTH = 0.8;                        // the lid is about 1 wide by 0.8 deep: (s, r) to lengths
+const FILES = { body: 'box_body.webp', lidOut: 'box_lid_out.webp', lidIn: 'box_lid_in.webp', drawer: 'box_drawer.webp', stay: 'box_stay.webp' } as const;
+const ease = (k: number) => k * k * (3 - 2 * k);
+const GLOW = { tint: [0.96, 0.8, 0.46] as [number, number, number], mix: 1 };
 
 export class Paintbox {
-  private rig!: BookRig;
+  private rig!: BoxRig;
   private bitmaps: Partial<Record<keyof typeof FILES, ImageBitmap>> = {};
   private paintMap: { pan: Int8Array; k: Float32Array } | null = null;
   private gfx: Gfx | null = null;
-  private tex: { body: Tex | null; prev: Tex | null; base: Tex | null; out: Tex | null; inside: Tex | null; paper: Tex | null } =
-    { body: null, prev: null, base: null, out: null, inside: null, paper: null };
+  private tex: { body: Tex | null; prev: Tex | null; base: Tex | null; lidOut: Tex | null; lidIn: Tex | null; drawer: Tex | null; stay: Tex | null; paper: Tex | null } =
+    { body: null, prev: null, base: null, lidOut: null, lidIn: null, drawer: null, stay: null, paper: null };
   private faces: { shut: Mesh[]; open: Mesh[] } = { shut: [], open: [] };
   private board: Vec[] = [];
-  private clip!: Mesh;
   private shade!: Mesh;
+  private stayMesh!: Mesh;
   private sheet = gridMesh(1, 1);
   private easel = gridMesh(8, 8);
-  private quad = gridMesh(1, 1);
+  private bodyQuad = gridMesh(1, 1);
+  private drawerQuad = gridMesh(1, 1);
   private sweep: [number, number, number, number] = [0, 0, 1, 1];
   private colours: number[][] | null = null;
   private tinted: HTMLCanvasElement | null = null;
@@ -67,25 +81,31 @@ export class Paintbox {
   async load(url: (file: string) => string, signal: AbortSignal) {
     for (const b of Object.values(this.bitmaps)) b?.close();
     this.bitmaps = {};
-    const [rig, body, out, inside, paint] = await Promise.all([
-      fetch(url('book_rig.json'), { signal }).then(r => { if (!r.ok) throw new Error('book_rig.json'); return r.json() as Promise<BookRig>; }),
-      loadBitmap(url(FILES.body), signal), loadBitmap(url(FILES.out), signal), loadBitmap(url(FILES.inside), signal),
-      loadBitmap(url('book_paint.webp'), signal, true),
+    const [rig, body, lidOut, lidIn, drawer, stay, paint] = await Promise.all([
+      fetch(url('box_rig.json'), { signal }).then(r => { if (!r.ok) throw new Error('box_rig.json'); return r.json() as Promise<BoxRig>; }),
+      loadBitmap(url(FILES.body), signal), loadBitmap(url(FILES.lidOut), signal), loadBitmap(url(FILES.lidIn), signal),
+      loadBitmap(url(FILES.drawer), signal), loadBitmap(url(FILES.stay), signal),
+      loadBitmap(url('box_paint.webp'), signal, true),
     ]);
     this.rig = rig;
     this.openAngle = rig.open;
-    this.bitmaps = { body, out, inside };
+    this.bitmaps = { body, lidOut, lidIn, drawer, stay };
     if (!this.paintMap) {
-      // the pans' map stays on the CPU: red the pan, green how much paint
+      // the pans' map stays on the CPU (over the body's layer): red the pan, green how much paint
       const d = pixels(paint, paint.width, paint.height), n = paint.width * paint.height;
       const pan = new Int8Array(n), k = new Float32Array(n);
       for (let i = 0; i < n; i++) { pan[i] = Math.round(d[i * 4] / 28) - 1; k[i] = (d[i * 4 + 1] / 255) * 0.9; }
       this.paintMap = { pan, k };
     }
     paint.close();
-    // all it can cover: the body, and the cover at every angle of its swing
+    // all it can cover: the body, the drawer as far out as it goes, the lid at every angle of its swing, the stay
     const pts: Vec[] = [];
-    for (let a = 0; a <= rig.open + 5; a += 5) for (const s of [0, 1]) for (const r of [0, 1]) for (const q of [0, 1]) pts.push(this.rigAt(a, s, r, q));
+    for (let a = 0; a <= rig.open + 5; a += 5) {
+      for (const s of [0, 1]) for (const r of [0, 1]) for (const q of [0, 1]) pts.push(this.rigAt(a, s, r, q));
+      if (a >= rig.stay.fold[0]) pts.push(...this.stayCorners(a));
+    }
+    const L = rig.layers.drawer;
+    pts.push(L.o, [L.o[0] + L.wh[0], L.o[1] + L.wh[1]]);
     const [cx0, cy0, cx1, cy1] = rig.closed, [ox0, oy0, ox1, oy1] = rig.openBox;
     this.sweep = [Math.min(cx0, ox0, ...pts.map(p => p[0])), Math.min(cy0, oy0, ...pts.map(p => p[1])),
       Math.max(cx1, ox1, ...pts.map(p => p[0])), Math.max(cy1, oy1, ...pts.map(p => p[1]))];
@@ -94,40 +114,65 @@ export class Paintbox {
   /** The GL side, from the loaded pictures (they are let go after; the body's stays for the tint). */
   upload(gfx: Gfx, paper: HTMLCanvasElement) {
     this.gfx = gfx;
-    const b = this.bitmaps;
-    if (!b.body || !b.out || !b.inside) throw new Error('paintbox not loaded');
+    const b = this.bitmaps, L = this.rig.layers;
+    if (!b.body || !b.lidOut || !b.lidIn || !b.drawer || !b.stay) throw new Error('paintbox not loaded');
     this.tex.base = gfx.texture(b.body, b.body.width, b.body.height);
-    this.tex.out = gfx.texture(b.out, b.out.width, b.out.height);
-    this.tex.inside = gfx.texture(b.inside, b.inside.width, b.inside.height);
+    this.tex.lidOut = gfx.texture(b.lidOut, b.lidOut.width, b.lidOut.height);
+    this.tex.lidIn = gfx.texture(b.lidIn, b.lidIn.width, b.lidIn.height);
+    this.tex.drawer = gfx.texture(b.drawer, b.drawer.width, b.drawer.height);
+    this.tex.stay = gfx.texture(b.stay, b.stay.width, b.stay.height);
     this.tex.paper = gfx.texture(paper, paper.width, paper.height);
-    b.out.close(); b.inside.close();
-    delete b.out; delete b.inside;
+    for (const k of ['lidOut', 'lidIn', 'drawer', 'stay'] as const) { b[k]!.close(); delete b[k]; }
     this.tex.body = this.tex.base;
     this.tex.prev = null;
     if (this.tinted) this.tex.body = gfx.texture(this.tinted, this.tinted.width, this.tinted.height);
-    for (const m of [...this.faces.shut, ...this.faces.open, this.clip, this.shade]) if (m) gfx.remove(m);
-    const sh = this.rig.shut, op = this.rig.open_faces;
-    this.faces.shut = [sh.left, sh.front, sh.out].map(f => gfx.add(this.faceMesh(f.uv, f.rig)));
-    this.faces.open = [op.left, op.top, op.in].map(f => gfx.add(this.faceMesh(f.uv, f.rig)));
+    for (const m of [...this.faces.shut, ...this.faces.open, this.shade, this.stayMesh]) if (m) gfx.remove(m);
+    const sh = this.rig.shut, op = this.rig.openFaces;
+    // (the big face last: the edges lie beside it)
+    this.faces.shut = [sh.front, sh.right, sh.out].map(f => gfx.add(this.faceMesh(f.uv, f.rig, L.lidOut)));
+    this.faces.open = [op.top, op.right, op.in].map(f => gfx.add(this.faceMesh(f.uv, f.rig, L.lidIn)));
     this.board = this.rig.board.map(p => this.insideAt(p));
-    this.clip = gfx.add(this.faceMesh(this.rig.clip, this.rig.clip.map(p => [...this.insideAt(p), -0.02] as [number, number, number]), 2));
-    this.shade = gfx.add(this.faceMesh(this.rig.trayShade, this.rig.trayShade.map(() => [0, 0, 0] as [number, number, number]), 1));
-    for (const m of [this.sheet, this.easel, this.quad]) gfx.add(m);
+    this.shade = gfx.add(this.faceMesh(this.rig.trayShade.map(p => this.inLayer(L.body, p)), this.rig.trayShade.map(() => [0, 0, 0] as [number, number, number]), L.body, 1));
+    // the stay: a strip of its texture between the pivot's end and the feet's
+    const m = gridMesh(1, 6), Q = this.rig.stay.quad.map(p => this.inLayer(L.stay, p));
+    for (let k = 0; k < m.n; k++) {
+      const u = m.uv[k * 2], v = m.uv[k * 2 + 1];
+      m.uv[k * 2] = lerp(lerp(Q[0][0], Q[1][0], u), lerp(Q[3][0], Q[2][0], u), v) / L.stay.wh[0];
+      m.uv[k * 2 + 1] = lerp(lerp(Q[0][1], Q[1][1], u), lerp(Q[3][1], Q[2][1], u), v) / L.stay.wh[1];
+    }
+    this.stayMesh = gfx.add(m);
+    for (const q of [this.sheet, this.easel, this.bodyQuad, this.drawerQuad]) gfx.add(q);
   }
 
   private rigAt(a: number, s: number, r: number, q: number): Vec {
     const RIG = this.rig;
-    const c = Math.cos(a * Math.PI / 180), n = Math.sin(a * Math.PI / 180), t = RIG.t;
+    const c = Math.cos(a * Math.PI / 180), n = Math.sin(a * Math.PI / 180), t = RIG.t, k = ease(clamp(a / RIG.open, 0, 1));
     let x = 0, y = 0;
     for (let e = 0; e < 2; e++) {
-      const w = e ? s : 1 - s, h = RIG.h[e], A = RIG.A[e], B = RIG.B[e];
-      x += w * (h[0] + r * (c * A[0] + n * B[0]) + q * t * (c * B[0] - n * A[0]));
-      y += w * (h[1] + r * (c * A[1] + n * B[1]) + q * t * (c * B[1] - n * A[1]));
+      const w = e ? s : 1 - s, hs = RIG.hS[e], ho = RIG.hO[e], A = RIG.A[e], B = RIG.B[e];
+      x += w * (hs[0] + (ho[0] - hs[0]) * k + r * (c * A[0] + n * B[0]) + q * t * (c * B[0] - n * A[0]));
+      y += w * (hs[1] + (ho[1] - hs[1]) * k + r * (c * A[1] + n * B[1]) + q * t * (c * B[1] - n * A[1]));
     }
     return [x, y];
   }
 
-  // (s, r) on the cover's inside for a point of the open drawing
+  // how far the drawer is out with the lid at a, along the box's depth (frame px; 0 as drawn open)
+  private travel(a: number) {
+    const tv = this.rig.drawer.travel, i = clamp(a, 0, tv.length - 1), i0 = Math.floor(i);
+    return lerp(tv[i0], tv[Math.min(tv.length - 1, i0 + 1)], i - i0);
+  }
+
+  // the stay's corners with the lid at a: its top rides the pivot on the lid's back, its feet the drawer
+  private stayCorners(a: number): Vec[] {
+    const S = this.rig.stay, Q = S.quad, du = this.rig.drawer.du, d = this.travel(a);
+    const p = this.rigAt(a, S.pivot[0], S.pivot[1], 1), p0 = this.rigAt(this.rig.open, S.pivot[0], S.pivot[1], 1);
+    return [[Q[0][0] + p[0] - p0[0], Q[0][1] + p[1] - p0[1]], [Q[1][0] + p[0] - p0[0], Q[1][1] + p[1] - p0[1]],
+      [Q[2][0] + du[0] * d, Q[2][1] + du[1] * d], [Q[3][0] + du[0] * d, Q[3][1] + du[1] * d]];
+  }
+
+  private inLayer(L: Layer, p: Vec): Vec { return [p[0] - L.o[0], p[1] - L.o[1]]; }
+
+  // (s, r) on the lid's inside for a point of the open drawing
   private insideAt(p: Vec): Vec {
     let s = 0.5, r = 0.5;
     const open = this.rig.open;
@@ -140,15 +185,15 @@ export class Paintbox {
     return [s, r];
   }
 
-  // a face as a mesh: its corners in the texture and on the rig (s, r, q), filled in between
-  private faceMesh(uvC: Vec[], rigC: [number, number, number][], cols = 4): Mesh {
+  // a face as a mesh: its corners in its layer's texture (px) and on the rig (s, r, q), filled in between
+  private faceMesh(uvC: Vec[], rigC: [number, number, number][], L: Layer, cols = 4): Mesh {
     const m = gridMesh(cols, cols);
     m.par = new Float32Array(m.n * 3);
     const bl = (C: number[][], u: number, v: number, i: number) => lerp(lerp(C[0][i], C[1][i], u), lerp(C[3][i], C[2][i], u), v);
     for (let k = 0; k < m.n; k++) {
       const u = m.uv[k * 2], v = m.uv[k * 2 + 1];
       for (let i = 0; i < 3; i++) m.par[k * 3 + i] = bl(rigC, u, v, i);
-      m.uv[k * 2] = bl(uvC, u, v, 0) / this.rig.size[0]; m.uv[k * 2 + 1] = bl(uvC, u, v, 1) / this.rig.size[1];
+      m.uv[k * 2] = bl(uvC, u, v, 0) / L.wh[0]; m.uv[k * 2 + 1] = bl(uvC, u, v, 1) / L.wh[1];
     }
     return m;
   }
@@ -172,7 +217,9 @@ export class Paintbox {
     this.gfx!.upload(m);
   }
 
-  private setQuad(m: Mesh, x: number, y: number, w: number, h: number) {
+  // a layer's quad at its place in the frame, moved by (dx, dy) frame px
+  private placeLayer(m: Mesh, F: BoxFrame, L: Layer, dx = 0, dy = 0) {
+    const x = F.ox + (L.o[0] + dx) * F.k, y = F.oy + (L.o[1] + dy) * F.k, w = L.wh[0] * F.k, h = L.wh[1] * F.k;
     for (let k = 0; k < m.n; k++) {
       const u = m.uv[k * 2], v = m.uv[k * 2 + 1];
       m.pos[k * 2] = x + u * w; m.pos[k * 2 + 1] = y + v * h;
@@ -189,7 +236,7 @@ export class Paintbox {
   /** The shut box's height for a width (its shape as drawn). */
   heightFor(w: number) { const cb = this.rig.closed; return w * (cb[3] - cb[1]) / (cb[2] - cb[0]); }
 
-  // the shut book's place on the screen (the menu and a click go by it)
+  // the shut box's place on the screen (the menu and a click go by it)
   rect(F: BoxFrame): Box4 {
     const cb = this.rig.closed;
     return { x: F.ox + cb[0] * F.k, y: F.oy + cb[1] * F.k, w: (cb[2] - cb[0]) * F.k, h: (cb[3] - cb[1]) * F.k };
@@ -206,8 +253,8 @@ export class Paintbox {
     return { x: F.ox + x0 * F.k, y: F.oy + y0 * F.k, w: (x1 - x0) * F.k, h: (y1 - y0) * F.k };
   }
 
-  // its cover swings on the hinge, a little past its rest when flung open (a strap inside stops it) and with a small
-  // bounce when it drops shut; crack: a few degrees open (while it works on its own)
+  // its lid swings on the hinge, a little past its rest when flung open (the stay catches it) and with a small bounce
+  // when it drops shut; crack: a few degrees open (while it works on its own)
   hinge(B: BoxSpring, want: number, crack: number, dt: number) {
     const open = this.rig.open, to = want > 0.5 ? open : crack > 0.5 ? 14 : 0;
     B.av += (120 * (to - B.ang) - 12 * B.av) * dt;
@@ -217,8 +264,9 @@ export class Paintbox {
     B.open = clamp(B.ang / open, 0, 1);
   }
 
-  // the sheet on the drawing board, under the clip: as tall as fits and as wide as the picture's shape asks; the
-  // ones waiting their turn lie behind it, a little askew; inset takes the picture's margin off ((s, r) corners)
+  // the sheet on the lid's board, standing on the rail over the type blocks: as tall as fits and as wide as the
+  // picture's shape asks; the ones waiting their turn stand behind it, a little askew; inset takes the picture's margin
+  // off ((s, r) corners)
   private sheetCorners(aspect: number, i = 0, inset = 0): Vec[] {
     const [tl, tr, br, bl] = this.board;
     const s0 = (tl[0] + bl[0]) / 2, s1 = (tr[0] + br[0]) / 2, rT = (tl[1] + tr[1]) / 2, rB = (bl[1] + br[1]) / 2;
@@ -226,7 +274,7 @@ export class Paintbox {
     let h = bh * 0.86, w = h * aspect;
     if (w > bw * 0.9) { w = bw * 0.9; h = w / aspect; }
     const side = i % 2 ? 1 : -1, ang = i ? side * 0.03 * Math.min(i, 3) : 0;
-    const cx = (s0 + s1) / 2 + (i ? side * 0.01 * i : 0), cy = rT * DEPTH - bh * 0.045 - h / 2 - i * 0.004;
+    const cx = (s0 + s1) / 2 + (i ? side * 0.012 * i : 0), cy = rB * DEPTH + bh * 0.03 + h / 2 + i * 0.004;
     const c = Math.cos(ang), n = Math.sin(ang), m = inset * w;
     return ([[-1, 1], [1, 1], [1, -1], [-1, -1]] as Vec[]).map(([sx, sy]) => {
       const x = sx * (w / 2 - m), y = sy * (h / 2 - m);
@@ -242,7 +290,7 @@ export class Paintbox {
 
   palettePoint(F: BoxFrame): Vec {
     const p = this.rig.pans[(Math.random() * this.rig.pans.length) | 0];
-    return this.onScreen(F, [p[0] + (Math.random() - 0.5) * 60, p[1] + (Math.random() - 0.5) * 26]);
+    return this.onScreen(F, [p[0] + (Math.random() - 0.5) * 40, p[1] + (Math.random() - 0.5) * 18]);
   }
 
   crackPoint(F: BoxFrame): Vec { return this.onScreen(F, this.rigAt(0, 0.5, 1, 0.5)); }
@@ -261,33 +309,48 @@ export class Paintbox {
       this.setPts(this.easel, scr(this.sheetCorners(asp, 0, 0.06), -0.012));
       gfx.draw(gfx.p2, this.easel, P.tex ?? T.paper!, alpha, { reveal: P.tex ? P.reveal : 0, wash: P.wash });
     }
-    this.placeRig(this.clip, a, F); gfx.draw(gfx.p1, this.clip, T.inside!, alpha);
   }
 
-  // the book: its body, and the cover on its hinge (past upright it stands behind the pages). While the cover is low
-  // over the tray the tray lies in its shade; the big face darkens as it turns from the light (the outside towards
-  // the back, the inside down over the tray); on the inside the sheet she paints on
+  // the box: the drawer and the stay behind it all, its body, and the lid on its hinge (past upright it stands behind
+  // the tray). While the lid is low over the tray the tray lies in its shade; the big face darkens as it turns from the
+  // light (the outside towards the back, the inside down over the tray); on the inside the sheet she paints on
   draw(gfx: Gfx, F: BoxFrame, look: BoxLook) {
     const RIG = this.rig, T = this.tex, a = look.ang, alpha = look.alpha;
     const fade = this.fadeShare();
+    const drawBack = (ang: number, al: number, glow?: boolean) => {
+      const d = this.travel(ang);
+      if (d > RIG.drawer.travel[0] + 0.5) {                       // (home, all of it is inside the box)
+        this.placeLayer(this.drawerQuad, F, RIG.layers.drawer, RIG.drawer.du[0] * d, RIG.drawer.du[1] * d);
+        gfx.draw(gfx.p1, this.drawerQuad, T.drawer!, al, glow ? GLOW : undefined);
+      }
+      const folded = sm(RIG.stay.fold[0], RIG.stay.fold[1], ang);
+      if (folded > 0.01) {
+        this.setPts(this.stayMesh, this.stayCorners(ang).map(p => this.onScreen(F, p)));
+        gfx.draw(gfx.p1, this.stayMesh, T.stay!, folded * al, glow ? GLOW : undefined);
+      }
+    };
     const drawBody = (al: number, glow?: boolean) => {
-      this.setQuad(this.quad, F.ox, F.oy, RIG.size[0] * F.k, RIG.size[1] * F.k);
-      if (glow) { gfx.draw(gfx.p1, this.quad, T.body!, al, { tint: [0.96, 0.8, 0.46], mix: 1 }); return; }
-      if (fade < 1 && T.prev) { gfx.draw(gfx.p1, this.quad, T.prev, al); gfx.draw(gfx.p1, this.quad, T.body!, fade * al); } else gfx.draw(gfx.p1, this.quad, T.body!, al);
+      this.placeLayer(this.bodyQuad, F, RIG.layers.body);
+      if (glow) { gfx.draw(gfx.p1, this.bodyQuad, T.body!, al, GLOW); return; }
+      if (fade < 1 && T.prev) { gfx.draw(gfx.p1, this.bodyQuad, T.prev, al); gfx.draw(gfx.p1, this.bodyQuad, T.body!, fade * al); } else gfx.draw(gfx.p1, this.bodyQuad, T.body!, al);
       const shade = 0.55 * (1 - sm(RIG.edgeOn * 0.5, RIG.open * 0.92, a));
       if (look.fadeOpen === undefined && shade > 0.01 && a > 0.3) {
         this.setPts(this.shade, RIG.trayShade.map(p => this.onScreen(F, p)));
         gfx.draw(gfx.p1, this.shade, T.body!, shade * al, { tint: [0.1, 0.06, 0.03], mix: 1 });
       }
     };
-    const drawCover = (ang: number, al: number, glow?: boolean) => {
-      const shut = ang < RIG.edgeOn, faces = shut ? this.faces.shut : this.faces.open, tx = shut ? T.out! : T.inside!;
+    const drawLid = (ang: number, al: number, glow?: boolean) => {
+      const shut = ang < RIG.edgeOn, faces = shut ? this.faces.shut : this.faces.open, tx = shut ? T.lidOut! : T.lidIn!;
       const dim = shut ? 0.3 * ang / RIG.edgeOn : 0.3 * clamp((RIG.open - ang) / (RIG.open - RIG.edgeOn), 0, 1);
       faces.forEach((m, i) => {
         this.placeRig(m, ang, F);
-        gfx.draw(gfx.p1, m, tx, al, glow ? { tint: [0.96, 0.8, 0.46], mix: 1 } : i === 2 && dim > 0.004 ? { tint: [0, 0, 0], mix: dim } : undefined);
+        gfx.draw(gfx.p1, m, tx, al, glow ? GLOW : i === 2 && dim > 0.004 ? { tint: [0, 0, 0], mix: dim } : undefined);
       });
       if (!shut && !glow) this.drawSheets(F, ang, look, al);
+    };
+    const whole = (ang: number, al: number, glow?: boolean) => {
+      drawBack(ang, al, glow);
+      if (ang > 90) { drawLid(ang, al, glow); drawBody(al, glow); } else { drawBody(al, glow); drawLid(ang, al, glow); }
     };
     if (look.glow > 0.01) {
       const off: [number, number] = [gfx.off[0], gfx.off[1]], r = 3;
@@ -295,7 +358,7 @@ export class Paintbox {
         const t = i * Math.PI / 4;
         gfx.off = [off[0] - Math.cos(t) * r, off[1] - Math.sin(t) * r];
         const g = 0.34 * look.glow * alpha;
-        if (look.fadeOpen === undefined) { if (a > 90) { drawCover(a, g, true); drawBody(g, true); } else { drawBody(g, true); drawCover(a, g, true); } }
+        if (look.fadeOpen === undefined) whole(a, g, true);
         else drawBody(g, true);
       }
       gfx.off = off;
@@ -303,12 +366,12 @@ export class Paintbox {
     if (look.fadeOpen !== undefined) {
       // (still: the open state fades in over the shut one, no hinge)
       const o = look.fadeOpen;
-      if (o > 0.004) drawCover(RIG.open, o * alpha);
+      if (o > 0.004) { drawBack(RIG.open, o * alpha); drawLid(RIG.open, o * alpha); }
       drawBody(alpha);
-      if (o < 0.996) drawCover(0, (1 - o) * alpha);
+      if (o < 0.996) drawLid(0, (1 - o) * alpha);
       return;
     }
-    if (a > 90) { drawCover(a, alpha); drawBody(alpha); } else { drawBody(alpha); drawCover(a, alpha); }
+    whole(a, alpha);
   }
 
   private fadeIn = 1;
@@ -317,7 +380,7 @@ export class Paintbox {
   stepFade(dt: number) { this.fadeIn = Math.min(1, this.fadeIn + dt * 1.4); }
   get fading() { return this.fadeIn < 1; }
 
-  // the paint in the pans takes the picture's colours, baked into a copy of the book's body that fades in over the old
+  // the paint in the pans takes the picture's colours, baked into a copy of the box's body that fades in over the old
   // one (at once when it comes back from the last visit)
   tint(cols: number[][], fade = true) {
     const body = this.bitmaps.body, map = this.paintMap;
@@ -347,16 +410,16 @@ export class Paintbox {
 
   get palette() { return this.colours; }
 
-  /** The shut box as one picture (the 1024 px frame), for the still mode: the body, then the shut cover's faces. */
+  /** The shut box as one picture (the frame, texture px), for the still mode: the body, then the shut lid's faces. */
   shutPicture(): HTMLCanvasElement | null {
-    const body = this.bitmaps.body, out = this.bitmaps.out;
+    const body = this.tinted ?? this.bitmaps.body, out = this.bitmaps.lidOut;
     if (!body || !out) return null;
-    const S = this.rig.size, c = document.createElement('canvas'); c.width = S[0]; c.height = S[1];
+    const S = this.rig.size, L = this.rig.layers, c = document.createElement('canvas'); c.width = S[0]; c.height = S[1];
     const x = c.getContext('2d');
     if (!x) return null;
-    x.drawImage(body, 0, 0);
+    x.drawImage(body, L.body.o[0], L.body.o[1]);
     const sh = this.rig.shut;
-    for (const f of [sh.left, sh.front, sh.out]) {
+    for (const f of [sh.front, sh.right, sh.out]) {
       const P = f.rig.map(([s, r, q]) => this.rigAt(0, s, r, q)), U = f.uv;
       // the affine map that takes the face's drawing (corners 0, 1, 3) to its place
       const ux = U[1][0] - U[0][0], uy = U[1][1] - U[0][1], vx = U[3][0] - U[0][0], vy = U[3][1] - U[0][1];
@@ -376,7 +439,7 @@ export class Paintbox {
   /** Lost context: the GL names are gone; the pictures must be loaded again before upload. */
   lose() {
     this.gfx = null;
-    this.tex = { body: null, prev: null, base: null, out: null, inside: null, paper: null };
+    this.tex = { body: null, prev: null, base: null, lidOut: null, lidIn: null, drawer: null, stay: null, paper: null };
   }
 
   dispose() {
