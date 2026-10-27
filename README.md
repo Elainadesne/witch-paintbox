@@ -43,7 +43,13 @@
 
 普通浏览器中，密钥、连接配置、参数和提示词保存在当前酒馆站点的 `localStorage`，不随 Git 发布，也不自动跨浏览器或设备同步。TauriTavern 的存储与同步见下节。密钥隐藏仅控制显示；浏览器存储中保存的是原值。清除站点数据会移除这些配置，专门的清除入口留待使用偏好设计。
 
-NAI 页的自定义渠道需兼容 NovelAI 生图协议并允许浏览器跨域访问。仅填写域名时自动使用 `/ai/generate-image`；含路径的 URL 按完整接口地址使用，例如带 `/nai/` 前缀的反代应填 `/nai/ai/generate-image`。支持直接 PNG 和包含一张 PNG 的普通 ZIP、ZIP64（包括小图片使用的 ZIP64 文件头），保留体积、解压大小及 CRC 校验。返回 JSON、HTML 或其他图片格式时会分别提示；NAI 通道不接收 JSON 图片链接或 base64；OpenAI 兼容通道按下节处理 JSON。浏览器需支持 `DecompressionStream('deflate-raw')`，用于解压接口返回的 PNG 压缩包。
+NAI 页的自定义渠道需兼容 NovelAI 生图请求协议并允许浏览器跨域访问。仅填写域名时自动使用 `/ai/generate-image`；含路径的 URL 按完整接口地址使用，例如带 `/nai/` 前缀的反代应填 `/nai/ai/generate-image`。请求仍使用 PNG，收图兼容以下返回：
+
+- 直接 PNG、JPG / JPEG、静态 WebP，以及含一张图片的普通 ZIP、ZIP64。按实际文件头识别格式；例如包内文件名为 `.png`、内容为 JPEG 时，以 JPEG 保存。压缩包仅含一个文件时也允许缺少图片扩展名。
+- 原始 base64、图片 data URL，或 JSON 中的 `b64_json`、`base64`、`image`、`url` 字符串。支持单元素数组、`data` / `images` 包装（例如 `data: [{ b64_json: "…" }]`、`images: ["…"]`），不处理异步任务轮询协议。
+- HTTP / HTTPS 图片地址（JSON 内或直接文本返回）。图片地址需允许跨域直接读取；请求不携带 API 密钥、Cookie 或来源信息，不跟随重定向，也不会重新发起生图。
+
+保留 ZIP 体积、解压大小及 CRC 校验；单张图片最多 32 MiB、单边最多 4096 像素，base64 / JSON 响应最多 46 MiB。损坏或截断的数据、错误 JSON、HTML 网页和动态 WebP 不会当作图片保存。下载、历史、预览与角色图保留实际图片格式，生成属性显示输出格式。浏览器需支持 `DecompressionStream('deflate-raw')`，用于解压图片压缩包。
 
 ## GPT 生图与服务切换
 
@@ -221,9 +227,10 @@ src/image-settings.ts 浏览器本地配置存储
 src/novelai.ts      NAI 模型、参数和请求
 src/openai-image.ts GPT 模型拉取、参数与请求
 src/image-provider.ts 生图服务分派
-src/raster-image.ts GPT 返回图片的格式、尺寸与解码校验
+src/raster-image.ts NAI / GPT 共用图片格式、尺寸与解码校验
+src/image-bytes.ts  图片字节校验与 base64 解码
 src/image-prompt.ts 原始场景分栏、逐栏锚定展开与画师词组合
-src/image-response.ts PNG / ZIP / ZIP64 响应读取
+src/image-response.ts NAI 图片 / ZIP / ZIP64 / JSON 响应读取
 src/model-config.ts 模型配置交互与功能层选择
 src/model-view.ts   模型连接与头尾预设界面
 src/model-settings.ts 模型配置本地存储

@@ -1,6 +1,14 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-10-27', title: 'NAI 镜像收图与 JPG 兼容',
+        changes: [
+            'NAI 接口支持直接返回 PNG、JPG / JPEG、静态 WebP，以及普通 ZIP、ZIP64 内的单张图片；按真实内容识别格式，兼容文件后缀写错。',
+            '兼容 base64、图片 data URL 和常见 JSON 单图返回，以及 HTTP / HTTPS 图片地址；读取图片地址不附带 API 密钥，不自动重发生图。',
+            '下载、历史和角色图保留原始图片格式，NAI 生成属性也显示实际格式；继续校验文件完整性、图片尺寸和大小。',
+        ],
+    },
+    {
         date: '2026-10-27', title: '独立前端悬浮窗口定位修正',
         changes: [
             '配合独立前端的新视口接口，悬浮球可在整个浏览器可视区拖动，设置窗口按完整画面居中。',

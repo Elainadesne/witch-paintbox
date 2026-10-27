@@ -220,7 +220,7 @@ function snapshot(value) {
     };
     // Copy only image metadata: connection credentials and arbitrary extra fields never enter this store.
     if (entry.provider === 'openai') {
-        // A compatible provider may return a different canvas; retain its validated PNG dimensions.
+        // A compatible provider may return a different canvas; retain its validated raster dimensions.
         const parameters = validateOpenAIImageParameters(entry.parameters, 'image');
         if (!parameters.model || entry.negative || characters?.length || entry.seed !== undefined) {
             throw new Error('GPT 图片历史记录格式无效，原有记录未修改。');

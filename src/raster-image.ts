@@ -1,7 +1,4 @@
-import { ImageResponseError, readImageResponse } from './image-response.js';
-
-const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
-const PNG_MAGIC = [137, 80, 78, 71, 13, 10, 26, 10];
+import { ImageResponseError, MAX_IMAGE_BYTES, PNG_MAGIC, requirePng } from './image-bytes.js';
 type Dimensions = { width: number; height: number };
 
 function fail(message: string): never { throw new ImageResponseError(message); }
@@ -149,6 +146,14 @@ async function decodeImage(blob: Blob, expected: Dimensions, signal: AbortSignal
   });
 }
 
+export function rasterImageType(bytes: Uint8Array): 'image/png' | 'image/jpeg' | 'image/webp' | undefined {
+  if (PNG_MAGIC.every((byte, index) => bytes[index] === byte)) return 'image/png';
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF'
+    && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') return 'image/webp';
+  return undefined;
+}
+
 /** Validate original raster bytes without converting their format or metadata. */
 export async function readRasterImage(
   bytes: Uint8Array,
@@ -157,19 +162,17 @@ export async function readRasterImage(
   signal.throwIfAborted();
   if (!bytes.length) fail('生图接口没有返回图片数据。');
   if (bytes.length > MAX_IMAGE_BYTES) fail('接口返回的图片超过 32 MiB。');
-  if (PNG_MAGIC.every((byte, index) => bytes[index] === byte)) {
-    const blob = await readImageResponse(new Response(Uint8Array.from(bytes).buffer), signal, () => signal.throwIfAborted());
+  const type = rasterImageType(bytes);
+  if (type === 'image/png') {
+    requirePng(bytes);
+    const blob = new Blob([bytes.slice()], { type });
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     return { blob, width: view.getUint32(16), height: view.getUint32(20) };
   }
-  let type: string;
   let expected: Dimensions;
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    type = 'image/jpeg';
+  if (type === 'image/jpeg') {
     expected = jpegDimensions(bytes);
-  } else if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF'
-    && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') {
-    type = 'image/webp';
+  } else if (type === 'image/webp') {
     expected = webpDimensions(bytes);
   } else {
     // Never include upstream text in errors; it may contain HTML or credentials.
@@ -178,7 +181,7 @@ export async function readRasterImage(
       fail('生图接口返回了 HTML 网页，请检查接口地址或登录、网关拦截情况。');
     }
     if (/^[\[{]/.test(prefix)) fail('生图接口返回了 JSON 数据，请检查密钥、额度和接口兼容性。');
-    if (bytes[0] === 0x50 && bytes[1] === 0x4b) fail('GPT 生图接口返回了压缩包；请使用 PNG、JPEG 或 WebP 图片。');
+    if (bytes[0] === 0x50 && bytes[1] === 0x4b) fail('图片内容仍是压缩包；请让接口返回单张 PNG、JPEG 或 WebP 图片。');
     fail('生图接口未返回可识别的图片；当前支持 PNG、JPEG 和 WebP，请检查接口兼容性。');
   }
   const blob = new Blob([bytes.slice()], { type });

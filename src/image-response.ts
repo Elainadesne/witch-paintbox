@@ -1,11 +1,9 @@
-// Bounded PNG/ZIP reader adapted from the exploration handbook image transport.
-const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
-const PNG_MAGIC = [137, 80, 78, 71, 13, 10, 26, 10];
+import { ImageResponseError, MAX_IMAGE_BYTES, crc32, decodeImageBase64 } from './image-bytes.js';
+import { rasterImageType, readRasterImage } from './raster-image.js';
 
-export class ImageResponseError extends Error {}
-function fail(message: string): never {
-  throw new ImageResponseError(message);
-}
+export { ImageResponseError } from './image-bytes.js';
+const MAX_ENCODED_BYTES = 46 * 1024 * 1024;
+function fail(message: string): never { throw new ImageResponseError(message); }
 
 async function readBoundedStream(
   stream: ReadableStream<Uint8Array>,
@@ -51,51 +49,12 @@ async function readResponse(
   ensureActive: () => void,
 ): Promise<Uint8Array> {
   const length = Number(response.headers.get('content-length'));
-  if (Number.isFinite(length) && length > limit) fail('图片响应超出允许大小，已停止读取。');
+  if (Number.isFinite(length) && length > limit) {
+    void response.body?.cancel().catch(() => {});
+    fail('图片响应超出允许大小，已停止读取。');
+  }
   if (!response.body) fail('图片接口没有返回数据。');
   return readBoundedStream(response.body, limit, signal, ensureActive);
-}
-
-const crcTable = Uint32Array.from({ length: 256 }, (_, n) => {
-  for (let bit = 0; bit < 8; bit++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
-  return n >>> 0;
-});
-function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const byte of bytes) crc = crcTable[(crc ^ byte) & 255] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function requirePng(bytes: Uint8Array): void {
-  if (bytes.length < 45 || bytes.length > MAX_IMAGE_BYTES || !PNG_MAGIC.every((byte, i) => bytes[i] === byte)) {
-    fail('图片内容不是有效的 PNG。');
-  }
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let offset = 8;
-  let sawHeader = false;
-  let sawData = false;
-  while (offset + 12 <= bytes.length) {
-    const length = view.getUint32(offset);
-    if (length > bytes.length - offset - 12) fail('PNG 图片数据不完整。');
-    const name = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
-    if (crc32(bytes.subarray(offset + 4, offset + 8 + length)) !== view.getUint32(offset + 8 + length)) {
-      fail('PNG 图片校验失败。');
-    }
-    if (!sawHeader) {
-      if (name !== 'IHDR' || length !== 13) fail('PNG 图片缺少有效尺寸。');
-      const width = view.getUint32(offset + 8);
-      const height = view.getUint32(offset + 12);
-      if (!width || !height || width > 4096 || height > 4096) fail('PNG 图片尺寸无效。');
-      sawHeader = true;
-    } else if (name === 'IHDR') fail('PNG 图片包含重复头信息。');
-    if (name === 'IDAT') sawData = true;
-    offset += length + 12;
-    if (name === 'IEND') {
-      if (length !== 0 || !sawData || offset !== bytes.length) fail('PNG 图片结束标记无效。');
-      return;
-    }
-  }
-  fail('PNG 图片数据不完整。');
 }
 
 export function requireImageSupport(): void {
@@ -107,7 +66,7 @@ export function requireImageSupport(): void {
 }
 
 /** Read bounded, single-disk ZIP/ZIP64 archives; never extract names to the filesystem. */
-async function readSinglePngZip(bytes: Uint8Array, signal: AbortSignal, ensureActive: () => void): Promise<Uint8Array> {
+async function readSingleImageZip(bytes: Uint8Array, signal: AbortSignal, ensureActive: () => void): Promise<Uint8Array> {
   const invalid = () => fail('NovelAI 返回的图片压缩包格式或校验无效。');
   if (bytes.length < 22 || bytes.length > MAX_IMAGE_BYTES) return invalid();
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -189,6 +148,8 @@ async function readSinglePngZip(bytes: Uint8Array, signal: AbortSignal, ensureAc
   let at = directoryOffset;
   let expandedTotal = 0;
   let selected: { start: number; size: number; expanded: number; crc: number; method: number } | undefined;
+  let soleFile: typeof selected;
+  let fileCount = 0;
   const ranges: Array<[number, number]> = [];
   const names = new Set<string>();
   for (let index = 0; index < count; index++) {
@@ -237,7 +198,7 @@ async function readSinglePngZip(bytes: Uint8Array, signal: AbortSignal, ensureAc
     const nameBytes = bytes.subarray(at + 46, at + 46 + nameLength);
     let name: string;
     try {
-      // Legacy names are only used for byte identity and the ASCII .png suffix.
+      // Legacy names are only used for byte identity and ASCII image suffixes.
       // Preserve their bytes instead of treating CP437 names as broken UTF-8.
       name = flags & 0x0800
         ? new TextDecoder('utf-8', { fatal: true }).decode(nameBytes)
@@ -307,13 +268,21 @@ async function readSinglePngZip(bytes: Uint8Array, signal: AbortSignal, ensureAc
     if (ranges.some(([from, to]) => local < to && localEnd > from)) return invalid();
     ranges.push([local, localEnd]);
     if (method === 0 && size !== expanded) return invalid();
-    if (name.toLowerCase().endsWith('.png')) {
-      if (selected || !expanded) fail('NovelAI 应返回且仅返回一张 PNG 图片。');
+    if (!name.endsWith('/')) {
+      soleFile = { start, size, expanded, crc, method };
+      fileCount++;
+    }
+    if (/\.(?:png|jpe?g|webp)$/i.test(name)) {
+      if (selected || !expanded) fail('生图压缩包应包含且仅包含一张图片。');
       selected = { start, size, expanded, crc, method };
     }
     at = next;
   }
-  if (at !== directoryEnd || !selected) return invalid();
+  if (at !== directoryEnd) return invalid();
+  // Some proxies omit the extension. Only use this fallback for a single file;
+  // the extracted bytes still go through the same format and integrity checks.
+  selected ??= fileCount === 1 ? soleFile : undefined;
+  if (!selected) fail('生图压缩包中没有找到唯一的 PNG、JPEG 或 WebP 图片。');
   const compressed = bytes.slice(selected.start, selected.start + selected.size);
   let image: Uint8Array;
   try {
@@ -327,13 +296,60 @@ async function readSinglePngZip(bytes: Uint8Array, signal: AbortSignal, ensureAc
             ensureActive,
           );
   } catch (error) {
+    ensureActive();
     if (error instanceof ImageResponseError) throw error;
     return invalid();
   }
   ensureActive();
   if (image.length !== selected.expanded || crc32(image) !== selected.crc) return invalid();
-  requirePng(image);
   return image;
+}
+
+/** Accept explicit, single-image JSON envelopes; do not search arbitrary error text. */
+function imageReference(payload: unknown): string {
+  for (let depth = 0; depth < 4; depth++) {
+    if (typeof payload === 'string' && payload.trim()) return payload.trim();
+    if (Array.isArray(payload)) {
+      if (payload.length !== 1) fail('生图接口应返回且仅返回一张图片。');
+      payload = payload[0];
+      continue;
+    }
+    if (!payload || typeof payload !== 'object') break;
+    const item = payload as Record<string, unknown>;
+    if (item.error || item.success === false) fail('生图接口返回了错误数据，请检查密钥、额度和接口兼容性。');
+    for (const key of ['b64_json', 'base64', 'image', 'url']) {
+      if (typeof item[key] === 'string' && item[key].trim()) return item[key].trim();
+    }
+    payload = item.data ?? item.images;
+  }
+  return fail('生图接口返回了 JSON，但未包含可识别的图片数据或图片 URL；请检查密钥、额度和接口兼容性。');
+}
+
+async function readImageReference(value: string, signal: AbortSignal, ensureActive: () => void): Promise<Uint8Array> {
+  ensureActive();
+  if (!/^https?:/i.test(value)) return decodeImageBase64(value, signal);
+  let url: URL;
+  try { url = new URL(value); }
+  catch { return fail('接口返回的图片 URL 无效。'); }
+  if (value.length > 8192 || !['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash) {
+    fail('接口返回的图片 URL 不受支持。');
+  }
+  // Fetch only the returned image, once. Never forward the API key or cookies.
+  let response: Response;
+  try {
+    response = await fetch(url.href, {
+      signal, mode: 'cors', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
+    });
+  } catch {
+    ensureActive();
+    return fail('无法读取接口返回的图片 URL，请检查图片地址、跨域访问或重定向设置；没有重新发起生图。');
+  }
+  ensureActive();
+  if (!response.ok) {
+    void response.body?.cancel().catch(() => {});
+    fail(`读取图片 URL 失败（HTTP ${response.status}）；没有重新发起生图。`);
+  }
+  return readResponse(response, MAX_IMAGE_BYTES, signal, ensureActive);
 }
 
 export async function readImageResponse(
@@ -341,25 +357,32 @@ export async function readImageResponse(
   signal: AbortSignal,
   ensureActive: () => void,
 ): Promise<Blob> {
-  const bytes = await readResponse(response, MAX_IMAGE_BYTES, signal, ensureActive);
-  const isPng = PNG_MAGIC.every((byte, index) => bytes[index] === byte);
+  let bytes = await readResponse(response, MAX_ENCODED_BYTES, signal, ensureActive);
   const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
-  if (!isPng && !isZip) {
-    const type = response.headers.get('content-type')?.toLowerCase() ?? '';
+  if (isZip) bytes = await readSingleImageZip(bytes, signal, ensureActive);
+  if (!rasterImageType(bytes)) {
     const prefix = new TextDecoder().decode(bytes.subarray(0, 512)).trimStart();
     // Never echo arbitrary upstream content: it may contain credentials or HTML.
     if (!bytes.length) fail('生图服务没有返回图片数据。');
-    if (/^<(?:!doctype\s+html|html\b)/i.test(prefix) || type.includes('text/html')) {
+    if (prefix.startsWith('<')) {
       fail('生图服务返回了 HTML 网页，没有返回图片。请检查服务 URL 是否为生图接口，或是否被登录页、网关拦截。');
     }
-    if (/^[\[{]/.test(prefix) || type.includes('json')) {
-      fail('生图服务返回了 JSON 数据，没有返回 PNG 图片或图片压缩包。请检查密钥、服务额度和接口兼容性。');
+    const isJson = /^[\[{"]/.test(prefix);
+    const isBase64 = /^data:image\//i.test(prefix) || /^[A-Za-z0-9+/\s]+=*$/.test(prefix);
+    const isUrl = /^https?:\/\//i.test(prefix);
+    if (!isJson && !isBase64 && !isUrl) fail('生图服务返回了无法识别的数据；支持 PNG、JPEG、WebP、图片压缩包及 base64 / JSON 图片。');
+    let source: string;
+    try { source = new TextDecoder('utf-8', { fatal: true }).decode(bytes).trim(); }
+    catch { return fail('生图服务返回的数据既不是有效图片，也不是可识别的文本图片数据。'); }
+    if (isJson) {
+      let payload: unknown;
+      try { payload = JSON.parse(source); }
+      catch { return fail('生图接口返回的 JSON 不完整或格式无效。'); }
+      source = imageReference(payload);
     }
-    if (type.startsWith('image/')) fail('生图服务返回了非 PNG 图片；当前仅支持 PNG 图片或包含 PNG 的压缩包。');
-    fail('生图服务返回了无法识别的数据；当前仅支持 PNG 图片或包含 PNG 的压缩包。请检查服务 URL 和接口兼容性。');
+    bytes = await readImageReference(source, signal, ensureActive);
   }
-  const image = isPng ? bytes : await readSinglePngZip(bytes, signal, ensureActive);
-  if (isPng) requirePng(image);
+  const image = await readRasterImage(bytes, signal);
   ensureActive();
-  return new Blob([image.slice()], { type: 'image/png' });
+  return image.blob;
 }

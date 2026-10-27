@@ -1,3 +1,4 @@
+import { decodeImageBase64 } from './image-bytes.js';
 import { ImageResponseError } from './image-response.js';
 import { readRasterImage } from './raster-image.js';
 import { queueImageGeneration, type ImageGenerationProgress } from './image-queue.js';
@@ -145,22 +146,6 @@ export async function fetchOpenAIImageModels(connection: ImageConnection, signal
       .filter((id): id is string => typeof id === 'string' && Boolean(id.trim()) && id.length <= 512 && !/[\x00-\x1f\x7f]/.test(id));
     return [...new Set(models)].sort((a, b) => a.localeCompare(b));
   });
-}
-
-function decodeImageBase64(value: string, signal: AbortSignal): Uint8Array {
-  // Some compatible services include a data URL prefix or line-wrapped base64.
-  // The declared MIME is only a hint; readRasterImage validates the actual bytes.
-  const source = value.trim().replace(/^data:image\/(?:png|jpe?g|webp);base64,/i, '').replace(/[\t\r\n ]/g, '');
-  if (!source || source.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 || source.length % 4 === 1
-    || !/^[A-Za-z0-9+/]+={0,2}$/.test(source) || (source.includes('=') && source.length % 4)) {
-    fail('接口返回的 base64 图片无效或超过 32 MiB。');
-  }
-  let decoded: string;
-  try { decoded = atob(source); }
-  catch { return fail('接口返回的 base64 图片无法解码。'); }
-  if (decoded.length > MAX_IMAGE_BYTES) fail('接口返回的图片超过 32 MiB。');
-  signal.throwIfAborted();
-  return Uint8Array.from(decoded, character => character.charCodeAt(0));
 }
 
 async function imageBytes(item: Record<string, unknown>, signal: AbortSignal): Promise<Uint8Array> {

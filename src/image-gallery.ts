@@ -186,10 +186,11 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
       ['模型', entry.provider === 'openai' ? entry.parameters.model
         : NAI_MODELS.find(model => model.value === entry.parameters.model)?.label ?? entry.parameters.model],
       ['尺寸', `${entry.parameters.width} × ${entry.parameters.height}`],
+      ['输出格式', imageFileExtension(entry.blob).toUpperCase()],
       ['生成时间', new Date(entry.createdAt).toLocaleString('zh-CN', { hour12: false })],
     ];
     if (entry.provider === 'openai') {
-      fields.push(['请求质量', entry.parameters.quality], ['输出格式', imageFileExtension(entry.blob).toUpperCase()]);
+      fields.push(['请求质量', entry.parameters.quality]);
     } else {
       const params = entry.parameters;
       fields.push(
