@@ -21,7 +21,7 @@ export async function generatePreparedImage(settings, prompt, signal, onProgress
         throw withFault(new Error('当前生图服务类型不受支持。'), 'setup');
     const parameters = { ...settings.parameters };
     const prepared = { positive: prompt.positive, negative: prompt.negative, characters: prompt.characters.map(character => ({ ...character })) };
-    const result = await generateImage(connection, parameters, prepared.positive, prepared.negative, signal, onProgress, prepared.characters);
+    const result = await generateImage(connection, parameters, prepared.positive, prepared.negative, signal, progress => onProgress?.({ ...progress, columns: prepared.characters.length }), prepared.characters);
     return { ...result, provider: 'novelai', parameters: { ...parameters, seed: result.seed }, ...prepared };
 }
 /** Freeze each click before asynchronous anchor loading and the shared request queue. */

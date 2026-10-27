@@ -6,7 +6,7 @@ import { loadImageSettings } from './image-settings.js';
 import { generatePreparedImage } from './image-provider.js';
 import { getHostStore } from './host-storage.js';
 import { loadSharedOutfits, saveSharedOutfit, deleteSharedOutfit, onSharedOutfitsChanged, } from './shared-outfit-store.js';
-import { withFault } from './pet-events.js';
+import { emitPetEvent, petEnd, petFault, petTaskId, withFault } from './pet-events.js';
 function escape(value) {
     return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 }
@@ -77,6 +77,7 @@ export class AnchorConfig {
     portraitPhase = 'queued';
     portraitNotice = '';
     portraitError = false;
+    portraitPet = null;
     get hasPendingWrites() { return this.busy || this.portraitRequest !== null; }
     mount(container) {
         this.unmount();
@@ -515,6 +516,10 @@ export class AnchorConfig {
         this.portraitNotice = reason + (this.portraitPhase === 'generating' ? '服务端任务可能仍在继续。' : '');
         this.portraitError = false;
         this.syncPortrait();
+        const pet = this.portraitPet;
+        if (pet)
+            pet.end({ type: 'end', id: pet.id, task: 'image', source: 'portrait', result: 'cancelled', message: this.portraitNotice,
+                serverMayContinue: this.portraitPhase === 'generating' });
     }
     async generatePortrait() {
         const draft = this.draft;
@@ -529,6 +534,10 @@ export class AnchorConfig {
         const request = new AbortController();
         this.portraitRequest = request;
         this.portraitPhase = 'queued';
+        const pet = petTaskId();
+        const endPet = petEnd();
+        const petImage = { type: 'end', id: pet, task: 'image', source: 'portrait' };
+        this.portraitPet = { id: pet, end: endPet };
         this.portraitNotice = '正在加入生图队列…';
         this.portraitError = false;
         this.syncPortrait();
@@ -536,16 +545,21 @@ export class AnchorConfig {
             if (!appearance.trim())
                 throw withFault(new Error('请先填写角色的固定外貌 tag。'), 'setup');
             const settings = loadImageSettings();
+            emitPetEvent({ type: 'image', id: pet, source: 'portrait', phase: 'start', provider: settings.provider, summary: draft.name });
             const positive = [settings.positive, appearance, outfitTags].map(part => part.trim()).filter(Boolean).join(', ');
             const result = await generatePreparedImage(settings, { positive, negative: settings.negative, characters: [] }, request.signal, progress => {
                 if (request.signal.aborted || !current())
                     return;
                 this.portraitPhase = progress.state;
                 this.portraitNotice = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在生成角色图…';
+                emitPetEvent({ type: 'image', id: pet, source: 'portrait', phase: progress.state,
+                    position: progress.state === 'queued' ? progress.position : undefined });
                 this.syncPortrait();
             });
-            if (request.signal.aborted || !current())
+            if (request.signal.aborted || !current()) {
+                endPet({ ...petImage, result: 'dropped', paid: true, message: '' });
                 return;
+            }
             if (!result.blob.size || result.blob.size > ANCHOR_PORTRAIT_LIMIT)
                 throw withFault(new Error('生成的角色图超过 10 MiB 或为空，请调小生图尺寸后重试。'), 'decode');
             if (!['image/png', 'image/jpeg', 'image/webp'].includes(result.blob.type))
@@ -555,6 +569,10 @@ export class AnchorConfig {
             this.dirty = true;
             this.deleting = false;
             this.portraitNotice = '角色图已生成，点击“保存角色”后保留。';
+            endPet({ ...petImage, result: 'done', message: this.portraitNotice, picture: {
+                    blob: result.blob, width: result.parameters.width, height: result.parameters.height,
+                    target: () => this.container?.querySelector('.anchor-editor-portrait') ?? null,
+                } });
             if (this.tab === 'anchors') {
                 this.markDirty();
                 this.render();
@@ -564,9 +582,11 @@ export class AnchorConfig {
             if (!request.signal.aborted && current()) {
                 this.portraitError = true;
                 this.portraitNotice = error instanceof Error ? error.message : '角色图生成失败，请重试。';
+                endPet({ ...petImage, result: 'failed', message: this.portraitNotice, fault: petFault(error) });
             }
         }
         finally {
+            endPet({ ...petImage, result: 'dropped', message: '' });
             if (this.portraitRequest === request) {
                 this.portraitRequest = null;
                 this.syncPortrait();

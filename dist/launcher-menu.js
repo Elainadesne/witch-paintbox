@@ -1,5 +1,6 @@
 import { ChatProcessor } from './chat-processor.js';
-export function bindLauncherMenu(launcher, root, signal, configure) {
+import { emitPetEvent } from './pet-events.js';
+export function bindLauncherMenu(launcher, root, signal, configure, options = {}) {
     const menu = document.createElement('div');
     menu.id = 'witch-launcher-menu';
     menu.className = 'launcher-menu';
@@ -27,27 +28,39 @@ export function bindLauncherMenu(launcher, root, signal, configure) {
             place();
     });
     function place() {
-        const bounds = launcher.getBoundingClientRect();
+        const bounds = options.anchor?.() ?? launcher.getBoundingClientRect();
         const left = bounds.right + 10 + menu.offsetWidth <= window.innerWidth - 8
             ? bounds.right + 10 : bounds.left - menu.offsetWidth - 10;
         menu.style.left = `${Math.max(8, Math.min(left, window.innerWidth - menu.offsetWidth - 8))}px`;
         menu.style.top = `${Math.max(8, Math.min(bounds.top + bounds.height / 2 - menu.offsetHeight / 2, window.innerHeight - menu.offsetHeight - 8))}px`;
     }
-    function close() { menu.hidden = true; launcher.setAttribute('aria-expanded', 'false'); }
+    function close() {
+        const wasOpen = !menu.hidden;
+        menu.hidden = true;
+        launcher.setAttribute('aria-expanded', 'false');
+        if (wasOpen)
+            emitPetEvent({ type: 'ui', action: 'menu-close' });
+    }
     function open() {
         if (launcher.hidden)
             return;
+        const opening = menu.hidden;
         menu.hidden = false;
         launcher.setAttribute('aria-expanded', 'true');
         place();
         menu.querySelector('button:not(:disabled):not([hidden])')?.focus({ preventScroll: true });
+        if (opening)
+            emitPetEvent({ type: 'ui', action: 'menu-open' });
     }
     processButton.addEventListener('click', () => { void processor.process(); }, { signal });
     cancelButton.addEventListener('click', () => processor.cancel(), { signal });
     menu.querySelector('[data-configure]').addEventListener('click', () => { close(); configure(); }, { signal });
     menu.querySelector('[data-dismiss]').addEventListener('click', () => {
         close();
-        launcher.hidden = true;
+        if (options.onDismiss)
+            options.onDismiss();
+        else
+            launcher.hidden = true;
     }, { signal });
     document.addEventListener('pointerdown', event => {
         if (!event.composedPath().includes(menu) && !event.composedPath().includes(launcher))

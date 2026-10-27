@@ -12,6 +12,8 @@ import { frameDocument, frontendFrames } from './frontend-frames.js';
 import { watchChatImageLayout } from './chat-image-layout.js';
 import { automaticImages } from './automatic-images.js';
 import { currentPreferences } from './settings.js';
+import { emitPetEvent, petEnd, petFault, petTaskId } from './pet-events.js';
+import { floorTarget } from './pet-targets.js';
 /** Render-only controls: stored chat text always contains the original literal markers. */
 export function bindChatImages(signal) {
     if (signal.aborted)
@@ -206,6 +208,7 @@ export function bindChatImages(signal) {
                         insertions.delete(entry.key);
                         images.get(entry.key)?.refreshTheme();
                     }
+                    emitPetEvent({ type: 'frames', floor: message.messageId, targets: atPoint.flatMap(entry => images.get(entry.key)?.slot ?? []) });
                 }
                 catch { /* The controls remain available to the fallback, including ongoing requests. */ }
             }
@@ -233,19 +236,24 @@ export function bindChatImages(signal) {
             pendingContainers.add(container);
         }
         let previous = container.firstChild;
+        const placed = [];
         for (const entry of unresolved) {
             const control = controlFor(entry, message);
             rememberInsertedText(entry, control.slot);
             const next = previous?.nextSibling ?? null;
-            if (next !== control.slot)
+            if (next !== control.slot) {
                 container.insertBefore(control.slot, next);
+                placed.push(control.slot);
+            }
             previous = control.slot;
             control.refreshTheme();
         }
+        if (placed.length)
+            emitPetEvent({ type: 'frames', floor: message.messageId, targets: placed });
     }
     function imageSlot(marker, message, key, historyKey) {
         const controls = new AbortController();
-        const { slot, root, button, buttonLabel, regenerate, cancel, status, canvas, preview, image, placeholder, download, refreshTheme, setImageSize } = createChatImageView(marker.summary, controls.signal);
+        const { slot, root, button, buttonLabel, regenerate, cancel, status, canvas, preview, image, placeholder, download, refreshTheme, setImageSize, veil } = createChatImageView(marker.summary, controls.signal);
         try {
             const settings = loadImageSettings();
             const { width, height } = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
@@ -359,8 +367,15 @@ export function bindChatImages(signal) {
             syncGenerationButtons();
             status.dataset.error = 'false';
             status.textContent = '正在加入队列…';
+            const pet = petTaskId();
+            const source = autoSignal ? 'auto' : 'floor';
+            const endPet = petEnd();
+            const petImage = { type: 'end', id: pet, task: 'image', source, floor: message.messageId };
             try {
                 const settings = loadImageSettings();
+                const parameters = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
+                emitPetEvent({ type: 'image', id: pet, source, phase: 'start', provider: settings.provider, floor: message.messageId,
+                    turn: message.turnId !== null, summary: marker.summary, again: history.length > 0, width: parameters.width, height: parameters.height });
                 controller.signal.throwIfAborted();
                 await historyReady;
                 controller.signal.throwIfAborted();
@@ -368,7 +383,6 @@ export function bindChatImages(signal) {
                     controller.abort();
                     controller.signal.throwIfAborted();
                 }
-                const parameters = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
                 if (!history.length)
                     setImageSize(parameters.width, parameters.height);
                 canvas.hidden = false;
@@ -392,10 +406,15 @@ export function bindChatImages(signal) {
                     syncGenerationButtons();
                     cancel.textContent = phase === 'queued' ? '取消排队' : '取消等待';
                     status.textContent = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…';
+                    emitPetEvent({ type: 'image', id: pet, source, phase: progress.state, floor: message.messageId,
+                        position: progress.state === 'queued' ? progress.position : undefined, columns: progress.columns,
+                        width: parameters.width, height: parameters.height });
                 }, settings.positive);
                 // A native re-render can temporarily detach the slot without invalidating its request.
-                if (controller.signal.aborted || controls.signal.aborted || !isCurrent(message, key))
+                if (controller.signal.aborted || controls.signal.aborted || !isCurrent(message, key)) {
+                    endPet({ ...petImage, result: 'dropped', paid: true, message: '' });
                     return;
+                }
                 const entry = {
                     id: `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`,
                     ...result, markerKey: historyKey ?? key, createdAt: Date.now(),
@@ -407,19 +426,26 @@ export function bindChatImages(signal) {
                 history.push({ entry, url: URL.createObjectURL(result.blob) });
                 selectedId = entry.id;
                 showSelected();
+                endPet({ ...petImage, result: 'done', message: '', picture: {
+                        blob: result.blob, width: result.parameters.width, height: result.parameters.height, target: () => floorTarget(slot), veil,
+                    } });
                 cancel.hidden = true;
                 status.textContent = '绘制完成，正在保存图片历史…';
                 try {
                     await saving;
+                    const saved = historyKey
+                        ? `已保存 ${history.length} 张图片 · 点击查看历史`
+                        : '本楼层缺少唯一时间标识，图片仅保留在当前页面，可下载保存。';
                     if (!controls.signal.aborted)
-                        status.textContent = historyKey
-                            ? `已保存 ${history.length} 张图片 · 点击查看历史`
-                            : '本楼层缺少唯一时间标识，图片仅保留在当前页面，可下载保存。';
+                        status.textContent = saved;
+                    emitPetEvent({ type: 'history', id: pet, saved: true, pageOnly: !historyKey, message: saved });
                 }
                 catch (error) {
+                    const failed = `图片已生成，但历史未保存：${error instanceof Error ? error.message : '浏览器存储不可用。'}`;
+                    emitPetEvent({ type: 'history', id: pet, saved: false, message: failed });
                     if (!controls.signal.aborted) {
                         status.dataset.error = 'true';
-                        status.textContent = `图片已生成，但历史未保存：${error instanceof Error ? error.message : '浏览器存储不可用。'}`;
+                        status.textContent = failed;
                     }
                 }
                 finally {
@@ -427,14 +453,19 @@ export function bindChatImages(signal) {
                 }
             }
             catch (error) {
-                if (controls.signal.aborted)
+                if (controls.signal.aborted) {
+                    endPet({ ...petImage, result: 'dropped', serverMayContinue: phase !== 'queued', message: '' });
                     return;
+                }
                 status.dataset.error = String(!controller.signal.aborted);
                 status.textContent = controller.signal.aborted
                     ? phase === 'queued' ? '已取消排队。' : '已取消等待，服务端任务可能仍在继续。'
                     : error instanceof Error ? error.message : '生图未完成，请稍后重试。';
+                endPet({ ...petImage, result: controller.signal.aborted ? 'cancelled' : 'failed', message: status.textContent ?? '',
+                    fault: controller.signal.aborted ? undefined : petFault(error), serverMayContinue: controller.signal.aborted && phase !== 'queued' });
             }
             finally {
+                endPet({ ...petImage, result: 'dropped', message: '' });
                 autoSignal?.removeEventListener('abort', cancelAutomatic);
                 request = null;
                 syncGenerationButtons();
