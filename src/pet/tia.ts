@@ -1,6 +1,7 @@
 // Her rig: one NAI picture of her, cut to her outline, bent by soft fields on a single mesh (head, hat and its tip, hair,
 // arms, skirt); the loose parts (ahoge, braids, cup, and in the side her forearms) hang on layers of their own over what
-// NAI painted in behind them; the face patches (cut to FACE) give her expressions.
+// NAI painted in behind them; the face patches (cut to FACE) give her expressions, the hat patch (cut to HAT) and the
+// flap her working look: the brim's drooping right side folded up and pinned with a brush.
 import { gridMesh, type Gfx, type Mesh, type Tex } from './gl.js';
 import { clamp, lerp, sm, type SpringName, type Springs, type State, type Vec } from './state.js';
 
@@ -14,6 +15,13 @@ export const R: Record<Point, Vec> = {
 };
 /** The rect the face patches are cut to (texture px). */
 export const FACE = { x: 352, y: 440, w: 212, h: 128 };
+/** The rect the working look's hat patch and its eraser are cut to (texture px). */
+export const HAT = { x: 584, y: 126, w: 292, h: 468 };
+// the working look's flap: the rect its layer is cut to, the fold it swings about, and its angle (rad, clockwise) where
+// the old brim droops, which it swings up from and back down to
+const FLAP = { x: 625, y: 193, w: 86, h: 146 };
+const FOLD: Vec = [648.5, 335];
+export const BRIM_DOWN = 1.9;
 // the brim's front edge, left to right (texture px): above it is hat
 const BRIM: Vec[] = [[85, 290], [100, 305], [150, 392], [200, 452], [250, 466], [272, 435], [297, 400], [330, 331], [351, 314],
   [376, 304], [405, 298], [430, 302], [447, 323], [463, 348], [484, 368], [513, 411], [547, 439], [591, 467], [624, 489],
@@ -70,6 +78,7 @@ export const TIA_FILES = {
   base: 'tia_base.webp', blink: 'tia_face_blink.webp', focus: 'tia_face_focus.webp', happy: 'tia_face_happy.webp',
   dismay: 'tia_face_dismay.webp', talk: 'tia_face_talk.webp', braidL: 'tia_braidL.webp', braidR: 'tia_braidR.webp',
   cup: 'tia_cup.webp', ahoge: 'tia_ahoge.webp', arms: 'tia_arms.webp',
+  hatUp: 'tia_hat_up.webp', hatErase: 'tia_hat_erase.webp', hatFlap: 'tia_hat_flap.webp',
 } as const;
 export type TiaTex = keyof typeof TIA_FILES;
 
@@ -82,8 +91,12 @@ export const HIT_SHAPES: [number, number, number, number][] = [
 export class Rig {
   readonly body = gridMesh(56, 80);
   readonly face: Mesh;
+  readonly hat: Mesh;
+  readonly flap = gridMesh(6, 10);
   readonly parts: Record<PartName, Part>;
   private readonly W = {} as Record<Field, Float32Array>;
+  // (each point of the flap: its share of the way from the fold to the flap's far end)
+  private readonly flapS = new Float32Array(this.flap.n);
   hitMap: { w: number; h: number; a: Uint8Array } | null = null;
 
   constructor() {
@@ -95,7 +108,14 @@ export class Rig {
       const w = weights(x, y);
       for (const f of FIELDS) this.W[f][k] = w[f];
     }
-    this.face = faceMesh(body);
+    this.face = patchMesh(body, FACE);
+    this.hat = patchMesh(body, HAT);
+    const f = this.flap;
+    for (let k = 0; k < f.n; k++) {
+      const x = FLAP.x + f.uv[k * 2] * FLAP.w, y = FLAP.y + f.uv[k * 2 + 1] * FLAP.h;
+      f.rest[k * 2] = x; f.rest[k * 2 + 1] = y;
+      this.flapS[k] = clamp((FOLD[1] - y) / (FOLD[1] - FLAP.y), 0, 1);
+    }
     const parts = {} as Record<PartName, Part>;
     for (const [name, def] of Object.entries(PARTS) as [PartName, PartDef][]) {
       const m = gridMesh(...def.grid);
@@ -113,7 +133,7 @@ export class Rig {
     this.parts = parts;
   }
 
-  meshes(): Mesh[] { return [this.body, this.face, ...Object.values(this.parts).map(p => p.mesh)]; }
+  meshes(): Mesh[] { return [this.body, this.face, this.hat, this.flap, ...Object.values(this.parts).map(p => p.mesh)]; }
 
   // the alpha, for hit tests (quarter size)
   buildHit(alpha: Uint8ClampedArray, w: number, h: number) {
@@ -168,6 +188,17 @@ export class Rig {
         place(m, k);
       }
     }
+    // the working look's flap: about its fold, its far end trailing as it swings, then along with the hat and the head
+    const B = st.brim, f = this.flap;
+    if (B.k > 0.004) for (let k = 0; k < f.n; k++) {
+      p[0] = f.rest[k * 2]; p[1] = f.rest[k * 2 + 1];
+      const s = this.flapS[k];
+      rot(p, FOLD, B.a + B.bend * s * s);
+      rot(p, R.hat, S.hat.x);
+      rot(p, R.neck, S.head.x); p[1] += S.hx.x * 0.6;
+      p[1] -= 2.6 * br;
+      place(f, k);
+    }
   }
 
   /** Her screen bounds for the current pose. */
@@ -188,7 +219,9 @@ export class Rig {
   /**
    * Her and the loose parts over her, in the side her forearms on the edge too; the cup throws its shadow on her skirt:
    * down and right of it as the painting's light falls (so it turns with her), and only on her (the shadow pass keeps
-   * to what is drawn already). `glow` draws a warm rim around her first (keyboard focus).
+   * to what is drawn already). `glow` draws a warm rim around her first (keyboard focus). The working look takes out
+   * what of the old brim and tip it replaces (the eraser goes by the look's share alone, so it keeps to what she is
+   * while she fades) and puts the new hat and the flap in.
    */
   draw(gfx: Gfx, T: Record<TiaTex, Tex>, st: State, s: number, alpha: number, glow: number) {
     const side = st.mode === 'side';
@@ -206,7 +239,15 @@ export class Rig {
     gfx.draw(gfx.p1, body, T.base, alpha);
     for (const k of ['focus', 'happy', 'dismay', 'talk'] as const) if (e[k] > 0.01) gfx.draw(gfx.p1, this.face, T[k], e[k] * alpha);
     if (e.blink > 0.01 && e.happy < 0.5) gfx.draw(gfx.p1, this.face, T.blink, e.blink * alpha);
-    const gl = gfx.gl;
+    const gl = gfx.gl, B = st.brim;
+    // (not while she is drawn over the paintbox: the eraser would cut into it)
+    if (B.k > 0.004 && !st.inFront) {
+      gl.blendFunc(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
+      gfx.draw(gfx.p1, this.hat, T.hatErase, B.k);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gfx.draw(gfx.p1, this.hat, T.hatUp, B.k * alpha);
+      gfx.upload(this.flap); gfx.draw(gfx.p1, this.flap, T.hatFlap, B.k * alpha);
+    }
     for (const k of side ? ['braidL', 'braidR', 'cup', 'ahoge', 'arms'] as const : ['braidL', 'braidR', 'cup', 'ahoge'] as const) {
       const m = this.parts[k].mesh;
       if (k === 'cup') {
@@ -223,17 +264,17 @@ export class Rig {
   }
 }
 
-// the face patches drawn over the part of her body mesh that covers FACE: uv = (rest - FACE.xy) / FACE.wh, clamped to
-// the patch's transparent margin
-function faceMesh(body: Mesh): Mesh {
+// a patch (the faces, the working look's hat) drawn over the part of her body mesh that covers its rect r:
+// uv = (rest - r.xy) / r.wh, clamped to the patch's transparent margin
+function patchMesh(body: Mesh, r: { x: number; y: number; w: number; h: number }): Mesh {
   const uv = new Float32Array(body.n * 2);
   for (let k = 0; k < body.n; k++) {
-    uv[k * 2] = (body.rest[k * 2] - FACE.x) / FACE.w;
-    uv[k * 2 + 1] = (body.rest[k * 2 + 1] - FACE.y) / FACE.h;
+    uv[k * 2] = (body.rest[k * 2] - r.x) / r.w;
+    uv[k * 2 + 1] = (body.rest[k * 2 + 1] - r.y) / r.h;
   }
   const cols = body.cols, cw = TW / cols, rh = TH / body.rows;
-  const i0 = Math.max(0, Math.floor(FACE.x / cw)), i1 = Math.min(cols, Math.ceil((FACE.x + FACE.w) / cw));
-  const j0 = Math.max(0, Math.floor(FACE.y / rh)), j1 = Math.min(body.rows, Math.ceil((FACE.y + FACE.h) / rh));
+  const i0 = Math.max(0, Math.floor(r.x / cw)), i1 = Math.min(cols, Math.ceil((r.x + r.w) / cw));
+  const j0 = Math.max(0, Math.floor(r.y / rh)), j1 = Math.min(body.rows, Math.ceil((r.y + r.h) / rh));
   const idx = new Uint16Array((i1 - i0) * (j1 - j0) * 6);
   let q = 0;
   for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) {

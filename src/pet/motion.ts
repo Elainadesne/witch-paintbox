@@ -1,7 +1,7 @@
 // How she moves: the state, the springs, one simulation step (at most 1/60 s), and a clock of her own for the acts
 // (it runs with the frame loop, so everything waits while she is not drawn).
 import { SHUT_WIDTH, type BoxFrame, type Paintbox } from './box.js';
-import { R, SIDE, TH, type Rig } from './tia.js';
+import { BRIM_DOWN, R, SIDE, TH, type Rig } from './tia.js';
 import { clamp, createState, FACES, lerp, springs, step, wind, type Box4, type Face, type SideSpot, type Vec, type View } from './state.js';
 
 export interface MotionHooks {
@@ -305,6 +305,27 @@ export class Motion {
     if (st.nod > 0) st.expr.blink = Math.max(st.expr.blink, 0.85 * Math.sin(Math.PI * Math.min(1, (2.4 - st.nod) / 2.4)));
     st.expr.blink = Math.max(st.expr.blink, st.doze);
     st.ahDroop += ((st.want === 'dismay' ? 1 : 0) - st.ahDroop) * Math.min(1, dt * 4);
+    // her working look: the brim's right side flips up against the brush pinned in the band, quick and overshooting;
+    // when the work is done it slips off the pin, tips over slowly and droops softly back, its far end trailing, and
+    // only where the old brim hangs do the two cross-fade (still: a cross-fade, the flap in place)
+    const H = st.brim;
+    if (still) {
+      H.a = 0; H.v = 0;
+      H.k += Math.sign((H.up ? 1 : 0) - H.k) * Math.min(Math.abs((H.up ? 1 : 0) - H.k), dt / 0.2);
+    } else if (H.up) {
+      if (H.k === 0) { H.a = BRIM_DOWN; H.v = 0; S.hat.v -= 0.9; S.tip.v -= 3; }
+      H.t = 0;
+      H.k = Math.min(1, H.k + dt / 0.08);
+      H.v += (-50 * H.a - 7.8 * H.v) * dt; H.a += H.v * dt;
+    } else if (H.k > 0) {
+      H.t += dt;
+      H.v += (30 * Math.min(1, H.t / 0.3) ** 2 * (BRIM_DOWN - H.a) - 8 * H.v) * dt; H.a += H.v * dt;
+      if (H.a > BRIM_DOWN * 0.9) {
+        if (H.k === 1) S.tip.v += 2;
+        H.k = Math.max(0, H.k - dt / 0.22);
+      }
+    }
+    H.bend = still ? 0 : clamp(-H.v * 0.03, -0.4, 0.4);
 
     // the box: its cover swings on the hinge (still: a cross-fade), it shrinks while she rests in it
     const B = st.box;
@@ -338,6 +359,7 @@ export class Motion {
   lively() {
     const st = this.st;
     return st.mode === 'drag' || st.mode === 'fall' || st.mode === 'dive' || !!st.hop || !!st.fly || Math.abs(st.box.av) > 40
-      || Math.abs(st.box.small - st.box.smallTo) > 0.01 || Math.abs(st.gone - st.goneTo) > 0.01 || Math.abs(st.duck - st.duckTo) > 0.01;
+      || Math.abs(st.box.small - st.box.smallTo) > 0.01 || Math.abs(st.gone - st.goneTo) > 0.01 || Math.abs(st.duck - st.duckTo) > 0.01
+      || (st.brim.k > 0 && st.brim.k < 1) || Math.abs(st.brim.v) > 0.05;
   }
 }

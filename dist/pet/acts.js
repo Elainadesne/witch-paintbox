@@ -284,6 +284,8 @@ export class Acts {
             this.packUp();
             return;
         }
+        // (to work: the brim folded up)
+        st.brim.up = true;
         if (!st.paint || st.paint.lifted || st.paint.id !== live.id)
             st.paint = sheet(live.id, live.aspect);
         const washing = W.drawing?.id === live.id;
@@ -320,6 +322,7 @@ export class Acts {
             P.washing = true;
             P.emit = true;
             m.want('focus');
+            st.brim.up = true;
             bitmap = await decode(picture);
             if (this.dead || st.paint !== P) {
                 bitmap?.close();
@@ -458,6 +461,7 @@ export class Acts {
             if (this.busyBoard())
                 return;
             this.closeBox();
+            st.brim.up = false;
             if (st.box.want < 0.5)
                 st.box.pop = Math.max(st.box.pop, 0.6);
             await this.m.wait(0.5);
@@ -507,6 +511,7 @@ export class Acts {
         if (st.away || this.leaving || st.mode === 'drag')
             return;
         this.leaving = true;
+        st.brim.up = false;
         try {
             this.speech.say('away');
             await this.out();

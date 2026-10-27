@@ -36,6 +36,10 @@ export function createState() {
         side: null, spot: null, gone: 0, goneTo: 0, dive: null,
         onLeft: false, rotMax: 0.75,
         casting: false, failing: false, reading: false,
+        // her working look while she paints (the brim's right side folded up, pinned with a brush): k is its share, a the
+        // flap's angle from up (rad, clockwise), v how fast it turns, bend how far its far end trails, t how long it has
+        // been on its way down
+        brim: { up: false, k: 0, a: 0, v: 0, bend: 0, t: 0 },
         // (new in the plugin) her own size and opacity, for climbing into the paintbox and the still mode's fades; away: she
         // is in the paintbox; duck: on a phone she has ducked behind the input bar for the keyboard; inFront draws her over
         // the paintbox while she climbs in or out of it

@@ -339,7 +339,7 @@ export class Stage {
     const F = m.boxFrame(), e = st.expr, P = st.paint;
     const sig = [herOn ? 1 : 0, st.alpha, e.base, e.focus, e.happy, e.dismay, e.talk, e.blink, F.ox / eps, F.oy / eps, F.k * 1024 / eps,
       st.box.ang * 4, m.fadeOpen, st.box.show, st.box.queued * 10, P ? (P.lifted ? 2 : 1) : 0, P?.reveal ?? 0, P?.wash ?? 0, st.duck * 100,
-      p.input()?.focused ? 1 : 0, st.inFront ? 1 : 0];
+      p.input()?.focused ? 1 : 0, st.inFront ? 1 : 0, st.brim.k];
     const last = this.lastSig;
     for (let i = 0; i < sig.length; i++) {
       const tol = i >= 8 && i <= 10 ? 1 : 0.004;
