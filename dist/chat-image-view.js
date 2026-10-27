@@ -69,7 +69,8 @@ export function createChatImageView(summary, signal) {
     .generate .ornament { font-size: 15px; opacity: .7; }
     .canvas { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; justify-self: center; width: min(100%, var(--image-width)); max-width: 100%; min-width: 0; min-height: 0; aspect-ratio: var(--image-ratio); overflow: hidden; background: #ece5d5; border-radius: 2px; box-shadow: 0 0 0 1px #8b68342e; }
     .preview { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
-    .preview img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; margin: 0; object-fit: contain; }
+    .preview img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; margin: 0; object-fit: contain; transition: opacity .3s ease-out; }
+    .canvas.veiled .preview img { opacity: 0; transition: none; }
     .canvas[data-busy="true"] .preview { opacity: .65; }
     .placeholder { display: grid; place-items: center; opacity: .4; font-size: 26px; }
     .canvas[data-phase="generating"] .placeholder { animation: breathe 2s ease-in-out infinite; }
@@ -138,7 +139,17 @@ export function createChatImageView(summary, signal) {
         if (slot.style.getPropertyValue('--button-surface') !== color)
             slot.style.setProperty('--button-surface', color);
     };
+    // The desktop pet hides a new picture while it flies in; the frame shows it again after 4 s at the latest.
+    let veils = 0;
+    const veil = () => {
+        const current = ++veils;
+        canvas.classList.add('veiled');
+        const release = () => { if (veils === current)
+            canvas.classList.remove('veiled'); };
+        setTimeout(release, 4000);
+        return release;
+    };
     slot.addEventListener('pointerenter', refreshTheme, { signal });
     slot.addEventListener('focusin', refreshTheme, { signal });
-    return { slot, root, button, buttonLabel, regenerate, cancel, status, canvas, preview, image, placeholder, download, refreshTheme, setImageSize };
+    return { slot, root, button, buttonLabel, regenerate, cancel, status, canvas, preview, image, placeholder, download, refreshTheme, setImageSize, veil };
 }

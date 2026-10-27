@@ -21,6 +21,8 @@ import { bindSettingsEntry } from './settings-entry.js';
 import { bindSifangWindowViewport, isSifangEnvironment } from './sifang-host.js';
 import { initializeSifangChat } from './sifang-chat.js';
 import { bindSifangImages } from './sifang-images.js';
+import { bindPet } from './pet/index.js';
+import { emitPetEvent } from './pet-events.js';
 async function mount() {
     if (document.getElementById(extensionId))
         return;
@@ -37,6 +39,7 @@ async function mount() {
     const imageReview = new ImageReview();
     let anchorConfig = new AnchorConfig();
     let floating = null;
+    let pet = null;
     let changingSyncKeys = false;
     const transfer = new ConfigTransfer(context, (kind, provider) => {
         if (kind === 'all' || kind === 'artists')
@@ -52,12 +55,15 @@ async function mount() {
             anchorConfig.destroy();
             anchorConfig = new AnchorConfig();
             settings = readSettings(context);
-            if (settings.rememberPosition && settings.position)
+            if (pet && settings.rememberPosition && settings.petPlacement)
+                pet.setPlacement(settings.petPlacement);
+            else if (settings.rememberPosition && settings.position)
                 floating?.setPosition(settings.position);
             else
                 floating?.reset();
             for (const input of Array.from(content.querySelectorAll('.preference-row input'))) {
-                if (input.name === 'rememberPage' || input.name === 'rememberPosition' || input.name === 'autoGenerateImages')
+                if (input.name === 'rememberPage' || input.name === 'rememberPosition' || input.name === 'autoGenerateImages'
+                    || input.name === 'petLines' || input.name === 'petMotion')
                     input.checked = settings[input.name];
             }
             const retention = content.querySelector('[name="imageRetentionDays"]');
@@ -127,7 +133,13 @@ async function mount() {
             status.textContent = imageRetentionStatus();
     };
     window.addEventListener('witch-paintbox:cleanup-status', showCleanupStatus, { signal });
-    const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'));
+    const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'), {
+        anchor: () => pet?.anchor() ?? launcher.getBoundingClientRect(),
+        onDismiss: () => { if (pet)
+            pet.dismiss();
+        else
+            launcher.hidden = true; },
+    });
     function openPanel(target, opener = launcher) {
         if (panel.open)
             return;
@@ -135,6 +147,7 @@ async function mount() {
         launcherMenu.close();
         navigate(target, false);
         panel.showModal();
+        emitPetEvent({ type: 'ui', action: 'panel-open' });
         updateNotice.check();
         content.focus({ preventScroll: true });
     }
@@ -201,7 +214,30 @@ async function mount() {
             else
                 console.error(`[${pluginName}] ${nativeError}`);
         }
-        floating = bindLauncher(launcher, settings.rememberPosition ? settings.position : null, position => {
+        try {
+            pet = bindPet({
+                root, launcher, signal,
+                initial: settings.rememberPosition ? settings.position : null,
+                placement: settings.rememberPosition ? settings.petPlacement : null,
+                preferences: () => ({ lines: settings.petLines, motion: settings.petMotion, away: settings.petAway }),
+                onMove(position, placement) {
+                    if (!settings.rememberPosition || transfer.isApplying)
+                        return;
+                    settings.position = position;
+                    settings.petPlacement = placement;
+                    persist();
+                },
+                onAway(away) { settings.petAway = away; persist(); },
+                onOpen: launcherMenu.toggle,
+                onDrag: launcherMenu.close,
+            });
+        }
+        catch (error) {
+            // (the old floating ball takes over)
+            console.error(`[${pluginName}] 桌宠加载失败，已换回悬浮球。`, error);
+            pet = null;
+        }
+        floating = pet ?? bindLauncher(launcher, settings.rememberPosition ? settings.position : null, position => {
             if (!settings.rememberPosition || transfer.isApplying)
                 return;
             settings.position = position;
@@ -283,7 +319,7 @@ async function mount() {
                 persist();
                 return;
             }
-            if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition', 'autoGenerateImages'].includes(input.name))
+            if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition', 'autoGenerateImages', 'petLines', 'petMotion'].includes(input.name))
                 return;
             if (transfer.isApplying) {
                 input.checked = settings[input.name];
@@ -296,9 +332,14 @@ async function mount() {
             if (input.name === 'rememberPosition') {
                 settings.rememberPosition = input.checked;
                 settings.position = input.checked ? floating.getPosition() : null;
+                settings.petPlacement = null;
             }
             if (input.name === 'autoGenerateImages')
                 settings.autoGenerateImages = input.checked;
+            if (input.name === 'petLines')
+                settings.petLines = input.checked;
+            if (input.name === 'petMotion')
+                settings.petMotion = input.checked;
             persist();
             content.querySelector('[data-feedback]').textContent = '更改会自动保存。';
         }, { signal });
@@ -310,9 +351,11 @@ async function mount() {
         launcher.setAttribute('aria-expanded', 'false');
         if (panelOpener.isConnected && panelOpener.getClientRects().length)
             panelOpener.focus({ preventScroll: true });
+        emitPetEvent({ type: 'ui', action: 'panel-close' });
     }, { signal });
     stylesheet.addEventListener('error', () => {
         console.error(`[${pluginName}] 样式加载失败，请检查扩展文件是否完整。`);
+        emitPetEvent({ type: 'stop' });
         controller.abort();
         imageConfig.destroy();
         modelConfig.destroy();
@@ -326,6 +369,7 @@ async function mount() {
         modelConfig.maskKey();
         if (event.persisted)
             return;
+        emitPetEvent({ type: 'stop' });
         controller.abort();
         imageConfig.destroy();
         modelConfig.destroy();

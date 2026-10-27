@@ -6,6 +6,7 @@ import { onImageHistoryChanged } from './image-history.js';
 import { createSifangImageControl, type NativeImageView } from './sifang-image-control.js';
 import { sifangHost, type SifangFloor } from './sifang-host.js';
 import { readSifangFloors, isSifangFloorPending } from './sifang-chat.js';
+import { nativeTarget, type FloorTarget } from './pet-targets.js';
 
 interface NativeControl {
   id: string;
@@ -60,11 +61,30 @@ export function bindSifangImages(root: ShadowRoot, signal: AbortSignal): void {
         const view = item.view;
         const sendBlob = view.blob !== item.lastBlob;
         await host!.ui.imageMarker({ saveId: item.floor.saveId, node: item.floor.node, id: item.id,
-          state: view.state, status: view.status, ...(sendBlob ? { blob: view.blob } : {}) });
+          state: view.state, status: view.status, veiled: view.veiled, ...(sendBlob ? { blob: view.blob } : {}) });
         if (sendBlob) item.lastBlob = view.blob;
       }
     } catch (error) { report(error); }
     finally { item.updating = false; }
+  }
+
+  /** Where the host drew a frame, read ten times a second while the desktop pet may fly a picture into it
+   *  (a host without the call gives none: the picture goes back into the paintbox). */
+  function watchFrame(item: NativeControl): { target(): FloorTarget | null; stop(): void } {
+    const ui = host!.ui;
+    let latest: FloorTarget | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = typeof ui.imageMarkerRect !== 'function';
+    const tick = async () => {
+      if (stopped || signal.aborted) return;
+      try {
+        const box = await ui.imageMarkerRect!({ saveId: item.floor.saveId, node: item.floor.node, id: item.id });
+        latest = box ? nativeTarget(box) : null;
+      } catch { latest = null; }
+      if (!stopped && !signal.aborted) timer = setTimeout(tick, 100);
+    };
+    void tick();
+    return { target: () => latest, stop() { stopped = true; clearTimeout(timer); } };
   }
 
   async function idFor(key: string): Promise<string> {
@@ -102,6 +122,8 @@ export function bindSifangImages(root: ShadowRoot, signal: AbortSignal): void {
               pending: () => isSifangFloorPending(created.floor.saveId, created.floor.node),
               latest: () => imageChatContext()?.latestMessageId === created.message.messageId,
               update(view) { created.view = view; ++created.revision; void update(created); },
+              floor: () => created.message.messageId,
+              watch: () => watchFrame(created),
             });
             controls.set(entry.key, created);
             item = created;

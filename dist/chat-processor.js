@@ -2,6 +2,7 @@ import { captureLatestAssistant, replaceAssistantMessage } from './chat-host.js'
 import { applyImageInsertions, createImageInsertionPlan } from './image-insertion.js';
 import { loadModelSettings } from './model-settings.js';
 import { runConfiguredModel } from './model-service.js';
+import { emitPetEvent, petFault, petTaskId, withFault } from './pet-events.js';
 export class ChatProcessor {
     report;
     request = null;
@@ -16,34 +17,49 @@ export class ChatProcessor {
             return;
         const controller = new AbortController();
         this.request = controller;
+        const pet = petTaskId();
+        let floor;
         this.report('正在读取最新回复…', true);
+        emitPetEvent({ type: 'process', id: pet, phase: 'reading', cancellable: true });
         try {
             const settings = loadModelSettings();
             if (!settings.parseImageMarkers)
-                throw new Error('请先在模型 API 预设区开启“解析配图标记”。');
+                throw withFault(new Error('请先在模型 API 预设区开启“解析配图标记”。'), 'setup');
             if (![...settings.head, ...settings.tail].some(entry => entry.enabled && !entry.marker && entry.content.trim())) {
-                throw new Error('请先导入或填写处理正文的预设，并保存配置。');
+                throw withFault(new Error('请先导入或填写处理正文的预设，并保存配置。'), 'setup');
             }
             const snapshot = await captureLatestAssistant();
             const plan = createImageInsertionPlan(snapshot.text);
             if (!plan.points.length)
-                throw new Error('当前正文没有可用的行间插入点。');
+                throw withFault(new Error('当前正文没有可用的行间插入点。'), 'format');
             controller.signal.throwIfAborted();
             this.report(`正在处理第 ${snapshot.messageId + 1} 楼…`, true);
+            floor = snapshot.messageId;
+            emitPetEvent({ type: 'process', id: pet, phase: 'thinking', floor, cancellable: true });
             const candidate = await runConfiguredModel({
                 messages: [{ role: 'user', content: plan.text }], sourceText: snapshot.text, signal: controller.signal,
-            }, text => this.report(`AI 处理中 · 已返回 ${text.length} 字符`, true), settings);
+            }, text => {
+                this.report(`AI 处理中 · 已返回 ${text.length} 字符`, true);
+                emitPetEvent({ type: 'process', id: pet, phase: 'thinking', floor, chars: text.length, cancellable: true });
+            }, settings);
             controller.signal.throwIfAborted();
             const result = applyImageInsertions(plan, candidate);
             if (!result.added.length)
-                throw new Error('AI 未返回配图数据，原文未变。');
+                throw withFault(new Error('AI 未返回配图数据，原文未变。'), 'format');
             this.committing = true;
             this.report('正在按插入点保存配图标记…', true, false, false);
+            emitPetEvent({ type: 'process', id: pet, phase: 'saving', floor, cancellable: false });
             await replaceAssistantMessage(snapshot, result, controller.signal);
-            this.report(`已保存 ${result.added.length} 处配图标记，原正文与 HTML 前端已保留。`, false);
+            const message = `已保存 ${result.added.length} 处配图标记，原正文与 HTML 前端已保留。`;
+            this.report(message, false);
+            emitPetEvent({ type: 'end', id: pet, task: 'process', result: 'done', floor, added: result.added.length, message });
         }
         catch (error) {
-            this.report(controller.signal.aborted ? '已取消 AI 处理。' : error.message, false, !controller.signal.aborted);
+            const aborted = controller.signal.aborted;
+            const message = aborted ? '已取消 AI 处理。' : error.message;
+            this.report(message, false, !aborted);
+            emitPetEvent({ type: 'end', id: pet, task: 'process', result: aborted ? 'cancelled' : 'failed', floor, message,
+                fault: aborted ? undefined : petFault(error) });
         }
         finally {
             this.committing = false;

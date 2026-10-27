@@ -1,5 +1,6 @@
 import { imageChatContext, isChatReadyForImages } from './chat-host.js';
 import { currentPreferences } from './settings.js';
+import { emitPetEvent } from './pet-events.js';
 /** Observe new source markers, never synthetic button clicks or historical DOM remounts. */
 export function automaticImages(handlers) {
     const seen = new Set();
@@ -9,11 +10,20 @@ export function automaticImages(handlers) {
     let active = null;
     let timer;
     let disposed = false;
+    let reported = '0 false';
+    function notifyPet() {
+        const state = `${waiting.size} ${active !== null}`;
+        if (state === reported)
+            return;
+        reported = state;
+        emitPetEvent({ type: 'auto', waiting: waiting.size, active: active !== null });
+    }
     function cancel() {
         clearTimeout(timer);
         timer = undefined;
         waiting.clear();
         active?.controller.abort();
+        notifyPet();
     }
     function arm(delay = 1000) {
         if (disposed || active || timer !== undefined || !waiting.size)
@@ -41,6 +51,7 @@ export function automaticImages(handlers) {
             if (controller.signal.aborted || waiting.get(pending.entry.key) !== pending || pending.readyAt > Date.now())
                 return;
             waiting.delete(pending.entry.key);
+            notifyPet();
             await handlers.generate(pending, controller.signal);
         }
         catch {
@@ -50,6 +61,7 @@ export function automaticImages(handlers) {
         finally {
             if (active === job)
                 active = null;
+            notifyPet();
             arm();
         }
     }
@@ -93,6 +105,7 @@ export function automaticImages(handlers) {
                 if (enabled && eligible.has(candidate.entry.key))
                     waiting.set(candidate.entry.key, { ...candidate, readyAt: Date.now() + 1000 });
             }
+            notifyPet();
             arm();
         },
         dispose() { disposed = true; cancel(); seen.clear(); },

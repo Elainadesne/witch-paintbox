@@ -1,6 +1,14 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-10-27', title: '测试分支 · 桌宠缇娅',
+        changes: [
+            '接入缇娅与胡桃木画匣：支持拖动、摸头、收纳、休息，以及处理正文、排队、生图、完成和报错的动作联动。',
+            '使用偏好新增台词与动作开关，桌宠位置和收纳状态随偏好保存；资源加载失败时恢复原悬浮球。',
+            '保留最新 PNG、JPG / JPEG、WebP 和镜像返回格式兼容；独立前端缺少飞图定位接口时，完成图片收回画匣。',
+        ],
+    },
+    {
         date: '2026-10-27', title: 'NAI 镜像收图与 JPG 兼容',
         changes: [
             'NAI 接口支持直接返回 PNG、JPG / JPEG、静态 WebP，以及普通 ZIP、ZIP64 内的单张图片；按真实内容识别格式，兼容文件后缀写错。',

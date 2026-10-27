@@ -2,6 +2,7 @@ import { captureEmbeddedWrite, readEmbeddedTurn } from './embedded-chat.js';
 import { isSifangEnvironment } from './sifang-host.js';
 import { assertSifangSnapshot, captureSifangAssistant, isSifangChatReady, readSifangAssistantMessages, replaceSifangAssistant, sifangImageChatContext, watchSifangChat } from './sifang-chat.js';
 class ChatHostError extends Error {
+    fault = 'host';
 }
 const snapshots = new WeakMap();
 const renderListeners = new Set();

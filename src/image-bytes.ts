@@ -1,10 +1,14 @@
+import type { PetFault } from './pet-events.js';
+
 // Shared byte validation; never trusts a service MIME type or filename.
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const PNG_MAGIC = [137, 80, 78, 71, 13, 10, 26, 10];
 
-export class ImageResponseError extends Error {}
+export class ImageResponseError extends Error {
+  constructor(message: string, readonly fault: PetFault = 'format') { super(message); }
+}
 function fail(message: string): never {
-  throw new ImageResponseError(message);
+  throw new ImageResponseError(message, 'decode');
 }
 
 const crcTable = Uint32Array.from({ length: 256 }, (_, n) => {

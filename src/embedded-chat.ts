@@ -1,5 +1,6 @@
 import { frameDocument, frontendFrames, visibleFrontendFrame } from './frontend-frames.js';
 import { parseImageMarkers } from './image-markers.js';
+import { withFault } from './pet-events.js';
 
 type Turn = Record<string, unknown> & { message: string };
 interface Game {
@@ -26,15 +27,15 @@ function frontend(messageId: number) {
       return win?.GameManagerInstance ? [{ frame, win, game: win.GameManagerInstance }] : [];
     } catch { return []; }
   });
-  if (matches.length > 1) throw new Error('当前楼层存在多个前端回合缓存，无法确认配图归属。');
+  if (matches.length > 1) throw withFault(new Error('当前楼层存在多个前端回合缓存，无法确认配图归属。'), 'host');
   return matches[0] ?? null;
 }
 
 function requireIdle(game: Game, win: Frontend): void {
   if (game.isBackgroundProcessing || win.LlmLock?.blockedReason?.()) {
-    throw new Error('请等当前楼层前端完成后台结算后再处理。');
+    throw withFault(new Error('请等当前楼层前端完成后台结算后再处理。'), 'host');
   }
-  if (game.isHistoryViewMode) throw new Error('当前处于前端历史回看模式，请先返回最新回合再处理。');
+  if (game.isHistoryViewMode) throw withFault(new Error('当前处于前端历史回看模式，请先返回最新回合再处理。'), 'host');
 }
 
 function historyKey(game: Game): string | null {
@@ -69,7 +70,7 @@ function cacheFor(game: Game): Turn[] {
   const cache = game.chatHistoryCache;
   if (!Array.isArray(cache) || !cache.length
     || cache.some(turn => !turn || typeof turn !== 'object' || typeof turn.message !== 'string')) {
-    throw new Error('当前前端的回合缓存尚未就绪。');
+    throw withFault(new Error('当前前端的回合缓存尚未就绪。'), 'host');
   }
   return cache;
 }
@@ -102,12 +103,12 @@ export function captureEmbeddedWrite(messageId: number, original: string) {
   requireIdle(game, win);
   const cache = cacheFor(game);
   const target = cache[cache.length - 1];
-  if (target.message !== original) throw new Error('前端当前回合与酒馆正文不同，未修改历史缓存；请先完成前端同步。');
+  if (target.message !== original) throw withFault(new Error('前端当前回合与酒馆正文不同，未修改历史缓存；请先完成前端同步。'), 'host');
   const length = cache.length;
   const key = historyKey(game);
   const storage = win.AppStorage;
   const saveData = storage?.saveData;
-  if (!key || !storage || typeof saveData !== 'function') throw new Error('前端未提供可确认的历史保存接口，暂不能写入配图。');
+  if (!key || !storage || typeof saveData !== 'function') throw withFault(new Error('前端未提供可确认的历史保存接口，暂不能写入配图。'), 'host');
 
   const assertCurrent = (expected = original) => {
     const now = frontend(messageId);

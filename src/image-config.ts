@@ -6,6 +6,7 @@ import { generateConfiguredImage } from './image-provider.js';
 import { imageFileExtension } from './raster-image.js';
 import { imageChatContext } from './chat-host.js';
 import { saveImageHistory, onImageHistoryChanged, type ImageHistoryEntry } from './image-history.js';
+import { emitPetEvent, petEnd, petFault, petTaskId } from './pet-events.js';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
@@ -533,6 +534,7 @@ export class ImageConfig {
       this.generationMessage = '请先保存当前密钥配置。';
       this.generationFailed = true;
       this.syncGeneration();
+      emitPetEvent({ type: 'end', id: petTaskId(), task: 'image', source: 'config', result: 'failed', fault: 'setup', message: this.generationMessage });
       return;
     }
     const request = new AbortController();
@@ -541,20 +543,33 @@ export class ImageConfig {
     this.generationMessage = '正在加入队列…';
     this.syncGeneration();
     const snapshot = structuredClone(this.settings!);
+    const pet = petTaskId();
+    const endPet = petEnd();
+    const petImage = { type: 'end', id: pet, task: 'image', source: 'config' } as const;
+    emitPetEvent({ type: 'image', id: pet, source: 'config', phase: 'start', provider: snapshot.provider });
     const source = imageChatContext();
     try {
       const result = await generateConfiguredImage(snapshot, snapshot.positive, request.signal, progress => {
         if (request.signal.aborted || this.settings?.provider !== snapshot.provider) return;
         this.generationPhase = progress.state;
         this.generationMessage = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在生成图片…';
+        emitPetEvent({ type: 'image', id: pet, source: 'config', phase: progress.state,
+          position: progress.state === 'queued' ? progress.position : undefined, columns: progress.columns });
         this.syncGeneration();
       });
-      if (request.signal.aborted || this.settings?.provider !== snapshot.provider) return;
+      if (request.signal.aborted || this.settings?.provider !== snapshot.provider) {
+        endPet({ ...petImage, result: 'dropped', paid: true, message: '' });
+        return;
+      }
       const url = URL.createObjectURL(result.blob);
       if (this.imageUrl) URL.revokeObjectURL(this.imageUrl);
       this.imageUrl = url;
       this.imageFilename = `witch-paintbox-${result.seed ?? Date.now()}.${imageFileExtension(result.blob)}`;
       this.generationMessage = result.seed === undefined ? '生成完成。' : `生成完成 · 种子 ${result.seed}`;
+      endPet({ ...petImage, result: 'done', message: this.generationMessage, picture: {
+        blob: result.blob, width: result.parameters.width, height: result.parameters.height,
+        target: () => this.container?.querySelector('[data-output] img') ?? null,
+      } });
       const id = newId();
       const entry: ImageHistoryEntry = {
         ...result, id, createdAt: Date.now(), title: '绘图工坊 · 试绘', sourceName: source?.name,
@@ -563,17 +578,26 @@ export class ImageConfig {
       };
       this.imageRecord = { id, createdAt: entry.createdAt };
       this.pendingSaves++;
-      try { await saveImageHistory(entry); }
-      catch (error) {
+      try {
+        await saveImageHistory(entry);
+        emitPetEvent({ type: 'history', id: pet, saved: true, message: this.generationMessage });
+      } catch (error) {
         if (this.settings?.provider === snapshot.provider) this.generationMessage = `图片已生成，但未能保存到回顾：${error instanceof Error ? error.message : '存储不可用'}`;
+        emitPetEvent({ type: 'history', id: pet, saved: false, message: this.generationMessage });
       } finally { this.pendingSaves--; }
     } catch (error) {
-      if (this.settings?.provider !== snapshot.provider) return;
+      if (this.settings?.provider !== snapshot.provider) {
+        endPet({ ...petImage, result: 'dropped', message: '' });
+        return;
+      }
       this.generationFailed = !request.signal.aborted;
       this.generationMessage = request.signal.aborted
         ? this.generationPhase === 'queued' ? '已取消排队。' : '已取消等待，服务端任务可能仍在继续。'
         : (error as Error).message;
+      endPet({ ...petImage, result: request.signal.aborted ? 'cancelled' : 'failed', message: this.generationMessage,
+        fault: request.signal.aborted ? undefined : petFault(error), serverMayContinue: request.signal.aborted && this.generationPhase !== 'queued' });
     } finally {
+      endPet({ ...petImage, result: 'dropped', message: '' });
       this.request = null;
       this.syncGeneration();
     }

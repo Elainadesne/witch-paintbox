@@ -1,5 +1,6 @@
 import { MAX_IMAGE_MARKERS, MAX_MARKER_TEXT_LENGTH, MAX_ORIGINAL_LENGTH, parseImageMarkers, type ImageMarker } from './image-markers.js';
 import { imageTextRegions, textLines } from './image-text-regions.js';
+import { withFault } from './pet-events.js';
 
 export interface ImageInsertionPoint { readonly id: string; readonly offset: number }
 export interface ImageInsertionPlan {
@@ -36,7 +37,7 @@ export function narrativeSpans(text: string, regions = imageTextRegions(text)): 
 }
 
 export function createImageInsertionPlan(original: string): ImageInsertionPlan {
-  if (typeof original !== 'string' || original.length > MAX_ORIGINAL_LENGTH) throw new Error('正文过长或格式无效，无法建立插入位置。');
+  if (typeof original !== 'string' || original.length > MAX_ORIGINAL_LENGTH) throw withFault(new Error('正文过长或格式无效，无法建立插入位置。'), 'format');
   const regions = imageTextRegions(original);
   const spans = narrativeSpans(original, regions);
   const bounds: NarrativeSpan[] = spans.length ? spans : [{ start: 0, end: original.length }];
@@ -66,7 +67,7 @@ export function createImageInsertionPlan(original: string): ImageInsertionPlan {
     const separator = point.offset > 0 && /[\r\n]/.test(original[point.offset - 1]) ? '' : eol;
     const annotation = `${separator}【插入点 ${point.id}】${eol}`;
     length += annotation.length;
-    if (length > MAX_MARKER_TEXT_LENGTH) throw new Error('正文可插入位置过多，标注后超过长度限制。');
+    if (length > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('正文可插入位置过多，标注后超过长度限制。'), 'format');
     pieces.push(original.slice(cursor, point.offset), annotation);
     cursor = point.offset;
   }
@@ -87,29 +88,29 @@ export interface ImageInsertionResult {
 }
 
 export function applyImageInsertions(plan: ImageInsertionPlan, response: string): ImageInsertionResult {
-  if (typeof response !== 'string' || response.length > MAX_MARKER_TEXT_LENGTH) throw new Error('AI 返回内容过长或格式无效。');
+  if (typeof response !== 'string' || response.length > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('AI 返回内容过长或格式无效。'), 'format');
   let source = response.trim();
   const fence = /^```(?:json)?[ \t]*(?:\r\n|\r|\n)([\s\S]*?)(?:\r\n|\r|\n)```$/i.exec(source);
   if (fence) source = fence[1];
   let decoded: unknown;
   try { decoded = JSON.parse(source); }
-  catch { throw new Error('AI 需要返回配图 JSON 数组，原文未修改。'); }
-  if (!Array.isArray(decoded)) throw new Error('AI 需要返回配图 JSON 数组，不能返回改写后的正文。');
+  catch { throw withFault(new Error('AI 需要返回配图 JSON 数组，原文未修改。'), 'format'); }
+  if (!Array.isArray(decoded)) throw withFault(new Error('AI 需要返回配图 JSON 数组，不能返回改写后的正文。'), 'format');
   const existing = parseImageMarkers(plan.original);
-  if (decoded.length + existing.length > MAX_IMAGE_MARKERS) throw new Error('图片标记总数不能超过 64 处。');
+  if (decoded.length + existing.length > MAX_IMAGE_MARKERS) throw withFault(new Error('图片标记总数不能超过 64 处。'), 'format');
   const positions = new Map(plan.points.map(point => [point.id, point.offset]));
   const groups = new Map<number, { summary: string; prompt: string }[]>();
   for (const row of decoded) {
     if (!row || typeof row !== 'object' || Array.isArray(row)
       || Object.keys(row).length !== 3 || typeof row.at !== 'string'
       || typeof row.summary !== 'string' || typeof row.prompt !== 'string') {
-      throw new Error('每处配图只能包含 at、summary、prompt 三项。');
+      throw withFault(new Error('每处配图只能包含 at、summary、prompt 三项。'), 'format');
     }
     const offset = positions.get(row.at);
-    if (offset === undefined) throw new Error('AI 返回了不存在的插入点，原文未修改。');
+    if (offset === undefined) throw withFault(new Error('AI 返回了不存在的插入点，原文未修改。'), 'format');
     if (!row.summary.trim() || !row.prompt.trim() || /[\[\]<>\r\n]/.test(row.summary)
       || /<\s*\/?\s*img\b/i.test(row.prompt)) {
-      throw new Error('配图概括或提示词无效，不能为空或嵌入图片标记。');
+      throw withFault(new Error('配图概括或提示词无效，不能为空或嵌入图片标记。'), 'format');
     }
     const group = groups.get(offset) ?? [];
     group.push({ summary: row.summary, prompt: row.prompt });
@@ -128,7 +129,7 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
       content += raw + eol + eol;
     }
     totalLength += content.length;
-    if (totalLength > MAX_MARKER_TEXT_LENGTH) throw new Error('插入后的正文超过长度限制，原文未修改。');
+    if (totalLength > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('插入后的正文超过长度限制，原文未修改。'), 'format');
     insertions.push({ offset, content, markers });
   }
   // Validate every row before constructing the new text; original slices are never rewritten.
@@ -147,6 +148,6 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
     shift += insertion.content.length;
   }
   const parsed = new Map(parseImageMarkers(text).map(marker => [marker.start, marker]));
-  if (added.some(marker => parsed.get(marker.start)?.raw !== marker.raw)) throw new Error('配图未能形成独立的完整标记，原文未修改。');
+  if (added.some(marker => parsed.get(marker.start)?.raw !== marker.raw)) throw withFault(new Error('配图未能形成独立的完整标记，原文未修改。'), 'format');
   return { text, added };
 }

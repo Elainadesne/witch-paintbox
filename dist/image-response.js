@@ -2,7 +2,7 @@ import { ImageResponseError, MAX_IMAGE_BYTES, crc32, decodeImageBase64 } from '.
 import { rasterImageType, readRasterImage } from './raster-image.js';
 export { ImageResponseError } from './image-bytes.js';
 const MAX_ENCODED_BYTES = 46 * 1024 * 1024;
-function fail(message) { throw new ImageResponseError(message); }
+function fail(message, fault) { throw new ImageResponseError(message, fault); }
 async function readBoundedStream(stream, limit, signal, ensureActive) {
     const reader = stream.getReader();
     const chunks = [];
@@ -52,7 +52,7 @@ export function requireImageSupport() {
         new DecompressionStream('deflate-raw');
     }
     catch {
-        fail('当前浏览器不支持图片解压，请升级浏览器后再生成；尚未发送生图请求。');
+        fail('当前浏览器不支持图片解压，请升级浏览器后再生成；尚未发送生图请求。', 'setup');
     }
 }
 /** Read bounded, single-disk ZIP/ZIP64 archives; never extract names to the filesystem. */
@@ -354,12 +354,12 @@ async function readImageReference(value, signal, ensureActive) {
     }
     catch {
         ensureActive();
-        return fail('无法读取接口返回的图片 URL，请检查图片地址、跨域访问或重定向设置；没有重新发起生图。');
+        return fail('无法读取接口返回的图片 URL，请检查图片地址、跨域访问或重定向设置；没有重新发起生图。', 'network');
     }
     ensureActive();
     if (!response.ok) {
         void response.body?.cancel().catch(() => { });
-        fail(`读取图片 URL 失败（HTTP ${response.status}）；没有重新发起生图。`);
+        fail(`读取图片 URL 失败（HTTP ${response.status}）；没有重新发起生图。`, 'network');
     }
     return readResponse(response, MAX_IMAGE_BYTES, signal, ensureActive);
 }

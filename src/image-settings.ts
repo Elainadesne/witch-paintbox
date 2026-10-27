@@ -1,5 +1,6 @@
 import { createSettingsStorage } from './host-settings.js';
 import { defaultOpenAIImageParameters, validateOpenAIImageParameters, type OpenAIImageParameters } from './openai-image.js';
+import { withFault } from './pet-events.js';
 
 export type ImageProvider = 'novelai' | 'openai';
 export const IMAGE_PROVIDERS: readonly ImageProvider[] = ['novelai', 'openai'];
@@ -61,7 +62,7 @@ export function defaultImageSettings(provider: ImageProvider = 'novelai'): Image
 }
 
 function invalid(): never {
-  throw new Error('生图配置格式无效，请检查参数和配置条目。');
+  throw withFault(new Error('生图配置格式无效，请检查参数和配置条目。'), 'setup');
 }
 
 function record(value: unknown): Record<string, unknown> {

@@ -84,6 +84,11 @@ function preferencesView(settings: Settings): string {
       <p class="config-status" data-cleanup-status role="status"></p>
       <label class="preference-row"><span><strong>自动生图</strong><span>仅限最新一楼。AI 回复结束、提示词稳定 1 秒后，按正文顺序依次绘制。会消耗生图额度；已有图片跳过，失败不自动重试，打开聊天或开启功能时不补跑历史标记。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
     </section>
+    <section class="preference-section" aria-labelledby="pet-heading">
+      <header class="section-heading section-heading--plain"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><p class="section-description">点击菜单中的“关闭悬浮球”可让缇娅回到画匣，不影响后台生图；点击画匣再次唤出。</p></header>
+      <label class="preference-row"><span><strong>缇娅的台词</strong><span>仅在操作或有结果时触发，相同台词有冷却时间。关闭后不再说话，出错时仍显示报错文字。</span></span><input type="checkbox" name="petLines" ${settings.petLines ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>缇娅的动作</strong><span>关闭后仅保留呼吸和眨眼，取消走动、摆动及图片飞入楼层的动画。系统开启“减少动态效果”时同样生效。</span></span><input type="checkbox" name="petMotion" ${settings.petMotion ? 'checked' : ''}></label>
+    </section>
     <label class="preference-row">
       <span><strong>回到上次页面</strong><span>再次打开时继续上次的位置；关闭后每次进入“开始使用”。</span></span>
       <input type="checkbox" name="rememberPage" ${settings.rememberPage ? 'checked' : ''}>

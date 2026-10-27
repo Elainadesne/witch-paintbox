@@ -23,6 +23,16 @@ export interface SifangMarkerView {
   state?: 'idle' | 'queued' | 'generating';
   status?: string;
   blob?: Blob | null;
+  /** The picture keeps its place in the frame but stays hidden (the desktop pet is flying it in). */
+  veiled?: boolean;
+}
+/** A host frame's box in the plugin window's coordinates, with the band of the story that shows. */
+export interface SifangMarkerRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  view?: { left: number; top: number; right: number; bottom: number };
 }
 export interface SifangMarkerEvent {
   action: 'generate' | 'open' | 'cancel';
@@ -45,7 +55,9 @@ interface SifangHost {
     toast(text: string, kind?: string): Promise<unknown>;
     windowViewport?(enabled: boolean): Promise<void>;
     imageMarkers(options: { saveId: string; node: string; expectedRaw: string; markers: SifangMarkerView[] }): Promise<unknown>;
-    imageMarker(options: { saveId: string; node: string; id: string } & Pick<SifangMarkerView, 'state' | 'status' | 'blob'>): Promise<unknown>;
+    imageMarker(options: { saveId: string; node: string; id: string } & Pick<SifangMarkerView, 'state' | 'status' | 'blob' | 'veiled'>): Promise<unknown>;
+    /** Optional (capability native-image-marker-rect). */
+    imageMarkerRect?(options: { saveId: string; node: string; id: string }): Promise<SifangMarkerRect | null>;
   };
   on(event: 'image-marker', handler: (payload: SifangMarkerEvent) => unknown): () => void;
   on(event: string, handler: (payload: unknown) => unknown): () => void;

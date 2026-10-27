@@ -1,0 +1,49 @@
+/* Tia, the paintbox's desktop pet: her layer in the plugin's shadow root. The launcher stays the plugin's own button,
+   emptied to a 0x0 box; the hit parts inside it follow her and the paintbox. */
+.pet-layer { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2147483000; pointer-events: none; }
+.pet-layer .pet-canvas { position: absolute; left: 0; top: 0; pointer-events: none; will-change: transform; }
+.pet-layer .pet-still { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; user-select: none; }
+
+.pet-layer > .launcher.pet,
+.pet-layer > .launcher.pet:hover,
+.pet-layer > .launcher.pet:active,
+.pet-layer > .launcher.pet.processing,
+.pet-layer > .launcher.pet.generating {
+  position: fixed; left: 0; top: 0; z-index: auto; display: block; width: 0; height: 0; min-width: 0; min-height: 0;
+  margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: transparent;
+  overflow: visible; cursor: default; touch-action: auto; user-select: auto; outline: none; pointer-events: auto;
+}
+.pet-layer > .launcher.pet::before,
+.pet-layer > .launcher.pet::after { content: none; display: none; }
+.pet-layer > .launcher.pet:focus-visible { outline: none; }
+
+.pet-hits { position: absolute; left: 0; top: 0; display: block; width: 0; height: 0; transform-origin: 0 0; pointer-events: none; }
+.pet-hits[hidden] { display: none; }
+.pet-hit {
+  position: absolute; display: block; border-radius: 14% / 22%; pointer-events: none; cursor: grab;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.launcher.pet.hot .pet-hit,
+.launcher.pet.touch .pet-hit { pointer-events: auto; }
+.launcher.pet.dragging .pet-hit { cursor: grabbing; }
+
+/* her note: rides above her hat; the plugin's own message under her line, in its plain type */
+.pet-note-at { position: absolute; left: 0; top: 0; width: max-content; pointer-events: none; }
+.pet-layer .note {
+  position: relative; box-sizing: content-box; max-width: 15em; padding: .55em .8em .6em; background: #fdfaf2; color: #3c3931;
+  border: 1px solid #d8cfbd; border-radius: 3px; box-shadow: 0 6px 18px #2a1d0e40, 0 1px 0 #fff inset;
+  font: 15px/1.55 "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", STSong, serif; letter-spacing: .02em; text-align: left;
+  white-space: normal; overflow-wrap: anywhere; transform-origin: var(--tail, 85%) 110%; opacity: 0;
+  transform: translateY(6px) scale(.92); transition: opacity .22s, transform .28s cubic-bezier(.2, 1.4, .4, 1);
+}
+.pet-layer .note.on { opacity: 1; transform: none; }
+.pet-layer .note::after {
+  content: ""; position: absolute; box-sizing: content-box; left: var(--tail, 78%); margin-left: -6px; bottom: -7px; width: 12px; height: 12px;
+  background: #fdfaf2; border-right: 1px solid #d8cfbd; border-bottom: 1px solid #d8cfbd; transform: rotate(45deg);
+}
+.pet-layer .note b { color: #89682f; font-weight: 600; }
+.pet-layer .note small {
+  display: block; margin-top: .45em; padding-top: .4em; border-top: 1px solid #d8cfbd; color: #756b5b;
+  font: 12.5px/1.5 system-ui, "Segoe UI", sans-serif; letter-spacing: 0;
+}
+.pet-layer .note.fact-only small { margin-top: 0; padding-top: 0; border-top: 0; }

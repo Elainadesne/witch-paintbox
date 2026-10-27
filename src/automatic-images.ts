@@ -1,6 +1,7 @@
 import { imageChatContext, isChatReadyForImages } from './chat-host.js';
 import type { AssistantImageMessage, MarkerEntry } from './image-marker-history.js';
 import { currentPreferences } from './settings.js';
+import { emitPetEvent } from './pet-events.js';
 
 export interface AutomaticImage { message: AssistantImageMessage; entry: MarkerEntry }
 
@@ -16,12 +17,20 @@ export function automaticImages(handlers: {
   let active: { candidate: AutomaticImage; controller: AbortController } | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
+  let reported = '0 false';
 
+  function notifyPet() {
+    const state = `${waiting.size} ${active !== null}`;
+    if (state === reported) return;
+    reported = state;
+    emitPetEvent({ type: 'auto', waiting: waiting.size, active: active !== null });
+  }
   function cancel() {
     clearTimeout(timer);
     timer = undefined;
     waiting.clear();
     active?.controller.abort();
+    notifyPet();
   }
   function arm(delay = 1000) {
     if (disposed || active || timer !== undefined || !waiting.size) return;
@@ -40,12 +49,14 @@ export function automaticImages(handlers: {
       if (!await isChatReadyForImages()) return;
       if (controller.signal.aborted || waiting.get(pending.entry.key) !== pending || pending.readyAt > Date.now()) return;
       waiting.delete(pending.entry.key);
+      notifyPet();
       await handlers.generate(pending, controller.signal);
     } catch {
       // Inline controls display failures. Never retry a paid generation automatically.
       waiting.delete(pending.entry.key);
     } finally {
       if (active === job) active = null;
+      notifyPet();
       arm();
     }
   }
@@ -84,6 +95,7 @@ export function automaticImages(handlers: {
         seen.add(candidate.entry.key);
         if (enabled && eligible.has(candidate.entry.key)) waiting.set(candidate.entry.key, { ...candidate, readyAt: Date.now() + 1000 });
       }
+      notifyPet();
       arm();
     },
     dispose() { disposed = true; cancel(); seen.clear(); },

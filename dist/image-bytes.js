@@ -2,9 +2,14 @@
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const PNG_MAGIC = [137, 80, 78, 71, 13, 10, 26, 10];
 export class ImageResponseError extends Error {
+    fault;
+    constructor(message, fault = 'format') {
+        super(message);
+        this.fault = fault;
+    }
 }
 function fail(message) {
-    throw new ImageResponseError(message);
+    throw new ImageResponseError(message, 'decode');
 }
 const crcTable = Uint32Array.from({ length: 256 }, (_, n) => {
     for (let bit = 0; bit < 8; bit++)

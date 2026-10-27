@@ -1,12 +1,12 @@
 import { ImageResponseError, MAX_IMAGE_BYTES, PNG_MAGIC, requirePng } from './image-bytes.js';
-function fail(message) { throw new ImageResponseError(message); }
+function fail(message, fault) { throw new ImageResponseError(message, fault); }
 function dimensions(width, height) {
     if (!width || !height || width > 4096 || height > 4096)
-        fail('图片尺寸无效或超过 4096 像素。');
+        fail('图片尺寸无效或超过 4096 像素。', 'decode');
     return { width, height };
 }
 function jpegDimensions(bytes) {
-    const invalid = () => fail('JPEG 图片结构无效或数据不完整。');
+    const invalid = () => fail('JPEG 图片结构无效或数据不完整。', 'decode');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     let frame;
     let components = 0;
@@ -63,7 +63,7 @@ function jpegDimensions(bytes) {
     return invalid();
 }
 function webpDimensions(bytes) {
-    const invalid = () => fail('WebP 图片结构无效或数据不完整。');
+    const invalid = () => fail('WebP 图片结构无效或数据不完整。', 'decode');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (bytes.length < 20 || view.getUint32(4, true) !== bytes.length - 8)
         return invalid();
@@ -81,13 +81,13 @@ function webpDimensions(bytes) {
         if (next > bytes.length)
             return invalid();
         if (name === 'ANIM' || name === 'ANMF')
-            fail('接口返回了动态 WebP；当前仅支持单张静态图片。');
+            fail('接口返回了动态 WebP；当前仅支持单张静态图片。', 'decode');
         if (name === 'VP8X') {
             if (offset !== 12 || length !== 10 || canvas || bytes[start] & 0xc1
                 || bytes[start + 1] || bytes[start + 2] || bytes[start + 3])
                 return invalid();
             if (bytes[start] & 2)
-                fail('接口返回了动态 WebP；当前仅支持单张静态图片。');
+                fail('接口返回了动态 WebP；当前仅支持单张静态图片。', 'decode');
             canvas = dimensions(uint24(start + 4) + 1, uint24(start + 7) + 1);
         }
         else if (name === 'VP8 ') {
@@ -113,7 +113,7 @@ function webpDimensions(bytes) {
 async function decodeImage(blob, expected, signal) {
     signal.throwIfAborted();
     if (typeof Image !== 'function' || typeof URL.createObjectURL !== 'function') {
-        fail('当前浏览器不支持图片解码，请升级浏览器或 WebView 后重试。');
+        fail('当前浏览器不支持图片解码，请升级浏览器或 WebView 后重试。', 'setup');
     }
     let image;
     let url;
@@ -122,7 +122,7 @@ async function decodeImage(blob, expected, signal) {
         url = URL.createObjectURL(blob);
     }
     catch {
-        return fail('当前浏览器无法读取图片，请检查浏览器或 WebView 支持。');
+        return fail('当前浏览器无法读取图片，请检查浏览器或 WebView 支持。', 'setup');
     }
     return new Promise((resolve, reject) => {
         let settled = false;
@@ -141,7 +141,7 @@ async function decodeImage(blob, expected, signal) {
                 resolve(value);
         };
         const abort = () => finish(new DOMException('图片读取已取消。', 'AbortError'));
-        const invalid = () => finish(new ImageResponseError('图片无法解码：数据可能损坏，或当前浏览器不支持此图片格式。'));
+        const invalid = () => finish(new ImageResponseError('图片无法解码：数据可能损坏，或当前浏览器不支持此图片格式。', 'decode'));
         const loaded = () => {
             if (settled)
                 return;

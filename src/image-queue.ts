@@ -1,6 +1,6 @@
 export type ImageGenerationProgress =
-  | { state: 'queued'; position: number }
-  | { state: 'generating' };
+  | { state: 'queued'; position: number; columns?: number }
+  | { state: 'generating'; columns?: number };
 
 interface QueuedGeneration {
   position: number;

@@ -6,6 +6,7 @@ import { onImageHistoryChanged } from './image-history.js';
 import { createSifangImageControl } from './sifang-image-control.js';
 import { sifangHost } from './sifang-host.js';
 import { readSifangFloors, isSifangFloorPending } from './sifang-chat.js';
+import { nativeTarget } from './pet-targets.js';
 /** Render through the host's real paragraph blocks, while keeping the existing plugin image lifecycle. */
 export function bindSifangImages(root, signal) {
     const host = sifangHost;
@@ -50,7 +51,7 @@ export function bindSifangImages(root, signal) {
                 const view = item.view;
                 const sendBlob = view.blob !== item.lastBlob;
                 await host.ui.imageMarker({ saveId: item.floor.saveId, node: item.floor.node, id: item.id,
-                    state: view.state, status: view.status, ...(sendBlob ? { blob: view.blob } : {}) });
+                    state: view.state, status: view.status, veiled: view.veiled, ...(sendBlob ? { blob: view.blob } : {}) });
                 if (sendBlob)
                     item.lastBlob = view.blob;
             }
@@ -61,6 +62,29 @@ export function bindSifangImages(root, signal) {
         finally {
             item.updating = false;
         }
+    }
+    /** Where the host drew a frame, read ten times a second while the desktop pet may fly a picture into it
+     *  (a host without the call gives none: the picture goes back into the paintbox). */
+    function watchFrame(item) {
+        const ui = host.ui;
+        let latest = null;
+        let timer;
+        let stopped = typeof ui.imageMarkerRect !== 'function';
+        const tick = async () => {
+            if (stopped || signal.aborted)
+                return;
+            try {
+                const box = await ui.imageMarkerRect({ saveId: item.floor.saveId, node: item.floor.node, id: item.id });
+                latest = box ? nativeTarget(box) : null;
+            }
+            catch {
+                latest = null;
+            }
+            if (!stopped && !signal.aborted)
+                timer = setTimeout(tick, 100);
+        };
+        void tick();
+        return { target: () => latest, stop() { stopped = true; clearTimeout(timer); } };
     }
     async function idFor(key) {
         const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
@@ -102,6 +126,8 @@ export function bindSifangImages(root, signal) {
                             pending: () => isSifangFloorPending(created.floor.saveId, created.floor.node),
                             latest: () => imageChatContext()?.latestMessageId === created.message.messageId,
                             update(view) { created.view = view; ++created.revision; void update(created); },
+                            floor: () => created.message.messageId,
+                            watch: () => watchFrame(created),
                         });
                         controls.set(entry.key, created);
                         item = created;
