@@ -292,24 +292,28 @@ export class Acts {
                 this.packUp();
             return;
         }
+        let began = false;
         if (!st.casting) {
             st.casting = true;
             await this.out();
             if (this.dead || this.blooming)
                 return;
-            this.m.want('focus');
+            began = true;
         }
-        this.openBox();
-        const live = W.drawing ?? W.waiting[0] ?? null;
+        // (the work read afresh: a quick fault can end it while she is still on her way out)
+        const now = this.work, live = now.drawing ?? now.waiting[0] ?? null;
         if (!live) {
             this.packUp();
             return;
         }
+        if (began)
+            this.m.want('focus');
+        this.openBox();
         // (to work: the brim folded up)
         st.brim.up = true;
         if (!st.paint || st.paint.lifted || st.paint.id !== live.id)
             st.paint = sheet(live.id, live.aspect);
-        const washing = W.drawing?.id === live.id;
+        const washing = now.drawing?.id === live.id;
         st.paint.washing = washing;
         st.paint.emit = washing;
         this.hooks.wake();
