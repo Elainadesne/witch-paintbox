@@ -11,12 +11,11 @@ const NARROW = 700;
 export function measureView(): View {
   const w = window.innerWidth, h = window.innerHeight, narrow = w < NARROW;
   let floor = h - 16;
-  if (narrow) {
-    // on a phone the top of the tavern's input bar
-    const r = document.getElementById('send_form')?.getBoundingClientRect();
-    floor = r && r.top > h * 0.5 ? r.top - 2 : h - 74;
-  }
-  return { w, h, floor, narrow, dpr: window.devicePixelRatio || 1 };
+  const r = document.getElementById('send_form')?.getBoundingClientRect();
+  // on a phone the top of the tavern's input bar
+  if (narrow) floor = r && r.top > h * 0.5 ? r.top - 2 : h - 74;
+  const form = !narrow && r && r.width > 0 && r.top > h * 0.5 && r.bottom > h * 0.75 ? { left: r.left, right: r.right } : undefined;
+  return { w, h, floor, narrow, dpr: window.devicePixelRatio || 1, ...(form ? { form } : {}) };
 }
 
 export function validSpot(spot: unknown): spot is PetSpot {
@@ -61,8 +60,9 @@ export class Places {
       const spot = this.placement[this.layout];
       st.side.y = m.sideY(spot?.place === 'side' ? spot.at * view.h : st.side.y);
     } else if (st.mode === 'idle' && !st.hop && !st.tucked) {
+      // (with no spot of her own she is at home, which keeps clear of the input bar wherever it now lies)
       const spot = this.placement[this.layout];
-      st.P = spot?.place === 'floor' ? [spot.at * view.w, view.floor] : [st.P[0] * view.w / Math.max(1, before.w), view.floor];
+      st.P = spot?.place === 'floor' ? [spot.at * view.w, view.floor] : spot ? [st.P[0] * view.w / Math.max(1, before.w), view.floor] : m.home();
     }
     if (st.away) st.boxAt = clamp(st.boxAt * view.w / Math.max(1, before.w), m.smallWidth(), view.w - m.smallWidth());
     this.changed();

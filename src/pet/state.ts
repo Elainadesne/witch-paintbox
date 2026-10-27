@@ -117,4 +117,6 @@ export interface View {
   floor: number;
   narrow: boolean;
   dpr: number;
+  /** On a wide page, the tavern's input bar where it runs along the foot (its send button is not to be stood on). */
+  form?: { left: number; right: number };
 }

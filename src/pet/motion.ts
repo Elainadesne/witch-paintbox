@@ -67,7 +67,23 @@ export class Motion {
   // quiet seconds before she curls up in her corner
   idleSeconds() { return this.view.narrow ? 3 : 15; }
   // (on the left of the page after she hid on the left)
-  home(): Vec { const st = this.st, n = this.view.narrow; return [st.onLeft ? (n ? 62 : 150) : this.view.w - (n ? 62 : 150), this.view.floor]; }
+  home(): Vec {
+    const st = this.st, n = this.view.narrow, x = st.onLeft ? (n ? 62 : 150) : this.view.w - (n ? 62 : 150);
+    return [n ? x : this.besideForm(x), this.view.floor];
+  }
+  // (on a wide page her home keeps clear of the tavern's input bar along the foot, where there is room beside it: she
+  // and the box at her inner side do not stand over its send button)
+  private besideForm(x: number): number {
+    const f = this.view.form, w = this.view.w, fig = this.fig(), gap = 16;
+    if (!f) return x;
+    const inner = fig * 0.9, outer = fig * 0.26, left = this.st.onLeft;
+    const [a, b] = left ? [x - outer, x + inner] : [x - inner, x + outer];
+    if (b <= f.left || a >= f.right) return x;
+    const roomRight = w - f.right - gap >= inner + outer, roomLeft = f.left - gap >= inner + outer;
+    if (left ? roomLeft : roomRight) return left ? f.left - gap - inner : f.right + gap + inner;
+    if (left ? roomRight : roomLeft) return left ? f.right + gap + outer : f.left - gap - outer;
+    return x;
+  }
   // in the edge: her feet at it, so it cuts her down the middle (asleep, half her face shows); awake she leans out
   tuckP(): Vec { return [this.view.w - this.fig() * lerp(0.07, 0.12, this.st.peek), this.view.floor]; }
   // her middle, for a let-go at this height: the brim of her hat stays on the page, her box above the floor
