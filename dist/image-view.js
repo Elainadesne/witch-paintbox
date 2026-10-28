@@ -38,9 +38,13 @@ export function imageSettingsView(settings, state) {
         <label class="config-field channel-field"><span>渠道</span>
           <select data-connection="channel">${options([{ value: 'official', label: '官方' }, { value: 'custom', label: '自定义' }], connection.channel)}</select>
         </label>
-        <label class="config-field" data-custom-url${connection.channel === 'custom' ? '' : ' hidden'}><span>服务 URL</span>
-          <input type="url" data-connection="url" value="${escape(connection.url)}" placeholder="请输入 URL" maxlength="8192" autocomplete="off" spellcheck="false">
-        </label>
+        <div data-custom-url${connection.channel === 'custom' ? '' : ' hidden'}>
+          <label class="config-field"><span>服务 URL</span>
+            <input type="url" data-connection="url" value="${escape(connection.url)}" placeholder="请输入 URL" maxlength="8192" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="parameter-toggles"><label><input type="checkbox" data-connection="appendSuffix" aria-describedby="image-url-hint"${connection.appendSuffix ? ' checked' : ''}>自动拼接接口后缀</label></div>
+          <p class="config-status" id="image-url-hint">开启后补齐 ${openai ? '/images/generations（仅填域名时补 /v1/images/generations）' : '/ai/generate-image'}，已有后缀不重复添加；关闭后按填写的完整 URL 请求。</p>
+        </div>
       </div>
       <div class="credential-line" data-saved="${state.connectionSaved}">
         <details class="connection-box">

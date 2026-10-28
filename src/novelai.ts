@@ -46,6 +46,7 @@ export interface ImageConnection {
   channel: 'official' | 'custom';
   url: string;
   key: string;
+  appendSuffix: boolean;
 }
 
 export interface ImageParameters {
@@ -82,7 +83,8 @@ export function validateImageConnection(connection: ImageConnection): ImageConne
   const key = typeof connection.key === 'string' ? connection.key.trim().replace(/^Bearer\s+/i, '') : '';
   if (!key || /[^\x21-\x7e]/.test(key)) fail('请填写有效的 API 密钥。', 'setup');
   const url = typeof connection.url === 'string' ? connection.url.trim() : '';
-  if (connection.channel === 'official') return { channel: 'official', url, key };
+  const { appendSuffix } = connection;
+  if (connection.channel === 'official') return { channel: 'official', url, key, appendSuffix };
   let endpoint: URL;
   try {
     endpoint = new URL(url);
@@ -92,8 +94,11 @@ export function validateImageConnection(connection: ImageConnection): ImageConne
   if (!['https:', 'http:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.hash) {
     fail('自定义 URL 仅支持 HTTP 或 HTTPS，且不能包含账号、密码或 # 片段。', 'setup');
   }
-  if (endpoint.pathname === '/') endpoint.pathname = '/ai/generate-image';
-  return { channel: 'custom', url: endpoint.href, key };
+  if (appendSuffix) {
+    const path = endpoint.pathname.replace(/\/+$/, '');
+    endpoint.pathname = path.endsWith('/ai/generate-image') ? path : `${path}/ai/generate-image`;
+  }
+  return { channel: 'custom', url: appendSuffix ? endpoint.href : url, key, appendSuffix };
 }
 
 function validateParameters(params: ImageParameters): void {

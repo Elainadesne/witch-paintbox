@@ -52,8 +52,9 @@ export function validateImageConnection(connection) {
     if (!key || /[^\x21-\x7e]/.test(key))
         fail('请填写有效的 API 密钥。', 'setup');
     const url = typeof connection.url === 'string' ? connection.url.trim() : '';
+    const { appendSuffix } = connection;
     if (connection.channel === 'official')
-        return { channel: 'official', url, key };
+        return { channel: 'official', url, key, appendSuffix };
     let endpoint;
     try {
         endpoint = new URL(url);
@@ -64,9 +65,11 @@ export function validateImageConnection(connection) {
     if (!['https:', 'http:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.hash) {
         fail('自定义 URL 仅支持 HTTP 或 HTTPS，且不能包含账号、密码或 # 片段。', 'setup');
     }
-    if (endpoint.pathname === '/')
-        endpoint.pathname = '/ai/generate-image';
-    return { channel: 'custom', url: endpoint.href, key };
+    if (appendSuffix) {
+        const path = endpoint.pathname.replace(/\/+$/, '');
+        endpoint.pathname = path.endsWith('/ai/generate-image') ? path : `${path}/ai/generate-image`;
+    }
+    return { channel: 'custom', url: appendSuffix ? endpoint.href : url, key, appendSuffix };
 }
 function validateParameters(params) {
     const within = (value, min, max, integer = false) => Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));

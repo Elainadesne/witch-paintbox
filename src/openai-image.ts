@@ -40,16 +40,19 @@ export function validateOpenAIImageConnection(connection: ImageConnection): Imag
   if (!connection || !['official', 'custom'].includes(connection.channel)) fail('请选择官方或自定义渠道。', 'setup');
   const key = typeof connection.key === 'string' ? connection.key.trim().replace(/^Bearer\s+/i, '') : '';
   if (!key || /[^\x21-\x7e]/.test(key)) fail('请填写有效的 API 密钥。', 'setup');
-  if (connection.channel === 'official') return { channel: 'official', url: OFFICIAL_ENDPOINT, key };
+  const { appendSuffix } = connection;
+  if (connection.channel === 'official') return { channel: 'official', url: OFFICIAL_ENDPOINT, key, appendSuffix };
   let url: URL;
   try { url = new URL(connection.url.trim()); }
   catch { return fail('请输入完整的自定义 URL，包含 https:// 或 http://。', 'setup'); }
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
     fail('GPT 生图 URL 仅支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。', 'setup');
   }
-  const path = url.pathname.replace(/\/+$/, '');
-  url.pathname = path.endsWith('/images/generations') ? path : `${path || '/v1'}/images/generations`;
-  return { channel: 'custom', url: url.href, key };
+  if (appendSuffix) {
+    const path = url.pathname.replace(/\/+$/, '');
+    url.pathname = path.endsWith('/images/generations') ? path : `${path || '/v1'}/images/generations`;
+  }
+  return { channel: 'custom', url: appendSuffix ? url.href : connection.url.trim(), key, appendSuffix };
 }
 
 async function withRequest<T>(signal: AbortSignal, timeout: number, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -135,7 +138,11 @@ async function readJson(response: Response, limit: number, signal: AbortSignal):
 export async function fetchOpenAIImageModels(connection: ImageConnection, signal: AbortSignal): Promise<string[]> {
   const configured = validateOpenAIImageConnection(connection);
   const url = new URL(configured.url);
-  url.pathname = url.pathname.replace(/\/images\/generations$/, '/models');
+  const path = url.pathname.replace(/\/+$/, '');
+  if (!path.endsWith('/images/generations')) {
+    fail('无法从当前完整接口地址确定模型列表地址，请手动填写模型名称。', 'setup');
+  }
+  url.pathname = path.replace(/\/images\/generations$/, '/models');
   return withRequest(signal, 20_000, async requestSignal => {
     const response = await fetch(url.href, {
       headers: { Authorization: `Bearer ${configured.key}`, Accept: 'application/json' }, signal: requestSignal,

@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-10-28', title: '自定义生图接口后缀开关',
+        changes: [
+            'NAI 与 GPT 的自定义服务 URL 下新增“自动拼接接口后缀”，关闭后按填写的完整地址请求，开启后补齐对应后缀且不重复添加。',
+            '选项随各自连接保存、同步和导入导出；保存时保留原填 URL，旧配置继续沿用原先的地址处理行为。',
+        ],
+    },
+    {
         date: '2026-10-27', title: '旧版酒馆保存兼容',
         changes: [
             '兼容酒馆 1.13.5 的 result: ok 保存成功回执，避免 AI 已插入配图却被误报为保存未确认；保留新版酒馆与 TT 的 ok: true 支持。',

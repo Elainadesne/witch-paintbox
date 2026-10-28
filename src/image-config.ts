@@ -15,7 +15,7 @@ function newId(): string {
 export class ImageConfig {
   private settings: ImageSettings | null = null;
   private loadError = '';
-  private connection: ImageConnection = { channel: 'official', url: '', key: '' };
+  private connection: ImageConnection = { channel: 'official', url: '', key: '', appendSuffix: true };
   private connectionId = '';
   private connectionName = '';
   private artistName = '';
@@ -61,7 +61,7 @@ export class ImageConfig {
     const previousProvider = this.settings?.provider;
     this.settings = null;
     this.loadError = '';
-    this.connection = { channel: 'official', url: '', key: '' };
+    this.connection = { channel: 'official', url: '', key: '', appendSuffix: true };
     this.modelOptions = [];
     this.connectionId = this.connectionName = this.artistName = '';
     try {
@@ -120,6 +120,7 @@ export class ImageConfig {
     const profile = this.settings?.connectionProfiles.find(item => item.id === this.connectionId);
     return !!profile && profile.name === this.connectionName
       && profile.channel === this.connection.channel && profile.url === this.connection.url
+      && profile.appendSuffix === this.connection.appendSuffix
       && profile.key === this.connection.key && this.settings?.activeConnectionId === profile.id;
   }
 
@@ -179,6 +180,13 @@ export class ImageConfig {
     if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement)) return;
     const settings = this.settings!;
     const connectionField = field.dataset.connection;
+    if (connectionField === 'appendSuffix' && field instanceof HTMLInputElement) {
+      this.cancelModelRefresh();
+      if (this.connection.appendSuffix !== field.checked) this.clearModels();
+      this.connection.appendSuffix = field.checked;
+      this.syncConnection();
+      return;
+    }
     if (connectionField === 'channel' || connectionField === 'url' || connectionField === 'key') {
       this.cancelModelRefresh();
       if (this.connection[connectionField] !== field.value) this.clearModels();
@@ -305,13 +313,13 @@ export class ImageConfig {
           this.clearModels();
           const profile = settings.connectionProfiles.find(item => item.id === field.value);
           if (profile) {
-            const connection = { channel: profile.channel, url: profile.url, key: profile.key };
+            const connection = { channel: profile.channel, url: profile.url, key: profile.key, appendSuffix: profile.appendSuffix };
             const next = { ...settings, connection, activeConnectionId: profile.id };
             await saveImageSettings(next);
             this.settings = next;
             this.connection = { ...connection };
           } else {
-            this.connection = { channel: 'official', url: '', key: '' };
+            this.connection = { channel: 'official', url: '', key: '', appendSuffix: true };
           }
           this.connectionId = profile?.id ?? '';
           this.connectionName = profile?.name ?? '';
@@ -370,6 +378,8 @@ export class ImageConfig {
     this.cancelModelRefresh();
     const openai = this.settings!.provider === 'openai';
     const connection = openai ? validateOpenAIImageConnection(this.connection) : validateImageConnection(this.connection);
+    // Store the entered URL so disabling suffix completion does not keep an appended path.
+    if (connection.channel === 'custom') connection.url = this.connection.url.trim();
     const name = this.connectionName.trim() || (connection.channel === 'official' ? openai ? 'OpenAI 官方' : 'NovelAI 官方' : new URL(connection.url).host);
     const id = this.connectionId || newId();
     const settings = this.settings!;
@@ -510,7 +520,8 @@ export class ImageConfig {
         list.replaceChildren(fragment);
       }
       const savedConnection = settings.connection;
-      const confirmed = connection.channel === savedConnection.channel && connection.url === savedConnection.url && connection.key === savedConnection.key;
+      const confirmed = connection.channel === savedConnection.channel && connection.url === savedConnection.url
+        && connection.key === savedConnection.key && connection.appendSuffix === savedConnection.appendSuffix;
       if (confirmed) {
         settings.models = models;
         this.pendingSaves++;

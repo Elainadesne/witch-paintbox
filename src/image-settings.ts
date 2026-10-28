@@ -50,7 +50,7 @@ const storageKey = 'witch-paintbox:image-settings:v1';
 export function defaultImageSettings(provider: ImageProvider = 'novelai'): ImageSettings {
   return {
     provider, openaiParameters: defaultOpenAIImageParameters(), models: [],
-    connection: { channel: 'official', url: '', key: '' },
+    connection: { channel: 'official', url: '', key: '', appendSuffix: true },
     connectionProfiles: [],
     activeConnectionId: '',
     parameters: defaultImageParameters(),
@@ -92,10 +92,17 @@ function option(value: unknown, options: readonly { value: string }[]): string {
   return selected;
 }
 
-function connection(value: unknown): ImageConnection {
+function connection(value: unknown, provider: ImageProvider): ImageConnection {
   const source = record(value);
   if (source.channel !== 'official' && source.channel !== 'custom') invalid();
-  return { channel: source.channel, url: text(source.url, 8192), key: text(source.key, 16_384) };
+  const url = text(source.url, 8192);
+  let appendSuffix = source.appendSuffix === undefined ? true : boolean(source.appendSuffix);
+  // Older NAI connections only expanded a bare origin; keep custom paths intact.
+  if (source.appendSuffix === undefined && provider === 'novelai' && source.channel === 'custom' && url.trim()) {
+    try { appendSuffix = new URL(url.trim()).pathname === '/'; }
+    catch { appendSuffix = false; }
+  }
+  return { channel: source.channel, url, key: text(source.key, 16_384), appendSuffix };
 }
 
 function parameters(value: unknown): ImageParameters {
@@ -141,7 +148,7 @@ export function validateImageSettings(value: unknown): ImageSettings {
   if (new Set(modelNames).size !== modelNames.length) invalid();
   const connectionProfiles = profiles(source.connectionProfiles, value => {
     const item = record(value);
-    return { ...connection(item), id: text(item.id, 128, true), name: text(item.name, 128, true) };
+    return { ...connection(item, provider), id: text(item.id, 128, true), name: text(item.name, 128, true) };
   });
   const artists = profiles(source.artists, value => {
     const item = record(value);
@@ -158,7 +165,7 @@ export function validateImageSettings(value: unknown): ImageSettings {
   return {
     provider, models: modelNames,
     openaiParameters: validateOpenAIImageParameters(source.openaiParameters ?? defaultOpenAIImageParameters()),
-    connection: connection(source.connection),
+    connection: connection(source.connection, provider),
     connectionProfiles,
     activeConnectionId: selectedId(source.activeConnectionId, connectionProfiles),
     parameters: parameters(source.parameters),
@@ -170,7 +177,7 @@ export function validateImageSettings(value: unknown): ImageSettings {
 }
 
 function sameConnection(left: ImageConnection, right: ImageConnection): boolean {
-  return left.channel === right.channel && left.url === right.url;
+  return left.channel === right.channel && left.url === right.url && left.appendSuffix === right.appendSuffix;
 }
 
 export function defaultAllImageSettings(): AllImageSettings {
