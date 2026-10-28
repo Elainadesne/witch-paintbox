@@ -1,4 +1,5 @@
 import { ChatProcessor } from './chat-processor.js';
+import { bindIllustrationPicker } from './illustration-picker.js';
 import { emitPetEvent } from './pet-events.js';
 export function bindLauncherMenu(launcher, root, signal, configure, options = {}) {
     const menu = document.createElement('div');
@@ -9,24 +10,28 @@ export function bindLauncherMenu(launcher, root, signal, configure, options = {}
     menu.setAttribute('aria-label', '魔女画匣快捷菜单');
     menu.innerHTML = `<button type="button" data-process title="让预设 AI 为最新回复插入配图标记">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 11-11 3 3L7 23M14 3v4m-2-2h4M5 8v4m-2-2h4M20 3v4m-2-2h4"/></svg><span>AI生图</span></button>
+    <button type="button" data-select><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h12M9 12h12M9 19h12M2 5l2 2 3-4M2 12l2 2 3-4M3 19h2"/></svg><span>指定插图</span></button>
     <button type="button" data-configure><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6m-7 0v6"/></svg><span>设置</span></button>
-    <p role="status"></p><button type="button" data-cancel hidden>取消处理</button>
-    <button type="button" class="launcher-dismiss" data-dismiss><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg><span>关闭悬浮球</span></button>`;
+    <p role="status"></p><button type="button" data-cancel hidden>取消处理</button>`;
     root.append(menu);
     launcher.setAttribute('aria-controls', menu.id);
     const processButton = menu.querySelector('[data-process]');
+    const selectButton = menu.querySelector('[data-select]');
     const cancelButton = menu.querySelector('[data-cancel]');
     const status = menu.querySelector('p');
     const processor = new ChatProcessor((message, busy, error, cancellable = true) => {
         status.textContent = message;
         status.classList.toggle('is-error', !!error);
         processButton.disabled = busy;
+        selectButton.disabled = busy;
         cancelButton.hidden = !busy;
         cancelButton.disabled = !cancellable;
         launcher.classList.toggle('processing', busy);
+        picker.report(message, busy, !!error, cancellable);
         if (!menu.hidden)
             place();
     });
+    const picker = bindIllustrationPicker(root, signal, processor);
     function place() {
         const bounds = options.anchor?.() ?? launcher.getBoundingClientRect();
         const left = bounds.right + 10 + menu.offsetWidth <= window.innerWidth - 8
@@ -53,15 +58,9 @@ export function bindLauncherMenu(launcher, root, signal, configure, options = {}
             emitPetEvent({ type: 'ui', action: 'menu-open' });
     }
     processButton.addEventListener('click', () => { void processor.process(); }, { signal });
+    selectButton.addEventListener('click', () => { close(); picker.open(launcher); }, { signal });
     cancelButton.addEventListener('click', () => processor.cancel(), { signal });
     menu.querySelector('[data-configure]').addEventListener('click', () => { close(); configure(); }, { signal });
-    menu.querySelector('[data-dismiss]').addEventListener('click', () => {
-        close();
-        if (options.onDismiss)
-            options.onDismiss();
-        else
-            launcher.hidden = true;
-    }, { signal });
     document.addEventListener('pointerdown', event => {
         if (!event.composedPath().includes(menu) && !event.composedPath().includes(launcher))
             close();

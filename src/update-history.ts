@@ -1,6 +1,14 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-28', title: '指定插图选行入口',
+    changes: [
+      '快捷菜单新增指定插图，可按最新回复的原文行号多选插入位置，沿用已配置的模型 API、预设与保存流程。',
+      '请求只标注所选位置，在 input 正文末尾追加指定插图位置锁定块；返回位置需一一对应，读取和保存继续核对楼层。',
+      '移除快捷菜单中的关闭悬浮球按钮。',
+    ],
+  },
+  {
     date: '2026-10-28', title: '手机设置窗口安全区适配',
     changes: [
       '手机设置窗口避开系统安全区并增加边缘留白，收紧占屏高度，内容保持内部滚动；触屏横屏也应用窗口避让。',

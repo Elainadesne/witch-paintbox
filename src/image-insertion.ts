@@ -60,6 +60,10 @@ export function createImageInsertionPlan(original: string): ImageInsertionPlan {
       points.push(Object.freeze({ id, offset }));
     }
   }
+  return annotateInsertionPoints(original, points);
+}
+
+function annotateInsertionPoints(original: string, points: readonly ImageInsertionPoint[]): ImageInsertionPlan {
   const eol = newline(original);
   const pieces: string[] = [];
   let cursor = 0;
@@ -76,6 +80,19 @@ export function createImageInsertionPlan(original: string): ImageInsertionPlan {
   return Object.freeze({ original, text: pieces.join(''), points: Object.freeze(points) });
 }
 
+/** Keep the full source, annotating only the positions explicitly selected by the user. */
+export function selectImageInsertionPoints(plan: ImageInsertionPlan, pointIds: readonly string[]): ImageInsertionPlan {
+  const selected = new Set(pointIds);
+  if (!selected.size) throw withFault(new Error('请至少选择一处插图位置。'), 'format');
+  if (selected.size !== pointIds.length) throw withFault(new Error('同一个插图位置不能重复选择。'), 'format');
+  const points = plan.points.filter(point => selected.has(point.id));
+  if (points.length !== selected.size) throw withFault(new Error('所选插图位置已失效，请重新打开指定插图。'), 'format');
+  if (points.length + parseImageMarkers(plan.original).length > MAX_IMAGE_MARKERS) {
+    throw withFault(new Error('所选位置与已有图片标记合计不能超过 64 处。'), 'format');
+  }
+  return annotateInsertionPoints(plan.original, points);
+}
+
 interface Insertion { offset: number; content: string; markers: ImageMarker[] }
 
 export interface InsertedImageMarker extends ImageMarker {
@@ -89,7 +106,7 @@ export interface ImageInsertionResult {
   warnings: string[];
 }
 
-export function applyImageInsertions(plan: ImageInsertionPlan, response: string): ImageInsertionResult {
+export function applyImageInsertions(plan: ImageInsertionPlan, response: string, requireEveryPoint = false): ImageInsertionResult {
   if (typeof response !== 'string' || response.length > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('AI 返回内容过长或格式无效。'), 'format');
   let source = response.trim();
   const fence = /^```(?:json)?[ \t]*(?:\r\n|\r|\n)([\s\S]*?)(?:\r\n|\r|\n)```$/i.exec(source);
@@ -102,6 +119,7 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
   if (decoded.length + existing.length > MAX_IMAGE_MARKERS) throw withFault(new Error('图片标记总数不能超过 64 处。'), 'format');
   const positions = new Map(plan.points.map(point => [point.id, point.offset]));
   const groups = new Map<number, { summary: string; prompt: string; size?: ImageSize }[]>();
+  const returnedPoints = new Set<string>();
   const warnings: string[] = [];
   for (const row of decoded) {
     if (!row || typeof row !== 'object' || Array.isArray(row)
@@ -110,7 +128,11 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
       throw withFault(new Error('每处配图需包含 at、summary、prompt，可选 size；不能包含其他字段。'), 'format');
     }
     const offset = positions.get(row.at);
-    if (offset === undefined) throw withFault(new Error('AI 返回了不存在的插入点，原文未修改。'), 'format');
+    if (offset === undefined) throw withFault(new Error(requireEveryPoint
+      ? 'AI 返回了未选择的插入点，原文未修改。' : 'AI 返回了不存在的插入点，原文未修改。'), 'format');
+    if (requireEveryPoint && returnedPoints.has(row.at)) {
+      throw withFault(new Error(`AI 重复返回了 ${row.at}，每个所选位置只能有一处配图，原文未修改。`), 'format');
+    }
     if (!row.summary.trim() || !row.prompt.trim() || /[\[\]<>\r\n]/.test(row.summary)
       || /<\s*\/?\s*img\b/i.test(row.prompt)) {
       throw withFault(new Error('配图概括或提示词无效，不能为空或嵌入图片标记。'), 'format');
@@ -122,6 +144,11 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
     const group = groups.get(offset) ?? [];
     group.push({ summary: row.summary, prompt: row.prompt, ...(size ? { size } : {}) });
     groups.set(offset, group);
+    returnedPoints.add(row.at);
+  }
+  if (requireEveryPoint && returnedPoints.size !== positions.size) {
+    const missing = plan.points.filter(point => !returnedPoints.has(point.id)).map(point => point.id);
+    throw withFault(new Error(`AI 遗漏了所选插入点 ${missing.join('、')}，原文未修改。`), 'format');
   }
   const eol = newline(plan.original);
   const insertions: Insertion[] = [];

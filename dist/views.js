@@ -116,7 +116,7 @@ function preferencesView(settings) {
       <label class="preference-row"><span><strong>自动生图</strong><span>仅限最新一楼。AI 回复结束、提示词稳定 1 秒后，按正文顺序依次绘制。会消耗生图额度；已有图片跳过，失败不自动重试，打开聊天或开启功能时不补跑历史标记。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
     </section>
     <section class="preference-section" aria-labelledby="pet-heading">
-      <header class="section-heading section-heading--plain"><div class="pet-heading-line"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><small class="pet-credit">由 <strong>Lovéthia</strong> 宝宝制作，无比感谢！</small></div><p class="section-description">点击菜单中的“关闭悬浮球”可让缇娅回到画匣，不影响后台生图；点击画匣再次唤出。</p></header>
+      <header class="section-heading section-heading--plain"><div class="pet-heading-line"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><small class="pet-credit">由 <strong>Lovéthia</strong> 宝宝制作，无比感谢！</small></div><p class="section-description">调整缇娅的大小、台词与动作；人物和画匣会一起缩放。</p></header>
       <div class="preference-row pet-size-row">
         <span><label for="pet-scale"><strong>缇娅的大小</strong></label><span id="pet-scale-description">50%～150%，拖动即时生效并自动保存。画匣同步缩放，菜单与台词文字大小不变。</span></span>
         <div class="pet-size-controls">

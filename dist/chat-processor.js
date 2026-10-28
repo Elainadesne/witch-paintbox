@@ -1,9 +1,29 @@
-import { captureLatestAssistant, replaceAssistantMessage } from './chat-host.js';
-import { applyImageInsertions, createImageInsertionPlan } from './image-insertion.js';
+import { assertChatSnapshot, captureLatestAssistant, replaceAssistantMessage } from './chat-host.js';
+import { applyImageInsertions, createImageInsertionPlan, selectImageInsertionPoints } from './image-insertion.js';
+import { MAX_IMAGE_MARKERS, parseImageMarkers } from './image-markers.js';
 import { loadModelSettings } from './model-settings.js';
 import { runConfiguredModel } from './model-service.js';
 import { emitPetEvent, petFault, petTaskId, withFault } from './pet-events.js';
 import { imageSizeMode } from './image-size-mode.js';
+function processingSettings() {
+    const settings = loadModelSettings();
+    if (!settings.parseImageMarkers)
+        throw withFault(new Error('请先在模型 API 预设区开启“解析配图标记”。'), 'setup');
+    if (![...settings.head, ...settings.tail].some(entry => entry.enabled && !entry.marker && entry.content.trim())) {
+        throw withFault(new Error('请先导入或填写处理正文的预设，并保存配置。'), 'setup');
+    }
+    return settings;
+}
+async function captureSelection() {
+    const snapshot = await captureLatestAssistant();
+    const plan = createImageInsertionPlan(snapshot.text);
+    if (!plan.points.length)
+        throw withFault(new Error('当前正文没有可用的行间插入点。'), 'format');
+    const capacity = MAX_IMAGE_MARKERS - parseImageMarkers(snapshot.text).length;
+    if (!capacity)
+        throw withFault(new Error('当前楼层已有 64 处图片标记，请先移除部分标记。'), 'format');
+    return Object.freeze({ snapshot, plan, capacity });
+}
 export class ChatProcessor {
     report;
     request = null;
@@ -11,11 +31,21 @@ export class ChatProcessor {
     constructor(report) {
         this.report = report;
     }
+    get busy() { return this.request !== null; }
     cancel() { if (!this.committing)
         this.request?.abort(); }
-    async process() {
+    async prepareSelection() {
+        if (this.busy)
+            throw new Error('请先完成或取消当前 AI 处理。');
+        processingSettings();
+        const selection = await captureSelection();
+        if (this.busy)
+            throw new Error('请先完成或取消当前 AI 处理。');
+        return selection;
+    }
+    async process(selection) {
         if (this.request)
-            return;
+            return false;
         const controller = new AbortController();
         this.request = controller;
         const pet = petTaskId();
@@ -23,28 +53,30 @@ export class ChatProcessor {
         this.report('正在读取最新回复…', true);
         emitPetEvent({ type: 'process', id: pet, phase: 'reading', cancellable: true });
         try {
-            const settings = loadModelSettings();
-            if (!settings.parseImageMarkers)
-                throw withFault(new Error('请先在模型 API 预设区开启“解析配图标记”。'), 'setup');
-            if (![...settings.head, ...settings.tail].some(entry => entry.enabled && !entry.marker && entry.content.trim())) {
-                throw withFault(new Error('请先导入或填写处理正文的预设，并保存配置。'), 'setup');
+            const settings = processingSettings();
+            const prepared = selection ?? await captureSelection();
+            const { snapshot } = prepared;
+            if (prepared.plan.original !== snapshot.text) {
+                throw withFault(new Error('所选正文已变化，请重新打开指定插图。'), 'format');
             }
-            const snapshot = await captureLatestAssistant();
-            const plan = createImageInsertionPlan(snapshot.text);
-            if (!plan.points.length)
-                throw withFault(new Error('当前正文没有可用的行间插入点。'), 'format');
+            const plan = selection ? selectImageInsertionPoints(prepared.plan, selection.pointIds) : prepared.plan;
+            if (selection)
+                await assertChatSnapshot(snapshot);
             controller.signal.throwIfAborted();
             this.report(`正在处理第 ${snapshot.messageId + 1} 楼…`, true);
             floor = snapshot.messageId;
             emitPetEvent({ type: 'process', id: pet, phase: 'thinking', floor, cancellable: true });
+            const input = selection
+                ? `${plan.text}\n\n<指定插图位置锁定>\n本次为人工指定插图位置模式：\n你必须且只能为以下已选定的插入点编号各生成 1 张配图，严禁选择其他未列出的插入点，严禁遗漏：\n【指定插入点：${plan.points.map(point => point.id).join(', ')}】\n</指定插图位置锁定>`
+                : plan.text;
             const candidate = await runConfiguredModel({
-                messages: [{ role: 'user', content: plan.text }], sourceText: snapshot.text, signal: controller.signal,
+                messages: [{ role: 'user', content: input }], sourceText: snapshot.text, signal: controller.signal,
             }, text => {
                 this.report(`AI 处理中 · 已返回 ${text.length} 字符`, true);
                 emitPetEvent({ type: 'process', id: pet, phase: 'thinking', floor, chars: text.length, cancellable: true });
             }, settings);
             controller.signal.throwIfAborted();
-            const result = applyImageInsertions(plan, candidate);
+            const result = applyImageInsertions(plan, candidate, !!selection);
             if (!result.added.length)
                 throw withFault(new Error('AI 未返回配图数据，原文未变。'), 'format');
             this.committing = true;
@@ -56,6 +88,7 @@ export class ChatProcessor {
             const message = `已保存 ${result.added.length} 处配图标记，原正文与 HTML 前端已保留。${sizeNotice}`;
             this.report(message, false);
             emitPetEvent({ type: 'end', id: pet, task: 'process', result: 'done', floor, added: result.added.length, message });
+            return true;
         }
         catch (error) {
             const aborted = controller.signal.aborted;
@@ -63,6 +96,7 @@ export class ChatProcessor {
             this.report(message, false, !aborted);
             emitPetEvent({ type: 'end', id: pet, task: 'process', result: aborted ? 'cancelled' : 'failed', floor, message,
                 fault: aborted ? undefined : petFault(error) });
+            return false;
         }
         finally {
             this.committing = false;

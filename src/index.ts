@@ -143,7 +143,6 @@ async function mount() {
   window.addEventListener('witch-paintbox:cleanup-status', showCleanupStatus, { signal });
   const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'), {
     anchor: () => pet?.anchor() ?? launcher.getBoundingClientRect(),
-    onDismiss: () => { if (pet) pet.dismiss(); else launcher.hidden = true; },
   });
 
   function openPanel(target: PageId, opener: HTMLElement = launcher) {
