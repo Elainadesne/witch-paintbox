@@ -1,4 +1,5 @@
 import { imageTextRegions } from './image-text-regions.js';
+import { readImageSizeMetadata } from './image-size.js';
 export const MAX_ORIGINAL_LENGTH = 256 * 1024;
 export const MAX_MARKER_TEXT_LENGTH = 512 * 1024;
 export const MAX_IMAGE_MARKERS = 64;
@@ -14,7 +15,10 @@ export function parseImageMarkers(text) {
         const parts = /^<img>(?:\r\n|\r|\n)\[([^\[\]<>\r\n]+)\](?:\r\n|\r|\n)([\s\S]*?)(?:\r\n|\r|\n)<\/img>$/.exec(raw);
         if (!parts || !parts[1].trim() || !parts[2].trim() || /<\/?\s*img\b/i.test(parts[2]))
             continue;
-        markers.push({ start: region.start, end: region.end, raw, summary: parts[1].trim(), prompt: parts[2].trim() });
+        const metadata = readImageSizeMetadata(parts[2]);
+        if (!metadata.prompt)
+            continue;
+        markers.push({ start: region.start, end: region.end, raw, summary: parts[1].trim(), ...metadata });
         if (markers.length > MAX_IMAGE_MARKERS)
             throw new Error('图片标记最多保留 64 处。');
     }

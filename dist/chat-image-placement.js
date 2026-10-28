@@ -1,6 +1,7 @@
 import { formatChatText } from './chat-host.js';
 import { textLines } from './image-text-regions.js';
 import { frameDocument, frontendFrames, visibleFrontendFrame } from './frontend-frames.js';
+import { stripImageSizeMetadata } from './image-size.js';
 const PROTECTED = 'pre, code, script, style, a, button, input, textarea, select, option, '
     + 'audio, video, object, embed, canvas, svg, .witch-paintbox-image, .witch-paintbox-pending, '
     + '.rpg-log-section, .wlog-report-panel, .auto-system-panel, #story-image-slot, #variable-panel, '
@@ -126,16 +127,12 @@ function markerVariants(entry, messageId) {
     const raw = entry.marker.raw;
     // HTML treats <img> as a void element and may remove both delimiters, whereas
     // escaped displays retain them. Never locate a marker by its title alone.
-    const withoutOpening = raw.replace(/^<img>/, '');
-    const inner = withoutOpening.replace(/<\/img>$/, '');
-    const variants = [
-        raw,
-        withoutOpening,
-        raw.replace(/<\/img>$/, ''),
-        inner,
-        inner.replace(/[*_`\\]/g, ''),
-        zhihuijiParagraphVariant(inner),
-    ];
+    const sources = [...new Set([raw, stripImageSizeMetadata(raw)])];
+    const inners = sources.map(source => source.replace(/^<img>/, '').replace(/<\/img>$/, ''));
+    const variants = sources.flatMap((source, index) => [
+        source, source.replace(/^<img>/, ''), source.replace(/<\/img>$/, ''),
+        inners[index], inners[index].replace(/[*_`\\]/g, ''), zhihuijiParagraphVariant(inners[index]),
+    ]);
     try {
         const formatted = document.createElement('div');
         formatted.innerHTML = formatChatText(raw, messageId);
@@ -144,7 +141,7 @@ function markerVariants(entry, messageId) {
         // Markdown may consume emphasis/escape characters. Display regex replacements
         // must still retain all title and prompt content, not just a generic caption.
         const plain = (value) => compact(value).replace(/[*_`\\]/g, '');
-        if (plain(displayed) === plain(inner))
+        if (inners.some(inner => plain(displayed) === plain(inner)))
             variants.push(text);
     }
     catch { /* Literal text can still be placed if formatting is unavailable. */ }
@@ -200,14 +197,16 @@ export function locateImageMarkers(element, messageId, entries) {
     const index = displayedText(element);
     const groups = new Map();
     for (const entry of entries) {
-        const group = groups.get(entry.marker.raw) ?? [];
+        const visible = stripImageSizeMetadata(entry.marker.raw);
+        const group = groups.get(visible) ?? [];
         group.push(entry);
-        groups.set(entry.marker.raw, group);
+        groups.set(visible, group);
     }
     const placements = [];
     for (const group of groups.values()) {
+        group.sort((a, b) => a.marker.start - b.marker.start);
         const matches = [];
-        for (const needle of markerVariants(group[0], messageId)) {
+        for (const needle of new Set(group.flatMap(entry => markerVariants(entry, messageId)))) {
             for (let from = 0; from < index.text.length;) {
                 const start = index.text.indexOf(needle, from);
                 if (start < 0)

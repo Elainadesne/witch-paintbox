@@ -7,6 +7,8 @@ export interface PetSpot { place: 'floor' | 'side'; edge: 'left' | 'right'; at: 
 export interface PetPlacement { wide?: PetSpot; narrow?: PetSpot }
 
 export interface PetPreferences {
+  /** Her size relative to this layout's default (0.5–1.5); independent of animation squash/shrink. */
+  scale: number;
   /** Her lines. Off: she says nothing; errors still show the plugin's own message. */
   lines: boolean;
   /** Off (or the system's reduced motion): she only breathes and blinks. */

@@ -1,7 +1,8 @@
 // How she moves: the state, the springs, one simulation step (at most 1/60 s), and a clock of her own for the acts
 // (it runs with the frame loop, so everything waits while she is not drawn).
 import { SHUT_WIDTH, type BoxFrame, type Paintbox } from './box.js';
-import { BRIM_DOWN, R, SIDE, TH, type Rig } from './tia.js';
+import { readPetScale } from '../settings.js';
+import { BRIM_DOWN, R, SIDE, TH, TW, type Rig } from './tia.js';
 import { clamp, createState, FACES, lerp, springs, step, wind, type Box4, type Face, type SideSpot, type Vec, type View } from './state.js';
 
 export interface MotionHooks {
@@ -36,6 +37,8 @@ export class Motion {
   /** The still mode's paintbox: the open state's share in its cross-fade. */
   fadeOpen = 0;
   private waiters: Waiter[] = [];
+  private sizeScale = 1;
+  private sizeFitPending = false;
   // the rub: the times of its turns, where the pointer last was over her head, which way it went and how far
   private rub = { turns: [] as number[], x: -1, dir: 0, run: 0, last: -9, press: false };
 
@@ -62,13 +65,21 @@ export class Motion {
   /** A press held on her head (touch), or let go. */
   press(on: boolean) { this.rub.press = on; if (on) this.rub.last = this.st.t; }
 
-  fig() { return this.view.narrow ? 160 : 296; }         // her texture's height on screen (CSS px); she is 89% of it
+  setSize(value: unknown) {
+    const next = readPetScale(value);
+    if (next === this.sizeScale) return;
+    this.sizeScale = next;
+    this.refitSize();
+  }
+  refitSize() { this.sizeFitPending = true; }
+  fig() { return (this.view.narrow ? 160 : 296) * this.sizeScale; } // texture height (CSS px); she is 89% of it
   scale() { return this.fig() / TH * this.st.shrink; }
   // quiet seconds before she curls up in her corner
   idleSeconds() { return this.view.narrow ? 3 : 15; }
   // (on the left of the page after she hid on the left)
   home(): Vec {
-    const st = this.st, n = this.view.narrow, x = st.onLeft ? (n ? 62 : 150) : this.view.w - (n ? 62 : 150);
+    const st = this.st, n = this.view.narrow, margin = Math.min(this.view.w / 2, (n ? 62 : 150) * this.sizeScale);
+    const x = st.onLeft ? margin : this.view.w - margin;
     return [n ? x : this.besideForm(x), this.view.floor];
   }
   // (on a wide page her home keeps clear of the tavern's input bar along the foot, where there is room beside it: she
@@ -87,7 +98,10 @@ export class Motion {
   // in the edge: her feet at it, so it cuts her down the middle (asleep, half her face shows); awake she leans out
   tuckP(): Vec { return [this.view.w - this.fig() * lerp(0.07, 0.12, this.st.peek), this.view.floor]; }
   // her middle, for a let-go at this height: the brim of her hat stays on the page, her box above the floor
-  sideY(y: number) { return clamp(y, this.fig() * 0.36, this.view.floor - this.fig() * 0.74); }
+  sideY(y: number) {
+    const low = this.fig() * 0.36, high = this.view.floor - this.fig() * 0.74;
+    return low <= high ? clamp(y, low, high) : Math.max(0, this.view.floor) / 2;
+  }
   sideBase() { return this.st.side?.dir === 'L' ? Math.PI / 2 : -Math.PI / 2; }
 
   // texture px -> screen, for the current pose
@@ -149,7 +163,7 @@ export class Motion {
     const lap = this.toScreen(...R.lap);
     return [lerp(by[0], lap[0], st.tk), lerp(by[1], lap[1], st.tk)];
   }
-  smallWidth() { return this.view.narrow ? 52 : 64; }
+  smallWidth() { return (this.view.narrow ? 52 : 64) * this.sizeScale; }
   smallHeight() { return this.box.heightFor(this.smallWidth()); }
   boxWidth() {
     const st = this.st, f = this.fig();
@@ -171,6 +185,35 @@ export class Motion {
     return X >= b.x && X <= b.x + b.w && Y >= b.y && Y <= b.y + b.h;
   }
   want(face: Face) { this.st.want = face; }
+
+  /** A size change keeps her spot and all running acts; only move it when the new outline would leave the page. */
+  private fitSize() {
+    if (!this.sizeFitPending) return;
+    const st = this.st, W = this.view.w;
+    if (st.side) st.side.y = this.sideY(st.side.y);
+    if (st.spot) st.spot.y = this.sideY(st.spot.y);
+    if (st.dive) st.dive.spot.y = this.sideY(st.dive.spot.y);
+    // A hop/drag or climbing into the box owns its trajectory. Fit as soon as it settles, without cancelling it.
+    if (st.boxHold || st.hop || (st.mode !== 'idle' && st.mode !== 'side')) return;
+    if (st.mode === 'side' && st.side) st.P[1] = st.side.y;
+    else if (st.away) {
+      const margin = Math.min(W / 2, this.smallWidth());
+      const x = clamp(st.boxAt, margin, W - margin);
+      if (st.box.cx >= 0) st.box.cx += x - st.boxAt;
+      st.boxAt = x;
+    } else if (st.tucked) st.P = this.tuckP();
+    else {
+      const xs = [[0, 0], [TW, 0], [0, TH], [TW, TH]].map(([x, y]) => this.toScreen(x, y)[0]);
+      const [cx, cy] = this.boxTarget(), b = this.box.bounds(this.box.frame(cx, cy, this.boxWidth()));
+      const left = Math.min(...xs, b.x), right = Math.max(...xs, b.x + b.w);
+      const margin = Math.min(W / 2, this.fig() * 0.36);
+      const dx = right - left <= W - 16 ? clamp(0, 8 - left, W - 8 - right)
+        : clamp(st.P[0], margin, W - margin) - st.P[0];
+      st.P[0] += dx;
+      if (st.box.cx >= 0) st.box.cx += dx;
+    }
+    this.sizeFitPending = false;
+  }
 
   // ---- her clock ---------------------------------------------------------------------------------------------------
   until(done: () => boolean): Promise<void> {
@@ -423,6 +466,7 @@ export class Motion {
     B.small += (B.smallTo - B.small) * Math.min(1, dt * 6);
     B.glow += ((B.crack > 0.5 ? 1 : 0) - B.glow) * Math.min(1, dt * 3);
     B.show += Math.sign(B.showTo - B.show) * Math.min(Math.abs(B.showTo - B.show), dt / 0.15);
+    this.fitSize();
     {
       const [tx, ty] = this.boxTarget();
       if (B.cx < 0 || still) { B.cx = tx; B.cy = ty; B.vx = B.vy = 0; }

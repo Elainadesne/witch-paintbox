@@ -53,6 +53,7 @@ export class Places {
     const m = this.m, st = m.st, before = m.view;
     const view = measureView();
     m.view = view;
+    m.refitSize();
     this.checkKeyboard();
     if (before.narrow !== view.narrow) { this.restore(); this.changed(); return; }
     // the same layout: she keeps her spot on the new page

@@ -7,6 +7,8 @@ import { imageFileExtension } from './raster-image.js';
 import { imageChatContext } from './chat-host.js';
 import { saveImageHistory, onImageHistoryChanged, type ImageHistoryEntry } from './image-history.js';
 import { emitPetEvent, petEnd, petFault, petTaskId } from './pet-events.js';
+import { loadModelSettings, saveImageSizeMode } from './model-settings.js';
+import { imageSizeMode } from './image-size-mode.js';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
@@ -89,6 +91,7 @@ export class ImageConfig {
     container.addEventListener('input', event => this.edit(event), { signal });
     container.addEventListener('change', event => { void this.select(event); }, { signal });
     container.addEventListener('click', event => { void this.click(event); }, { signal });
+    window.addEventListener('witch-paintbox:model-settings-changed', () => this.syncImageSizeMode(), { signal });
     this.render();
   }
 
@@ -138,10 +141,11 @@ export class ImageConfig {
       { connectionName: this.connectionName, artistName: this.artistName, connectionSaved: this.isConnectionSaved(), refreshing: this.modelRequest !== null },
     );
     this.syncParameters();
+    this.syncImageSizeMode();
     this.syncGeneration();
   }
 
-  private message(area: 'connection' | 'artist' | 'settings' | 'model-list', text: string, error = false): void {
+  private message(area: 'connection' | 'artist' | 'settings' | 'model-list' | 'size-mode', text: string, error = false): void {
     const node = this.container?.querySelector<HTMLElement>(`[data-${area}-status]`);
     if (!node) return;
     node.textContent = text;
@@ -171,6 +175,7 @@ export class ImageConfig {
       this.writing = false;
       controls.forEach((control, index) => { if (control.isConnected) control.disabled = disabled[index]; });
       this.syncProviderButtons();
+      this.syncImageSizeMode();
     }
   }
 
@@ -286,6 +291,22 @@ export class ImageConfig {
     }
   }
 
+  private syncImageSizeMode(): void {
+    if (!this.settings || !this.container) return;
+    let mode: 'fixed' | 'ai' = 'fixed', error = '';
+    try { mode = imageSizeMode(loadModelSettings(this.settings.provider)); }
+    catch (failure) { error = (failure as Error).message; }
+    for (const button of Array.from(this.container.querySelectorAll<HTMLButtonElement>('[data-size-mode]'))) {
+      button.setAttribute('aria-pressed', String(button.dataset.sizeMode === mode));
+      button.disabled = this.writing || Boolean(error);
+    }
+    const label = this.container.querySelector<HTMLElement>('[data-size-selection-label]');
+    if (label) label.textContent = mode === 'ai' ? '兜底尺寸' : '预设尺寸';
+    this.message('size-mode', error || (mode === 'ai'
+      ? '按每张配图返回的 size 选择画幅；缺少或不支持的尺寸使用下方兜底尺寸。'
+      : '所有配图使用下方画幅。切换模式会互斥启用当前模型 API 预设中的同名格式条目。'), Boolean(error));
+  }
+
   private async select(event: Event): Promise<void> {
     if (this.writing) return;
     const field = event.target;
@@ -365,12 +386,20 @@ export class ImageConfig {
           break;
         }
         case 'refresh-models': void this.refreshModels(); break;
+        case 'select-size-mode': {
+          const mode = target.closest<HTMLButtonElement>('button')?.dataset.sizeMode;
+          if (mode === 'fixed' || mode === 'ai') {
+            await this.write(() => saveImageSizeMode(this.settings!.provider, mode));
+          }
+          break;
+        }
         case 'save-artist': case 'update-artist': case 'delete-artist': await this.write(() => this.saveArtist(action)); break;
         case 'generate': void this.generate(); break;
         case 'cancel-generation': this.request?.abort(); break;
       }
     } catch (error) {
-      this.message(action === 'save-connection' ? 'connection' : action === 'switch-provider' ? 'settings' : 'artist', (error as Error).message, true);
+      this.message(action === 'save-connection' ? 'connection' : action === 'switch-provider' ? 'settings'
+        : action === 'select-size-mode' ? 'size-mode' : 'artist', (error as Error).message, true);
     }
   }
 

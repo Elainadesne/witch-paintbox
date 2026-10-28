@@ -1,6 +1,6 @@
 import { fetchModelList } from './model-api.js';
 import { featureLayerMessages, listFeatureLayers, onFeatureLayersChanged } from './feature-layers.js';
-import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, loadModelSettings, saveModelSettings, modelPresetSettings, modelSharedSettings, type ModelPresetSettings, type ModelSettings, type PromptEntry } from './model-settings.js';
+import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, isImageSizeModeSaving, loadModelSettings, saveModelSettings, modelPresetSettings, modelSharedSettings, type ModelPresetSettings, type ModelSettings, type PromptEntry } from './model-settings.js';
 import { modelSettingsView, presetIndexView, presetWorkspaceView, worldbookSettingsView, PRESET_PAGE_SIZE, type ModelViewState } from './model-view.js';
 import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './preset-import.js';
 import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook } from './worldbook-source.js';
@@ -10,6 +10,7 @@ import { getContextFilterStatus, onContextFilterStatusChanged } from './context-
 import { assertChatSnapshot, captureLatestAssistant } from './chat-host.js';
 import { getHostStore } from './host-storage.js';
 import { loadImageSettings, type ImageProvider } from './image-settings.js';
+import { applyImageSizeMode, imageSizeEntryMode, normalizeSizeProtocolEntries, type ImageSizeMode } from './image-size-mode.js';
 
 function escape(value: string): string {
   return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
@@ -40,14 +41,25 @@ export class ModelConfig {
   private worldbookNotice = '';
   private worldbookError = false;
 
-  get hasPendingWrites(): boolean { return this.saving || Boolean(this.worldbook.busy); }
+  private get savingSettings(): boolean { return this.saving || isImageSizeModeSaving(); }
+  get hasPendingWrites(): boolean { return this.savingSettings || Boolean(this.worldbook.busy); }
 
   constructor() {
     this.reloadSaved();
     const providerChanged = () => this.switchPresetProvider();
+    const sizeModeSaving = () => this.syncSave();
+    const sizeModeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ provider: ImageProvider; mode: ImageSizeMode }>).detail;
+      if (!detail || !['novelai', 'openai'].includes(detail.provider) || !['fixed', 'ai'].includes(detail.mode)) return;
+      this.applySavedSizeMode(detail.provider, detail.mode);
+    };
     window.addEventListener('witch-paintbox:image-provider-changed', providerChanged);
+    window.addEventListener('witch-paintbox:image-size-mode-changed', sizeModeChanged);
+    window.addEventListener('witch-paintbox:image-size-mode-saving', sizeModeSaving);
     this.unsubscribe = [
       () => window.removeEventListener('witch-paintbox:image-provider-changed', providerChanged),
+      () => window.removeEventListener('witch-paintbox:image-size-mode-changed', sizeModeChanged),
+      () => window.removeEventListener('witch-paintbox:image-size-mode-saving', sizeModeSaving),
       onFeatureLayersChanged(() => { this.ensureLayerSlots(); this.render(); }),
       onAnchorsChanged(() => { if (this.selectedKey === 'layer:anchors') void this.refreshPreview(); }),
       onSharedOutfitsChanged(() => { if (this.selectedKey === 'layer:anchors') void this.refreshPreview(); }),
@@ -169,6 +181,30 @@ export class ModelConfig {
   destroy(): void { this.unmount(); this.unsubscribe.forEach(stop => stop()); }
   private isSaved(): boolean { return this.saved === JSON.stringify(this.settings); }
 
+  private applySavedSizeMode(provider: ImageProvider, mode: ImageSizeMode): void {
+    const draft = this.presetDrafts.get(provider);
+    if (draft) draft.preset = applyImageSizeMode(draft.preset, mode);
+    if (this.settings?.presetProvider !== provider) return;
+    this.settings = applyImageSizeMode(this.settings, mode);
+    if (this.saved) this.saved = JSON.stringify(applyImageSizeMode(JSON.parse(this.saved) as ModelSettings, mode));
+    this.draftRevision++;
+    this.syncProtocolCheckboxes();
+    this.syncSave();
+  }
+
+  private syncProtocolCheckboxes(): void {
+    if (!this.settings) return;
+    const entries = new Map([...this.settings.head, ...this.settings.tail]
+      .filter(entry => imageSizeEntryMode(entry)).map(entry => [`prompt:${entry.id}`, entry]));
+    for (const checkbox of Array.from(this.container?.querySelectorAll<HTMLInputElement>('[data-preset-enabled]') ?? [])) {
+      const entry = entries.get(checkbox.dataset.presetEnabled!);
+      if (!entry) continue;
+      checkbox.checked = entry.enabled;
+      const label = checkbox.closest('label');
+      if (label) label.title = `${entry.enabled ? '关闭' : '启用'}${entry.name}`;
+    }
+  }
+
   private ensureLayerSlots(): void {
     if (!this.settings) return;
     for (const layer of listFeatureLayers()) {
@@ -184,7 +220,7 @@ export class ModelConfig {
     }
     const lastPage = Math.max(0, Math.ceil((this.settings?.promptOrder.length ?? 0) / PRESET_PAGE_SIZE) - 1);
     this.presetPage = Math.max(0, Math.min(this.presetPage, lastPage));
-    return { saved: this.isSaved(), saving: this.saving, refreshing: this.refresh !== null, selectedKey: this.selectedKey, presetPage: this.presetPage,
+    return { saved: this.isSaved(), saving: this.savingSettings, refreshing: this.refresh !== null, selectedKey: this.selectedKey, presetPage: this.presetPage,
       layerPreview: this.preview, worldbook: this.worldbook, filterStatus: getContextFilterStatus(),
       importNotice: this.importNotice || undefined, importError: this.importError };
   }
@@ -203,7 +239,7 @@ export class ModelConfig {
         <section class="config-section" data-worldbook-mount>${worldbookSettingsView(this.settings, this.worldbook, true)}</section>
         <label class="prompt-enable"><input type="checkbox" data-layer-id="worldbook"${this.settings.enabledLayers.includes('worldbook') ? ' checked' : ''}>在预设中启用世界书层</label>
         <button type="button" class="text-button model-feature-link" data-page="model-api">前往模型 API 预设 →</button>
-        <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() || this.saving ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status">${this.saving ? '正在保存…' : this.isSaved() ? '已保存。' : '选择条目后，点击保存配置生效。'}</p></div>
+        <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() || this.savingSettings ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status">${this.savingSettings ? '正在保存…' : this.isSaved() ? '已保存。' : '选择条目后，点击保存配置生效。'}</p></div>
       </div>`;
       return;
     }
@@ -218,7 +254,7 @@ export class ModelConfig {
         <div class="feature-layer-list">${layers.map(layer => `<label class="feature-layer-row"><span>${escape(layer.title)}</span><input type="checkbox" data-layer-id="${escape(layer.id)}"${this.settings!.enabledLayers.includes(layer.id) ? ' checked' : ''}></label>`).join('')}</div>
       </section>
       <button type="button" class="text-button model-feature-link" data-page="model-api">返回模型 API 预设 →</button>
-      <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status"></p></div>
+      <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() || this.savingSettings ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status"></p></div>
     </div>`;
   }
 
@@ -292,8 +328,8 @@ export class ModelConfig {
     const line = this.container?.querySelector<HTMLElement>('.model-save-line');
     if (line) line.dataset.saved = String(saved);
     const button = this.container?.querySelector<HTMLButtonElement>('[data-model-action="save-model"]');
-    if (button) button.disabled = saved || this.saving;
-    this.message(this.saving ? '正在保存…' : saved ? '已保存。' : '当前更改尚未保存。');
+    if (button) button.disabled = saved || this.savingSettings;
+    this.message(isImageSizeModeSaving() ? '正在保存画幅模式…' : this.saving ? '正在保存…' : saved ? '已保存。' : '当前更改尚未保存。');
   }
 
   private syncFilterStatus(): void {
@@ -343,6 +379,8 @@ export class ModelConfig {
         for (const node of Array.from(this.container!.querySelectorAll<HTMLElement>('[data-preset-title]'))) {
           if (node.dataset.presetTitle === `prompt:${entry.id}`) node.textContent = entry.name || '未命名条目';
         }
+        this.settings = normalizeSizeProtocolEntries(settings);
+        this.syncProtocolCheckboxes();
       }
     } else if (input instanceof HTMLInputElement && (input.dataset.presetEnabled || input.dataset.layerId)) {
       const key = input.dataset.presetEnabled ?? `layer:${input.dataset.layerId}`;
@@ -353,6 +391,9 @@ export class ModelConfig {
         const entry = [...settings.head, ...settings.tail].find(item => `prompt:${item.id}` === key);
         if (!entry || entry.marker) return;
         entry.enabled = input.checked;
+        const sizeMode = imageSizeEntryMode(entry);
+        if (sizeMode && input.checked) this.settings = applyImageSizeMode(settings, sizeMode);
+        this.syncProtocolCheckboxes();
       }
     } else return;
     this.draftRevision++; this.syncSave();
@@ -384,8 +425,8 @@ export class ModelConfig {
         this.setBookSelection(this.worldbook.book, action === 'clear-worldbook' ? [] : this.worldbook.entries.filter(entry => entry.enabled && entry.activation && entry.content.trim()).map(entry => entry.id));
       } else if (action === 'save-model') {
         for (const field of Array.from(this.container!.querySelectorAll<HTMLInputElement>('input[type="number"]'))) if (!field.reportValidity()) return;
-        if (this.saving || this.worldbook.busy) return;
-        const snapshot = structuredClone(this.settings);
+        if (this.savingSettings || this.worldbook.busy) return;
+        const snapshot = normalizeSizeProtocolEntries(structuredClone(this.settings));
         this.saving = true; this.syncSave();
         try {
           await saveModelSettings(snapshot);
@@ -626,8 +667,8 @@ export class ModelConfig {
       if (revision !== this.draftRevision || settings !== this.settings) throw new Error('读取期间配置已有更改，请重新选择文件。');
       const imported = importModelPreset(source, file.name.replace(/\.json$/i, ''));
       const layers = settings.promptOrder.filter(key => key.startsWith('layer:')).map(key => key.slice(6));
-      this.settings = { ...settings, presetName: imported.presetName, head: imported.head, tail: imported.tail,
-        promptOrder: createPromptOrder(imported.head, imported.tail, layers) };
+      this.settings = normalizeSizeProtocolEntries({ ...settings, presetName: imported.presetName, head: imported.head, tail: imported.tail,
+        promptOrder: createPromptOrder(imported.head, imported.tail, layers) });
       this.selectedKey = this.settings.promptOrder[0]; this.presetPage = 0; this.previewRequest?.abort(); this.preview = undefined;
       this.draftRevision++;
       const warnings = imported.warnings.slice(0, 5).join(' ');

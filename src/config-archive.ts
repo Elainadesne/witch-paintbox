@@ -3,7 +3,7 @@ import { defaultModelSettings, loadModelSettings, saveModelSettings, validateMod
 import { loadAnchors, replaceAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT, type CharacterAnchor } from './anchor-store.js';
 import { loadSharedOutfits, replaceSharedOutfits, validateSharedOutfits, type SharedOutfit } from './shared-outfit-store.js';
 import { loadWorldbookArchive, replaceWorldbookArchive, validateWorldbookArchive, type StoredWorldbook } from './worldbook-source.js';
-import { defaultSettings, readPetPlacement, readSettings, saveSettings, type Settings, type TavernContext } from './settings.js';
+import { defaultSettings, readPetPlacement, readPetScale, readSettings, saveSettings, type Settings, type TavernContext } from './settings.js';
 import { isPageId } from './pages.js';
 
 export const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
@@ -76,6 +76,12 @@ function preferences(value: unknown): Settings {
     optional[name] = value;
   }
   if (source.petPlacement !== undefined) optional.petPlacement = readPetPlacement(source.petPlacement);
+  if (source.petScale !== undefined) {
+    if (typeof source.petScale !== 'number' || !Number.isFinite(source.petScale) || source.petScale < 0.5 || source.petScale > 1.5) {
+      throw new Error('缇娅的大小须在 50%～150% 之间。');
+    }
+    optional.petScale = readPetScale(source.petScale);
+  }
   return { ...optional, rememberPage: source.rememberPage, rememberPosition: source.rememberPosition, lastPage: source.lastPage, position };
 }
 

@@ -248,6 +248,12 @@ button.map-node:hover { border-color: var(--section-accent); background: var(--a
 .preference-section { margin-bottom: 28px; padding: 20px; border: 1px solid var(--border); border-radius: 5px; background: var(--field-paper); }
 .preference-section .preference-row:last-child { border-bottom: 0; padding-bottom: 0; }
 .preference-section .section-heading { margin-bottom: 0; }
+.pet-size-row { flex-wrap: wrap; }
+.pet-size-row > span { flex: 1 1 240px; }
+.pet-size-controls { display: grid; grid-template-columns: minmax(64px, 1fr) 4ch auto; align-items: center; gap: 10px; width: 320px; max-width: 100%; min-width: 0; }
+.pet-size-controls input { width: 100%; min-width: 0; min-height: 36px; margin: 0; accent-color: var(--accent); }
+.pet-size-controls output { color: var(--accent); font-variant-numeric: tabular-nums; text-align: right; }
+.pet-size-controls .secondary { padding: 6px 10px; white-space: nowrap; font-size: 12px; }
 .review-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .review-toolbar .anchor-tabs { margin-bottom: 0; }
 .review-categories { display: flex; flex-wrap: wrap; gap: 8px; max-height: 160px; margin: 16px 0; padding: 3px; overflow-y: auto; }
@@ -467,6 +473,9 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
   .map-leaf::before { left: -8px; width: 7px; }
   .map-leaf { padding: 10px 7px; font-size: 11px; }
   .preference-row { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .pet-size-row > span { flex-basis: auto; }
+  .pet-size-controls { width: 100%; grid-template-columns: minmax(0, 1fr) 4ch; }
+  .pet-size-controls .secondary { grid-column: 1 / -1; justify-self: end; }
   .header-actions { gap: 10px; }
   .api-switch { gap: 4px 12px; }
   .api-switch button { min-height: 34px; font-size: 12px; }

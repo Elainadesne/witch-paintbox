@@ -7,6 +7,8 @@ import { imageFileExtension } from './raster-image.js';
 import { imageChatContext } from './chat-host.js';
 import { saveImageHistory, onImageHistoryChanged } from './image-history.js';
 import { emitPetEvent, petEnd, petFault, petTaskId } from './pet-events.js';
+import { loadModelSettings, saveImageSizeMode } from './model-settings.js';
+import { imageSizeMode } from './image-size-mode.js';
 function newId() {
     return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
 }
@@ -87,6 +89,7 @@ export class ImageConfig {
         container.addEventListener('input', event => this.edit(event), { signal });
         container.addEventListener('change', event => { void this.select(event); }, { signal });
         container.addEventListener('click', event => { void this.click(event); }, { signal });
+        window.addEventListener('witch-paintbox:model-settings-changed', () => this.syncImageSizeMode(), { signal });
         this.render();
     }
     unmount() {
@@ -131,6 +134,7 @@ export class ImageConfig {
         }
         this.container.innerHTML = imageSettingsView({ ...this.settings, connection: this.connection, activeConnectionId: this.connectionId, models: this.modelOptions }, { connectionName: this.connectionName, artistName: this.artistName, connectionSaved: this.isConnectionSaved(), refreshing: this.modelRequest !== null });
         this.syncParameters();
+        this.syncImageSizeMode();
         this.syncGeneration();
     }
     message(area, text, error = false) {
@@ -172,6 +176,7 @@ export class ImageConfig {
             controls.forEach((control, index) => { if (control.isConnected)
                 control.disabled = disabled[index]; });
             this.syncProviderButtons();
+            this.syncImageSizeMode();
         }
     }
     edit(event) {
@@ -314,6 +319,27 @@ export class ImageConfig {
             select.value = presets.find(item => item.width === width.valueAsNumber && item.height === height.valueAsNumber)?.value ?? 'custom';
         }
     }
+    syncImageSizeMode() {
+        if (!this.settings || !this.container)
+            return;
+        let mode = 'fixed', error = '';
+        try {
+            mode = imageSizeMode(loadModelSettings(this.settings.provider));
+        }
+        catch (failure) {
+            error = failure.message;
+        }
+        for (const button of Array.from(this.container.querySelectorAll('[data-size-mode]'))) {
+            button.setAttribute('aria-pressed', String(button.dataset.sizeMode === mode));
+            button.disabled = this.writing || Boolean(error);
+        }
+        const label = this.container.querySelector('[data-size-selection-label]');
+        if (label)
+            label.textContent = mode === 'ai' ? '兜底尺寸' : '预设尺寸';
+        this.message('size-mode', error || (mode === 'ai'
+            ? '按每张配图返回的 size 选择画幅；缺少或不支持的尺寸使用下方兜底尺寸。'
+            : '所有配图使用下方画幅。切换模式会互斥启用当前模型 API 预设中的同名格式条目。'), Boolean(error));
+    }
     async select(event) {
         if (this.writing)
             return;
@@ -405,6 +431,13 @@ export class ImageConfig {
                 case 'refresh-models':
                     void this.refreshModels();
                     break;
+                case 'select-size-mode': {
+                    const mode = target.closest('button')?.dataset.sizeMode;
+                    if (mode === 'fixed' || mode === 'ai') {
+                        await this.write(() => saveImageSizeMode(this.settings.provider, mode));
+                    }
+                    break;
+                }
                 case 'save-artist':
                 case 'update-artist':
                 case 'delete-artist':
@@ -419,7 +452,8 @@ export class ImageConfig {
             }
         }
         catch (error) {
-            this.message(action === 'save-connection' ? 'connection' : action === 'switch-provider' ? 'settings' : 'artist', error.message, true);
+            this.message(action === 'save-connection' ? 'connection' : action === 'switch-provider' ? 'settings'
+                : action === 'select-size-mode' ? 'size-mode' : 'artist', error.message, true);
         }
     }
     async saveConnection() {

@@ -3,7 +3,7 @@ import { hasPendingFrontendFrame, iframeNarrativeRoot, locateImageInsertionPoint
 import type { ImageMarker } from './image-markers.js';
 import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
-import { generateConfiguredImage } from './image-provider.js';
+import { generateConfiguredImage, imageSettingsForMarker } from './image-provider.js';
 import { createChatImageView } from './chat-image-view.js';
 import { createImageGallery, type GalleryImage } from './image-gallery.js';
 import { loadImageHistory, saveImageHistory, deleteImageHistory, onImageHistoryChanged, historyWasDeleted, type ImageHistoryChange, type ImageHistoryEntry } from './image-history.js';
@@ -258,7 +258,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
     const controls = new AbortController();
     const { slot, root, button, buttonLabel, regenerate, cancel, status, canvas, preview, image, placeholder, download, refreshTheme, setImageSize, veil } = createChatImageView(marker.summary, controls.signal);
     try {
-      const settings = loadImageSettings();
+      const settings = imageSettingsForMarker(loadImageSettings(), marker);
       const { width, height } = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
       setImageSize(width, height);
     } catch { /* A saved image can still provide its own dimensions. */ }
@@ -367,7 +367,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
       const endPet = petEnd();
       const petImage = { type: 'end', id: pet, task: 'image', source, floor: message.messageId } as const;
       try {
-        const settings = loadImageSettings();
+        const settings = imageSettingsForMarker(loadImageSettings(), marker);
         const parameters = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
         emitPetEvent({ type: 'image', id: pet, source, phase: 'start', provider: settings.provider, floor: message.messageId,
           turn: message.turnId !== null, summary: marker.summary, again: history.length > 0, width: parameters.width, height: parameters.height });

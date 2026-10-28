@@ -137,6 +137,14 @@ function preferencesView(settings: Settings): string {
     </section>
     <section class="preference-section" aria-labelledby="pet-heading">
       <header class="section-heading section-heading--plain"><div class="pet-heading-line"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><small class="pet-credit">由 <strong>Lovéthia</strong> 宝宝制作，无比感谢！</small></div><p class="section-description">点击菜单中的“关闭悬浮球”可让缇娅回到画匣，不影响后台生图；点击画匣再次唤出。</p></header>
+      <div class="preference-row pet-size-row">
+        <span><label for="pet-scale"><strong>缇娅的大小</strong></label><span id="pet-scale-description">50%～150%，拖动即时生效并自动保存。画匣同步缩放，菜单与台词文字大小不变。</span></span>
+        <div class="pet-size-controls">
+          <input id="pet-scale" name="petScale" type="range" min="50" max="150" step="1" value="${Math.round(settings.petScale * 100)}" aria-describedby="pet-scale-description" aria-valuetext="${Math.round(settings.petScale * 100)}%">
+          <output for="pet-scale" data-pet-scale-value>${Math.round(settings.petScale * 100)}%</output>
+          <button type="button" class="secondary" data-action="reset-pet-scale">恢复默认</button>
+        </div>
+      </div>
       <label class="preference-row"><span><strong>缇娅的台词</strong><span>仅在操作或有结果时触发，相同台词有冷却时间。关闭后不再说话，出错时仍显示报错文字。</span></span><input type="checkbox" name="petLines" ${settings.petLines ? 'checked' : ''}></label>
       <label class="preference-row"><span><strong>缇娅的动作</strong><span>关闭后仅保留呼吸和眨眼，取消走动、摆动及图片飞入楼层的动画。系统开启“减少动态效果”时同样生效。</span></span><input type="checkbox" name="petMotion" ${settings.petMotion ? 'checked' : ''}></label>
     </section>

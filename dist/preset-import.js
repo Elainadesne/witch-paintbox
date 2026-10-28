@@ -1,4 +1,5 @@
 import { MAX_PRESET_ENTRIES } from './model-settings.js';
+import { presetMacroWarnings } from './preset-macros.js';
 export const MAX_PRESET_BYTES = 2 * 1024 * 1024;
 export { MAX_PRESET_ENTRIES };
 function record(value) {
@@ -35,8 +36,7 @@ function parseEntry(value, index, warnings) {
         throw new Error(`“${name}”的头尾区段无效。`);
     if (marker)
         warnings.push(`“${name}”是酒馆占位标记，已保留并禁用，不会发送。`);
-    if (/\{\{[\s\S]*?\}\}/.test(content))
-        warnings.push(`“${name}”包含酒馆宏，保留原文，不执行宏。`);
+    warnings.push(...presetMacroWarnings(content, name));
     return {
         entry: { id, name, role, content, enabled: !marker && item.enabled !== false, ...(marker ? { marker: true } : {}) },
         section: item.section,

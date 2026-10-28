@@ -1,5 +1,6 @@
 import { MAX_IMAGE_MARKERS, MAX_MARKER_TEXT_LENGTH, MAX_ORIGINAL_LENGTH, parseImageMarkers, type ImageMarker } from './image-markers.js';
 import { imageTextRegions, textLines } from './image-text-regions.js';
+import { imageSizeMetadata, parseImageSize, type ImageSize } from './image-size.js';
 import { withFault } from './pet-events.js';
 
 export interface ImageInsertionPoint { readonly id: string; readonly offset: number }
@@ -85,6 +86,7 @@ export interface InsertedImageMarker extends ImageMarker {
 export interface ImageInsertionResult {
   text: string;
   added: InsertedImageMarker[];
+  warnings: string[];
 }
 
 export function applyImageInsertions(plan: ImageInsertionPlan, response: string): ImageInsertionResult {
@@ -99,12 +101,13 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
   const existing = parseImageMarkers(plan.original);
   if (decoded.length + existing.length > MAX_IMAGE_MARKERS) throw withFault(new Error('图片标记总数不能超过 64 处。'), 'format');
   const positions = new Map(plan.points.map(point => [point.id, point.offset]));
-  const groups = new Map<number, { summary: string; prompt: string }[]>();
+  const groups = new Map<number, { summary: string; prompt: string; size?: ImageSize }[]>();
+  const warnings: string[] = [];
   for (const row of decoded) {
     if (!row || typeof row !== 'object' || Array.isArray(row)
-      || Object.keys(row).length !== 3 || typeof row.at !== 'string'
+      || Object.keys(row).some(key => !['at', 'summary', 'prompt', 'size'].includes(key)) || typeof row.at !== 'string'
       || typeof row.summary !== 'string' || typeof row.prompt !== 'string') {
-      throw withFault(new Error('每处配图只能包含 at、summary、prompt 三项。'), 'format');
+      throw withFault(new Error('每处配图需包含 at、summary、prompt，可选 size；不能包含其他字段。'), 'format');
     }
     const offset = positions.get(row.at);
     if (offset === undefined) throw withFault(new Error('AI 返回了不存在的插入点，原文未修改。'), 'format');
@@ -112,8 +115,12 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
       || /<\s*\/?\s*img\b/i.test(row.prompt)) {
       throw withFault(new Error('配图概括或提示词无效，不能为空或嵌入图片标记。'), 'format');
     }
+    const size = parseImageSize(row.size);
+    if (Object.hasOwn(row, 'size') && !size) {
+      warnings.push(`${row.at} 的画幅不在支持的七种尺寸中，将使用设置中的画幅。`);
+    }
     const group = groups.get(offset) ?? [];
-    group.push({ summary: row.summary, prompt: row.prompt });
+    group.push({ summary: row.summary, prompt: row.prompt, ...(size ? { size } : {}) });
     groups.set(offset, group);
   }
   const eol = newline(plan.original);
@@ -124,8 +131,10 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
     let content = previousIsNewline ? eol : eol + eol;
     const markers: ImageMarker[] = [];
     for (const item of group) {
-      const raw = `<img>${eol}[${item.summary}]${eol}${item.prompt}${eol}</img>`;
-      markers.push({ start: content.length, end: content.length + raw.length, raw, summary: item.summary.trim(), prompt: item.prompt.trim() });
+      const metadata = item.size ? imageSizeMetadata(item.size) + eol : '';
+      const raw = `<img>${eol}[${item.summary}]${eol}${metadata}${item.prompt}${eol}</img>`;
+      markers.push({ start: content.length, end: content.length + raw.length, raw, summary: item.summary.trim(),
+        prompt: item.prompt.trim(), ...(item.size ? { size: item.size } : {}) });
       content += raw + eol + eol;
     }
     totalLength += content.length;
@@ -149,5 +158,5 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string)
   }
   const parsed = new Map(parseImageMarkers(text).map(marker => [marker.start, marker]));
   if (added.some(marker => parsed.get(marker.start)?.raw !== marker.raw)) throw withFault(new Error('配图未能形成独立的完整标记，原文未修改。'), 'format');
-  return { text, added };
+  return { text, added, warnings };
 }

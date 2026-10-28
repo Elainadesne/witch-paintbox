@@ -2,7 +2,11 @@ import { isPageId } from './pages.js';
 export const extensionId = 'tavern-image-plugin';
 export function defaultSettings() {
     return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-        imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petAway: false, petPlacement: null };
+        imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null };
+}
+export function readPetScale(value) {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? Math.round(Math.max(0.5, Math.min(1.5, value)) * 100) / 100 : 1;
 }
 function petSpot(value) {
     const spot = value;
@@ -43,6 +47,7 @@ export function readSettings(context) {
         settings.petLines = saved.petLines;
     if (typeof saved.petMotion === 'boolean')
         settings.petMotion = saved.petMotion;
+    settings.petScale = readPetScale(saved.petScale);
     if (typeof saved.petAway === 'boolean')
         settings.petAway = saved.petAway;
     settings.petPlacement = readPetPlacement(saved.petPlacement);

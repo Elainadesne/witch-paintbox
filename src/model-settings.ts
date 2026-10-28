@@ -1,6 +1,7 @@
 import { createSettingsStorage } from './host-settings.js';
 import { loadImageSettings, type ImageProvider } from './image-settings.js';
 import type { ModelApiSettings, ModelMessage } from './model-types.js';
+import { normalizeSizeProtocolEntries, selectImageSizeMode, type ImageSizeMode } from './image-size-mode.js';
 
 export const MAX_PRESET_ENTRIES = 10_000;
 
@@ -127,7 +128,7 @@ export function validateModelSettings(value: unknown): ModelSettings {
     return { name, entries: stringList(book.entries, 10_000) };
   });
   if (new Set(worldbooks.map(book => book.name)).size !== worldbooks.length) invalid();
-  return {
+  return normalizeSizeProtocolEntries<ModelSettings>({
     presetProvider: source.presetProvider === 'openai' ? 'openai' : 'novelai',
     mode: source.mode, url: text(source.url, 8192), key: text(source.key, 16_384),
     model: text(source.model, 512), models: stringList(source.models, 10_000),
@@ -137,7 +138,7 @@ export function validateModelSettings(value: unknown): ModelSettings {
     presetName: source.presetName === undefined ? '' : text(source.presetName, 256),
     parseImageMarkers: source.parseImageMarkers === undefined ? true : source.parseImageMarkers,
     hideImageContext: source.hideImageContext === undefined ? true : source.hideImageContext,
-  };
+  });
 }
 
 export function modelPresetSettings(settings: ModelSettings): ModelPresetSettings {
@@ -213,4 +214,24 @@ export function saveModelSettings(settings: ModelSettings): Promise<void> {
     api: modelSharedSettings(value),
     presets: { ...current.presets, [value.presetProvider]: modelPresetSettings(value) },
   }));
+}
+
+let pendingImageSizeModeSaves = 0;
+
+export function isImageSizeModeSaving(): boolean { return pendingImageSizeModeSaves > 0; }
+
+/** Persist only protocol enablement, so changing image size mode never saves unrelated drafts. */
+export async function saveImageSizeMode(provider: ImageProvider, mode: ImageSizeMode): Promise<void> {
+  pendingImageSizeModeSaves++;
+  window.dispatchEvent(new Event('witch-paintbox:image-size-mode-saving'));
+  try {
+    await settingsStorage.update(current => ({
+      ...current,
+      presets: { ...current.presets, [provider]: selectImageSizeMode(current.presets[provider], mode) },
+    }));
+    window.dispatchEvent(new CustomEvent('witch-paintbox:image-size-mode-changed', { detail: { provider, mode } }));
+  } finally {
+    pendingImageSizeModeSaves--;
+    window.dispatchEvent(new Event('witch-paintbox:image-size-mode-saving'));
+  }
 }

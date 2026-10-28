@@ -8,7 +8,7 @@ import { ConfigTransfer } from './config-transfer.js';
 import { registerBuiltinLayers } from './builtin-layers.js';
 import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName, type PageId } from './pages.js';
-import { defaultSettings, extensionId, readSettings, saveSettings, type TavernContext } from './settings.js';
+import { defaultSettings, extensionId, readPetScale, readSettings, saveSettings, type TavernContext } from './settings.js';
 import { guideDestination, navigationView, pageView, type FeatureTab, type GuideDestination } from './views.js';
 import { getHostStore, initializeHostStorage } from './host-storage.js';
 import { getSyncApiKeys, initializeSettingsStorage, setSyncApiKeys } from './host-settings.js';
@@ -64,6 +64,9 @@ async function mount() {
       }
       const retention = content.querySelector<HTMLSelectElement>('[name="imageRetentionDays"]');
       if (retention) retention.value = String(settings.imageRetentionDays);
+      syncPetScale();
+      // applyArchive emits before this callback reloads the live preferences.
+      window.dispatchEvent(new Event('witch-paintbox:preferences-changed'));
     }
   }, () => imageConfig.hasPendingWrites || modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites || changingSyncKeys ? '配置仍在保存或角色图仍在生成，请完成后再导入或导出。' : undefined);
   const controller = new AbortController();
@@ -118,6 +121,19 @@ async function mount() {
   const apiSwitch = root.querySelector<HTMLElement>('.api-switch')!;
   const updateNotice = bindUpdateNotice(root, signal);
   const persist = () => saveSettings(context, settings);
+  function syncPetScale() {
+    const percent = Math.round(settings.petScale * 100);
+    const input = content.querySelector<HTMLInputElement>('[name="petScale"]');
+    if (input) { input.value = String(percent); input.setAttribute('aria-valuetext', `${percent}%`); }
+    const output = content.querySelector<HTMLOutputElement>('[data-pet-scale-value]');
+    if (output) output.value = `${percent}%`;
+  }
+  function setPetScale(value: number) {
+    if (transfer.isApplying) { syncPetScale(); return; }
+    const next = readPetScale(value);
+    if (settings.petScale !== next) { settings.petScale = next; persist(); }
+    syncPetScale();
+  }
   const showCleanupStatus = () => {
     const status = content.querySelector<HTMLElement>('[data-cleanup-status]');
     if (status) status.textContent = imageRetentionStatus();
@@ -202,7 +218,7 @@ async function mount() {
         root, launcher, signal,
         initial: settings.rememberPosition ? settings.position : null,
         placement: settings.rememberPosition ? settings.petPlacement : null,
-        preferences: () => ({ lines: settings.petLines, motion: settings.petMotion, away: settings.petAway }),
+        preferences: () => ({ lines: settings.petLines, motion: settings.petMotion, scale: settings.petScale, away: settings.petAway }),
         onMove(position, placement) {
           if (!settings.rememberPosition || transfer.isApplying) return;
           settings.position = position;
@@ -249,6 +265,7 @@ async function mount() {
         revealSection('[data-config-transfer]');
       }
       if (button.classList.contains('close-button')) panel.close();
+      if (button.dataset.action === 'reset-pet-scale') setPetScale(1);
       if (button.dataset.action === 'reset-preferences') {
         settings = defaultSettings();
         floating!.reset();
@@ -259,8 +276,17 @@ async function mount() {
       }
     }, { signal });
 
+    root.addEventListener('input', event => {
+      const input = event.target;
+      if (input instanceof HTMLInputElement && input.name === 'petScale') setPetScale(Number(input.value) / 100);
+    }, { signal });
+
     root.addEventListener('change', event => {
       const input = event.target;
+      if (input instanceof HTMLInputElement && input.name === 'petScale') {
+        setPetScale(Number(input.value) / 100);
+        return;
+      }
       if (input instanceof HTMLInputElement && input.name === 'syncApiKeys') {
         if (transfer.isApplying || changingSyncKeys || !getHostStore()) { input.checked = getSyncApiKeys(); return; }
         const enabled = input.checked;

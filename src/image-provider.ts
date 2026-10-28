@@ -5,6 +5,19 @@ import { generateImage, type ImageParameters } from './novelai.js';
 import { generateOpenAIImage, type OpenAIImageParameters } from './openai-image.js';
 import type { ImageGenerationProgress } from './image-queue.js';
 import { withFault } from './pet-events.js';
+import { loadModelSettings } from './model-settings.js';
+import { imageSizeMode } from './image-size-mode.js';
+import { imageSizeDimensions } from './image-size.js';
+import type { ImageMarker } from './image-markers.js';
+
+/** Resolve one marker before queuing; never overwrite the user's fallback dimensions. */
+export function imageSettingsForMarker(settings: ImageSettings, marker: Pick<ImageMarker, 'size'>): ImageSettings {
+  if (!marker.size || imageSizeMode(loadModelSettings(settings.provider)) !== 'ai') return settings;
+  const dimensions = imageSizeDimensions(marker.size);
+  return settings.provider === 'openai'
+    ? { ...settings, openaiParameters: { ...settings.openaiParameters, ...dimensions } }
+    : { ...settings, parameters: { ...settings.parameters, ...dimensions } };
+}
 
 interface ImageResult {
   blob: Blob;

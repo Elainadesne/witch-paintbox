@@ -91,8 +91,14 @@ export function imageSettingsView(settings: ImageSettings, state: ImageViewState
         <button type="button" class="text-button" data-action="refresh-models"${state.refreshing ? ' disabled' : ''}>${state.refreshing ? '刷新中…' : '刷新列表'}</button>
       </div><p class="config-status" data-model-list-status role="status"></p>`
         : `<label class="config-field prominent-field"><span>生图模型</span><select data-parameter="model">${options(NAI_MODELS, parameters.model)}</select></label>`}
-      <div class="parameter-group"><h3 class="subsection-title">画幅</h3><div class="parameter-grid">
-        <label class="config-field"><span>预设尺寸</span><select data-field="sizePreset">${options([...sizePresets, { value: 'custom', label: '自定义' }], sizePreset)}</select></label>
+      <div class="parameter-group"><h3 class="subsection-title">画幅</h3>
+        <div class="feature-tabs image-size-switch" aria-label="画幅选择方式">
+          <button type="button" data-action="select-size-mode" data-size-mode="fixed" aria-pressed="true">固定画幅</button>
+          <button type="button" data-action="select-size-mode" data-size-mode="ai" aria-pressed="false">AI 动态画幅</button>
+        </div>
+        <p class="config-status" data-size-mode-status role="status"></p>
+        <div class="parameter-grid">
+        <label class="config-field"><span data-size-selection-label>预设尺寸</span><select data-field="sizePreset">${options([...sizePresets, { value: 'custom', label: '自定义' }], sizePreset)}</select></label>
         ${numberField('width', '宽度', dimensions.width, 64, 4096, openai ? 16 : 64, `图片宽度，单位为像素，使用 ${openai ? 16 : 64} 的倍数。`)}
         ${numberField('height', '高度', dimensions.height, 64, 4096, openai ? 16 : 64, `图片高度，单位为像素，使用 ${openai ? 16 : 64} 的倍数。`)}
       </div></div>

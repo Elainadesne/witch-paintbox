@@ -194,6 +194,11 @@ export function modelSettingsView(settings, state) {
         </div>
       </div>
       <div class="preset-workspace" data-preset-workspace>${presetWorkspaceView(settings, state)}</div>
+      <details class="prompt-section format-reference">
+        <summary><span>预设变量 · setvar / getvar</span></summary>
+        <p class="config-status">在格式条目中使用 {{getvar::生图数量要求}}，在独立条目中使用 {{setvar::生图数量要求::3}} 定义数值，也可填写多行要求。</p>
+        <p class="config-status">先读取本轮启用条目的全部定义，再替换引用，因此定义可放在后面。同名变量以后面的定义为准；定义本身不发送，不写入酒馆变量。只展开预设文本，变量值不递归执行。</p>
+      </details>
       <div class="parameter-group marker-settings"><h3 class="subsection-title">标记解析</h3>
         <label class="prompt-enable"><input type="checkbox" data-model-field="parseImageMarkers"${settings.parseImageMarkers ? ' checked' : ''}>解析配图标记</label>
         <p class="config-status">完整闭合的标记会在楼层中显示为生成图片按钮。</p>
@@ -205,7 +210,7 @@ export function modelSettingsView(settings, state) {
           <code class="marker-format">&lt;img&gt;\n[图片内容概括]\n该场景的生图提示词\n&lt;/img&gt;</code>
           <p class="config-status">在悬浮球菜单点击“AI生图”时，正文副本会标注【插入点 P001】等行间位置。预设负责让 AI 返回以下 JSON 数组，插件按编号插入配图，保留原文。</p>
           <code class="marker-format">[{"at":"P001","summary":"图片内容概括","prompt":"该场景的生图提示词"}]</code>
-          <p class="config-status">at 填本次提供的编号；summary 为概括；prompt 只填场景提示词。此处说明不会发送给模型。</p>
+          <p class="config-status">at 填本次提供的编号；summary 为概括；prompt 只填场景提示词。AI动态画幅可增加 size 字段，例如 "size":"832x1216"；缺少或无效时使用设置中的画幅。此处说明不会发送给模型。</p>
         </details>
       </div>
     </section>

@@ -3,6 +3,18 @@ import { resolveStoredAnchorPrompt } from './anchor-resolver.js';
 import { generateImage } from './novelai.js';
 import { generateOpenAIImage } from './openai-image.js';
 import { withFault } from './pet-events.js';
+import { loadModelSettings } from './model-settings.js';
+import { imageSizeMode } from './image-size-mode.js';
+import { imageSizeDimensions } from './image-size.js';
+/** Resolve one marker before queuing; never overwrite the user's fallback dimensions. */
+export function imageSettingsForMarker(settings, marker) {
+    if (!marker.size || imageSizeMode(loadModelSettings(settings.provider)) !== 'ai')
+        return settings;
+    const dimensions = imageSizeDimensions(marker.size);
+    return settings.provider === 'openai'
+        ? { ...settings, openaiParameters: { ...settings.openaiParameters, ...dimensions } }
+        : { ...settings, parameters: { ...settings.parameters, ...dimensions } };
+}
 /** Send already expanded fields without interpreting library text as source-protocol syntax. */
 export async function generatePreparedImage(settings, prompt, signal, onProgress) {
     signal.throwIfAborted();

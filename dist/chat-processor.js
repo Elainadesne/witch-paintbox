@@ -3,6 +3,7 @@ import { applyImageInsertions, createImageInsertionPlan } from './image-insertio
 import { loadModelSettings } from './model-settings.js';
 import { runConfiguredModel } from './model-service.js';
 import { emitPetEvent, petFault, petTaskId, withFault } from './pet-events.js';
+import { imageSizeMode } from './image-size-mode.js';
 export class ChatProcessor {
     report;
     request = null;
@@ -50,7 +51,9 @@ export class ChatProcessor {
             this.report('正在按插入点保存配图标记…', true, false, false);
             emitPetEvent({ type: 'process', id: pet, phase: 'saving', floor, cancellable: false });
             await replaceAssistantMessage(snapshot, result, controller.signal);
-            const message = `已保存 ${result.added.length} 处配图标记，原正文与 HTML 前端已保留。`;
+            const fallbackCount = imageSizeMode(settings) === 'ai' ? result.added.filter(marker => !marker.size).length : 0;
+            const sizeNotice = fallbackCount ? `其中 ${fallbackCount} 处未提供有效尺寸，生图时使用设置中的画幅。` : result.warnings.join(' ');
+            const message = `已保存 ${result.added.length} 处配图标记，原正文与 HTML 前端已保留。${sizeNotice}`;
             this.report(message, false);
             emitPetEvent({ type: 'end', id: pet, task: 'process', result: 'done', floor, added: result.added.length, message });
         }

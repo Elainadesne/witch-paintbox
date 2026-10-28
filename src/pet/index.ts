@@ -133,11 +133,12 @@ async function start(options: PetOptions, placement: () => PetPlacement | null, 
     dropSmall: () => { const next = places.remember(); if (next) options.onMove(restingCorner(m), next); },
   }, life);
 
-  // preferences: her lines, motion (and the system's reduced motion), and whether she rests in the paintbox
+  // preferences: her size, lines, motion (and reduced motion), and whether she rests in the paintbox
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   const still = () => !stage!.hasGL || reduced.matches || options.preferences().motion === false;
   const prefs = () => {
     const now = options.preferences();
+    m.setSize(now.scale);
     speech.lines = now.lines !== false;
     m.still = still();
     if (now.away !== lastAway) {
@@ -151,6 +152,7 @@ async function start(options: PetOptions, placement: () => PetPlacement | null, 
   window.addEventListener('witch-paintbox:preferences-changed', prefs, { signal: life });
   m.still = still();
   speech.lines = options.preferences().lines !== false;
+  m.setSize(options.preferences().scale);
 
   places.restore(options.initial);
   if (lastAway) {

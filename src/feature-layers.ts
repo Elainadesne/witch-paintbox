@@ -1,6 +1,8 @@
 import type { ModelMessage } from './model-types.js';
 import type { ModelSettings } from './model-settings.js';
 import { stripImageBlocks } from './context-filter.js';
+import { expandPresetMacros } from './preset-macros.js';
+import { normalizeSizeProtocolEntries } from './image-size-mode.js';
 
 export interface FeatureContext {
   messages: readonly ModelMessage[];
@@ -68,12 +70,17 @@ export async function featureLayerMessages(id: string, settings: ModelSettings, 
 
 /** Follow the visible entry order. Provider data is read afresh; no automatic instructions. */
 export async function buildModelMessages(settings: ModelSettings, context: FeatureContext): Promise<ModelMessage[]> {
-  settings = structuredClone(settings);
+  settings = normalizeSizeProtocolEntries(structuredClone(settings));
   context.signal?.throwIfAborted();
   const input = copyMessages(context.messages).map(message => ({ ...message,
     content: settings.hideImageContext ? stripImageBlocks(message.content) : message.content,
   }));
   const entries = new Map([...settings.head, ...settings.tail].map(entry => [`prompt:${entry.id}`, entry]));
+  const enabledEntries = settings.promptOrder.flatMap(key => {
+    const entry = entries.get(key);
+    return entry?.enabled && !entry.marker && entry.content.trim() ? [entry] : [];
+  });
+  const expanded = expandPresetMacros(enabledEntries);
   const output: ModelMessage[] = [];
   for (const key of settings.promptOrder) {
     if (key === 'input') output.push(...copyMessages(input));
@@ -83,7 +90,8 @@ export async function buildModelMessages(settings: ModelSettings, context: Featu
     } else {
       const entry = entries.get(key);
       if (!entry) throw new Error('预设排序引用了不存在的条目，请重新保存预设。');
-      if (entry.enabled && !entry.marker && entry.content.trim()) output.push(...copyMessages([entry]));
+      const content = expanded.get(entry.id);
+      if (content?.trim()) output.push(...copyMessages([{ role: entry.role, content }]));
     }
   }
   if (!output.some(message => message.content.trim())) throw new Error('当前没有可发送的内容。');

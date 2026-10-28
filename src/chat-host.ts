@@ -45,7 +45,7 @@ export interface ChatSnapshot {
   readonly text: string;
 }
 
-export interface ImageDisplayChange extends ImageInsertionResult {
+export interface ImageDisplayChange extends Omit<ImageInsertionResult, 'warnings'> {
   previousText: string;
 }
 
