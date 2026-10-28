@@ -322,8 +322,22 @@ export function locateImageInsertionPoints(element: HTMLElement, messageId: numb
   }
   const placements: Array<{ offset: number; range: Range; position: number }> = [];
   for (const offset of new Set(offsets)) {
-    const before = findLine([...lines].reverse().find(line => narrativeEnd(line) <= offset));
-    const after = findLine(lines.find(line => line.start >= offset));
+    const split = lines.find(line => line.start < offset && offset <= line.contentEnd && offset < narrativeEnd(line));
+    let before: ReturnType<typeof findLine>;
+    let after: ReturnType<typeof findLine>;
+    if (split) {
+      // Sentence positions may be inside one source line. Match that line's two
+      // sides, never an earlier/later line when either fragment is ambiguous.
+      before = findLine({ start: split.start, contentEnd: offset, end: offset });
+      const tail = original.slice(offset, split.contentEnd).replace(/<\/(?:now_plot|gametxt)\s*>\s*$/i, '').trim();
+      after = tail ? findLine({ start: offset, contentEnd: split.contentEnd, end: split.end }) : null;
+      // An inserted renderer label, hidden fragment or protected widget between
+      // the sides makes the source boundary uncertain; leave it to the fallback.
+      if (!before || tail && (!after || before.end !== after.start)) continue;
+    } else {
+      before = findLine([...lines].reverse().find(line => narrativeEnd(line) <= offset));
+      after = findLine(lines.find(line => line.start >= offset));
+    }
     if (before && after && before.end > after.start) continue;
     const match = before ?? after;
     if (!match) continue;

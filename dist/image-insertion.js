@@ -3,6 +3,56 @@ import { imageTextRegions, textLines } from './image-text-regions.js';
 import { imageSizeMetadata, parseImageSize } from './image-size.js';
 import { withFault } from './pet-events.js';
 function newline(text) { return /\r\n|\r|\n/.exec(text)?.[0] ?? '\n'; }
+/** Source offsets, not rendered lines. Opaque code, image blocks and HTML tokens stay whole. */
+export function imageSentenceSpans(text, regions = imageTextRegions(text)) {
+    const spans = [];
+    const narrativeEdges = new Set(narrativeSpans(text, regions).flatMap(span => [span.start, span.end]));
+    let start = 0;
+    let at = 0;
+    let regionIndex = 0;
+    let hasProse = false;
+    const append = (end, terminated) => {
+        if (end > start)
+            spans.push({ start, end, terminated, hasProse });
+        start = end;
+        hasProse = false;
+    };
+    while (at < text.length) {
+        if (narrativeEdges.has(at) && at > start)
+            append(at, false);
+        while (regionIndex < regions.length && regions[regionIndex].end <= at)
+            regionIndex++;
+        const region = regions[regionIndex];
+        if (region && region.start === at) {
+            at = region.end;
+            continue;
+        }
+        const character = text[at];
+        if (/\r|\n/.test(character)) {
+            at += character === '\r' && text[at + 1] === '\n' ? 2 : 1;
+            append(at, false);
+            continue;
+        }
+        // Periods within decimals, words and URLs are not sentence boundaries.
+        const internalPeriod = character === '.' && /[a-z\d]/i.test(text[at - 1] ?? '')
+            && /[a-z\d]/i.test(text[at + 1] ?? '');
+        if (/[。！？.!?]/.test(character) && !internalPeriod) {
+            let end = at + 1;
+            while (end < text.length && /[。！？.!?]/.test(text[end]))
+                end++;
+            while (end < text.length && /["'”’」』》〉）)\]】]/.test(text[end]))
+                end++;
+            append(end, true);
+            at = end;
+            continue;
+        }
+        if (/\S/.test(character))
+            hasProse = true;
+        at++;
+    }
+    append(text.length, false);
+    return spans;
+}
 /** Locate <now_plot> / <gametxt> narrative bodies outside code and image regions. */
 export function narrativeSpans(text, regions = imageTextRegions(text)) {
     // HTML comments/scripts and code samples are opaque regions. Only standalone
@@ -34,15 +84,20 @@ export function narrativeSpans(text, regions = imageTextRegions(text)) {
     return spans;
 }
 export function createImageInsertionPlan(original) {
+    return insertionPlan(original, false);
+}
+/** Fine-grained positions are reserved for the manual picker; automatic placement stays line based. */
+export function createSelectedImageInsertionPlan(original) {
+    return insertionPlan(original, true);
+}
+function insertionPlan(original, includeSentences) {
     if (typeof original !== 'string' || original.length > MAX_ORIGINAL_LENGTH)
         throw withFault(new Error('正文过长或格式无效，无法建立插入位置。'), 'format');
     const regions = imageTextRegions(original);
     const spans = narrativeSpans(original, regions);
     const bounds = spans.length ? spans : [{ start: 0, end: original.length }];
-    const usedIds = new Set(Array.from(original.matchAll(/【插入点 (P\d+)】/g), match => match[1]));
-    const points = [];
+    const offsets = new Set();
     let regionIndex = 0;
-    let nextId = 1;
     for (const span of bounds) {
         for (const line of textLines(original.slice(span.start, span.end))) {
             if (!original.slice(span.start + line.start, span.start + line.contentEnd).trim())
@@ -54,15 +109,30 @@ export function createImageInsertionPlan(original) {
             const region = regions[regionIndex];
             if (region && region.start < offset && (offset < region.end || !region.closed))
                 continue;
-            if (points.at(-1)?.offset === offset)
-                continue;
-            let id;
-            do {
-                id = `P${String(nextId++).padStart(3, '0')}`;
-            } while (usedIds.has(id));
-            points.push(Object.freeze({ id, offset }));
+            offsets.add(offset);
         }
     }
+    if (includeSentences) {
+        let boundIndex = 0;
+        for (const sentence of imageSentenceSpans(original, regions)) {
+            if (!sentence.terminated || !sentence.hasProse)
+                continue;
+            while (boundIndex < bounds.length && bounds[boundIndex].end < sentence.end)
+                boundIndex++;
+            const bound = bounds[boundIndex];
+            if (bound && sentence.end > bound.start && sentence.end <= bound.end)
+                offsets.add(sentence.end);
+        }
+    }
+    const usedIds = new Set(Array.from(original.matchAll(/【插入点 (P\d+)】/g), match => match[1]));
+    let nextId = 1;
+    const points = [...offsets].sort((left, right) => left - right).map(offset => {
+        let id;
+        do {
+            id = `P${String(nextId++).padStart(3, '0')}`;
+        } while (usedIds.has(id));
+        return Object.freeze({ id, offset });
+    });
     return annotateInsertionPoints(original, points);
 }
 function annotateInsertionPoints(original, points) {
@@ -92,12 +162,9 @@ export function selectImageInsertionPoints(plan, pointIds) {
     const points = plan.points.filter(point => selected.has(point.id));
     if (points.length !== selected.size)
         throw withFault(new Error('所选插图位置已失效，请重新打开指定插图。'), 'format');
-    if (points.length + parseImageMarkers(plan.original).length > MAX_IMAGE_MARKERS) {
-        throw withFault(new Error('所选位置与已有图片标记合计不能超过 64 处。'), 'format');
-    }
     return annotateInsertionPoints(plan.original, points);
 }
-export function applyImageInsertions(plan, response, requireEveryPoint = false) {
+export function applyImageInsertions(plan, response, requiredItems) {
     if (typeof response !== 'string' || response.length > MAX_MARKER_TEXT_LENGTH)
         throw withFault(new Error('AI 返回内容过长或格式无效。'), 'format');
     let source = response.trim();
@@ -118,7 +185,17 @@ export function applyImageInsertions(plan, response, requireEveryPoint = false) 
         throw withFault(new Error('图片标记总数不能超过 64 处。'), 'format');
     const positions = new Map(plan.points.map(point => [point.id, point.offset]));
     const groups = new Map();
-    const returnedPoints = new Set();
+    const itemByPoint = new Map();
+    requiredItems?.forEach((item, index) => {
+        if (!item.pointIds.length)
+            throw withFault(new Error('指定插图清单存在空项，原文未修改。'), 'format');
+        for (const id of item.pointIds) {
+            if (!positions.has(id) || itemByPoint.has(id))
+                throw withFault(new Error('指定插图清单的位置无效或重叠，原文未修改。'), 'format');
+            itemByPoint.set(id, index);
+        }
+    });
+    const returnedItems = new Set();
     const warnings = [];
     for (const row of decoded) {
         if (!row || typeof row !== 'object' || Array.isArray(row)
@@ -127,11 +204,12 @@ export function applyImageInsertions(plan, response, requireEveryPoint = false) 
             throw withFault(new Error('每处配图需包含 at、summary、prompt，可选 size；不能包含其他字段。'), 'format');
         }
         const offset = positions.get(row.at);
-        if (offset === undefined)
-            throw withFault(new Error(requireEveryPoint
+        const itemIndex = itemByPoint.get(row.at);
+        if (offset === undefined || (requiredItems && itemIndex === undefined))
+            throw withFault(new Error(requiredItems
                 ? 'AI 返回了未选择的插入点，原文未修改。' : 'AI 返回了不存在的插入点，原文未修改。'), 'format');
-        if (requireEveryPoint && returnedPoints.has(row.at)) {
-            throw withFault(new Error(`AI 重复返回了 ${row.at}，每个所选位置只能有一处配图，原文未修改。`), 'format');
+        if (itemIndex !== undefined && returnedItems.has(itemIndex)) {
+            throw withFault(new Error(`AI 为配图 ${itemIndex + 1} 返回了多条数据，每项只能生成一张，原文未修改。`), 'format');
         }
         if (!row.summary.trim() || !row.prompt.trim() || /[\[\]<>\r\n]/.test(row.summary)
             || /<\s*\/?\s*img\b/i.test(row.prompt)) {
@@ -144,11 +222,12 @@ export function applyImageInsertions(plan, response, requireEveryPoint = false) 
         const group = groups.get(offset) ?? [];
         group.push({ summary: row.summary, prompt: row.prompt, ...(size ? { size } : {}) });
         groups.set(offset, group);
-        returnedPoints.add(row.at);
+        if (itemIndex !== undefined)
+            returnedItems.add(itemIndex);
     }
-    if (requireEveryPoint && returnedPoints.size !== positions.size) {
-        const missing = plan.points.filter(point => !returnedPoints.has(point.id)).map(point => point.id);
-        throw withFault(new Error(`AI 遗漏了所选插入点 ${missing.join('、')}，原文未修改。`), 'format');
+    if (requiredItems && returnedItems.size !== requiredItems.length) {
+        const missing = requiredItems.flatMap((_, index) => returnedItems.has(index) ? [] : [index + 1]);
+        throw withFault(new Error(`AI 遗漏了清单中的配图 ${missing.join('、')}，原文未修改。`), 'format');
     }
     const eol = newline(plan.original);
     const insertions = [];
