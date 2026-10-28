@@ -23,6 +23,7 @@ import { initializeSifangChat } from './sifang-chat.js';
 import { bindSifangImages } from './sifang-images.js';
 import { bindPet, type PetHandle } from './pet/index.js';
 import { emitPetEvent } from './pet-events.js';
+import { bindPanelViewport } from './panel-viewport.js';
 
 declare const SillyTavern: { getContext(): TavernContext };
 declare const $: (ready: () => void) => void;
@@ -116,6 +117,7 @@ async function mount() {
   const launcher = root.querySelector<HTMLButtonElement>('.launcher')!;
   let panelOpener: HTMLElement = launcher;
   const panel = root.querySelector<HTMLDialogElement>('.panel')!;
+  const panelViewport = bindPanelViewport(panel, signal);
   const sidebar = root.querySelector<HTMLElement>('.sidebar')!;
   const content = root.querySelector<HTMLElement>('.content')!;
   const apiSwitch = root.querySelector<HTMLElement>('.api-switch')!;
@@ -150,6 +152,7 @@ async function mount() {
     launcherMenu.close();
     navigate(target, false);
     panel.showModal();
+    panelViewport.refresh();
     emitPetEvent({ type: 'ui', action: 'panel-open' });
     updateNotice.check();
     content.focus({ preventScroll: true });

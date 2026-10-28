@@ -448,10 +448,59 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .generation-area [data-output] a { color: var(--accent); }
 .generation-actions { display: flex; justify-content: center; gap: 12px; }
 
+@media (max-width: 640px), (pointer: coarse) and (max-width: 1100px) {
+  .panel {
+    --panel-fallback-height: 100vh;
+    --panel-height-ratio: .9;
+    --panel-room-width: max(0px, calc(var(--panel-vv-width, 100vw) - var(--panel-safe-left, env(safe-area-inset-left, 0px)) - var(--panel-safe-right, env(safe-area-inset-right, 0px)) - 24px));
+    --panel-room-height: max(0px, calc(var(--panel-vv-height, var(--panel-fallback-height)) - var(--panel-safe-top, env(safe-area-inset-top, 0px)) - var(--panel-safe-bottom, env(safe-area-inset-bottom, 0px)) - 32px));
+    --panel-mobile-width: min(980px, var(--panel-room-width));
+    --panel-mobile-height: min(720px, calc(var(--panel-room-height) * var(--panel-height-ratio)));
+    position: fixed;
+    inset: auto;
+    left: calc(var(--panel-vv-left, 0px) + var(--panel-safe-left, env(safe-area-inset-left, 0px)) + 12px + (var(--panel-room-width) - var(--panel-mobile-width)) / 2);
+    top: calc(var(--panel-vv-top, 0px) + var(--panel-safe-top, env(safe-area-inset-top, 0px)) + 16px + (var(--panel-room-height) - var(--panel-mobile-height)) / 2);
+    width: var(--panel-mobile-width);
+    height: var(--panel-mobile-height);
+    min-width: 0;
+    min-height: 0;
+    max-height: var(--panel-mobile-height);
+    margin: 0;
+    box-sizing: border-box;
+    border-radius: 12px;
+  }
+  .panel[data-compact-viewport="true"] { --panel-height-ratio: 1; }
+  .shell { height: 100%; min-height: 0; grid-template-rows: minmax(0, max-content) minmax(0, 1fr); }
+  .window-header { min-height: 0; max-height: min(176px, calc(var(--panel-mobile-height) * .45)); gap: 8px; padding: 10px 14px; overflow: auto; overscroll-behavior: contain; }
+  .window-title, .header-actions, .api-switch { gap: 8px; }
+  .window-title { flex-wrap: wrap; }
+  .update-notice { display: contents; }
+  .update-tooltip { position: static; display: none; flex: 1 0 100%; width: 100%; max-width: 100%; box-shadow: none; }
+  .update-notice:hover .update-tooltip, .update-notice:focus-within .update-tooltip { display: block; }
+  .api-switch { flex-wrap: nowrap; }
+  .update-bell, .close-button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .api-switch button { min-width: 44px; min-height: 44px; padding: 8px; }
+  .panel input:not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]),
+  .panel textarea:not([readonly]), .panel select { font-size: 16px; }
+}
+
+@supports (height: 100dvh) {
+  @media (max-width: 640px), (pointer: coarse) and (max-width: 1100px) {
+    .panel { --panel-fallback-height: 100dvh; }
+  }
+}
+
+@media (max-width: 640px) and (max-height: 500px), (pointer: coarse) and (max-width: 1100px) and (max-height: 500px) {
+  .panel { --panel-height-ratio: 1; }
+}
+
 @media (max-width: 640px) {
-  .panel { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); border-radius: 12px; }
-  .shell { height: calc(100dvh - 16px); }
-  .window-header { padding: 12px 16px; }
+  .window-header { display: grid; grid-template-columns: minmax(0, 1fr) 44px; }
+  .window-brand { grid-column: 1; grid-row: 1; }
+  .header-actions { display: contents; }
+  .close-button { grid-column: 2; grid-row: 1; align-self: start; }
+  .api-switch { grid-column: 1 / -1; grid-row: 2; }
+  .api-switch button { flex: 1; font-size: 12px; }
   h1 { font-size: 21px; }
   .workspace { grid-template-columns: 82px minmax(0, 1fr); }
   .sidebar { gap: 6px; padding: 14px 6px; }
@@ -476,11 +525,6 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
   .pet-size-row > span { flex-basis: auto; }
   .pet-size-controls { width: 100%; grid-template-columns: minmax(0, 1fr) 4ch; }
   .pet-size-controls .secondary { grid-column: 1 / -1; justify-self: end; }
-  .header-actions { gap: 10px; }
-  .api-switch { gap: 4px 12px; }
-  .api-switch button { min-height: 34px; font-size: 12px; }
-  .window-header:has(.api-switch:not([hidden])) { flex-wrap: wrap; gap: 6px 12px; }
-  .window-header:has(.api-switch:not([hidden])) .header-actions { justify-content: flex-end; flex: 1 1 auto; }
   .parameter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .parameter-toggles { grid-column: 1 / -1; }
   .credential-line { gap: 8px; }

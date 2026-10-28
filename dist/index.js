@@ -23,6 +23,7 @@ import { initializeSifangChat } from './sifang-chat.js';
 import { bindSifangImages } from './sifang-images.js';
 import { bindPet } from './pet/index.js';
 import { emitPetEvent } from './pet-events.js';
+import { bindPanelViewport } from './panel-viewport.js';
 async function mount() {
     if (document.getElementById(extensionId))
         return;
@@ -125,6 +126,7 @@ async function mount() {
     const launcher = root.querySelector('.launcher');
     let panelOpener = launcher;
     const panel = root.querySelector('.panel');
+    const panelViewport = bindPanelViewport(panel, signal);
     const sidebar = root.querySelector('.sidebar');
     const content = root.querySelector('.content');
     const apiSwitch = root.querySelector('.api-switch');
@@ -173,6 +175,7 @@ async function mount() {
         launcherMenu.close();
         navigate(target, false);
         panel.showModal();
+        panelViewport.refresh();
         emitPetEvent({ type: 'ui', action: 'panel-open' });
         updateNotice.check();
         content.focus({ preventScroll: true });

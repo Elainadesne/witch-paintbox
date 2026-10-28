@@ -1,6 +1,14 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-28', title: '手机设置窗口安全区适配',
+    changes: [
+      '手机设置窗口避开系统安全区并增加边缘留白，收紧占屏高度，内容保持内部滚动；触屏横屏也应用窗口避让。',
+      '顶部关闭、更新铃铛和 API 切换扩大到至少 44px 点击区域，窄屏 API 切换独立成行。',
+      '跟随可见视口处理键盘与浏览器工具栏变化，保留输入、焦点和草稿；双指缩放仍交给浏览器处理。',
+    ],
+  },
+  {
     date: '2026-10-28', title: '缇娅大小调节',
     changes: [
       '使用偏好的桌宠缇娅分组新增 50%～150% 大小滑杆，拖动即时生效并自动保存，可单独恢复到 100%。',
