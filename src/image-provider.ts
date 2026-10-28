@@ -1,6 +1,6 @@
 import type { ImageSettings } from './image-settings.js';
 import { prepareImagePrompt, type CharacterPrompt, type PreparedImagePrompt } from './image-prompt.js';
-import { resolveStoredAnchorPrompt } from './anchor-resolver.js';
+import { resolveStoredAnchorPromptFields } from './anchor-resolver.js';
 import { generateImage, type ImageParameters } from './novelai.js';
 import { generateOpenAIImage, type OpenAIImageParameters } from './openai-image.js';
 import type { ImageGenerationProgress } from './image-queue.js';
@@ -71,8 +71,11 @@ export async function generateConfiguredImage(
   if (snapshot.provider === 'openai') {
     if (snapshot.negative.trim()) throw withFault(new Error('GPT 生图接口不支持独立负面提示词，请在当前配置中清空负面词后生成。'), 'setup');
     // No NAI column parsing, weight conversion, or hidden instructions are added to a GPT prompt.
-    const expanded = await resolveStoredAnchorPrompt(scene);
-    prompt = { positive: [expanded, artistPositive].filter(value => value.trim()).join(', '), negative: '', characters: [] };
+    const expanded = await resolveStoredAnchorPromptFields(scene);
+    if (expanded.negative.trim()) {
+      throw withFault(new Error('GPT 生图不支持角色独立负面提示词，请清空该角色的负面词或切换 NAI。'), 'setup');
+    }
+    prompt = { positive: [expanded.positive, artistPositive].filter(value => value.trim()).join(', '), negative: '', characters: [] };
   } else {
     const model = snapshot.parameters.model;
     const characterLimit = model === 'nai-diffusion-3' ? 0 : model.startsWith('nai-diffusion-5') ? 22 : 6;

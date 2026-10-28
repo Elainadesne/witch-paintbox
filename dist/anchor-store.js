@@ -200,10 +200,18 @@ function snapshot(value) {
         aliasNames.add(alias);
         return alias;
     });
+    // Older local records, native manifests and backups have no character negatives.
+    const rawNegative = anchor.negative === undefined ? '' : anchor.negative;
+    if (typeof rawNegative !== 'string')
+        throw new Error('角色负面提示词必须是文本，原有记录未修改。');
+    const negative = rawNegative.trim();
+    if (negative.length > ANCHOR_TAG_LIMIT)
+        throw new Error(`角色负面提示词不能超过 ${ANCHOR_TAG_LIMIT} 个字符。`);
     return {
         id: requiredText(anchor.id, '角色标识', 128),
         name, aliases,
         appearance: requiredText(anchor.appearance, '固定外貌标签', ANCHOR_TAG_LIMIT),
+        negative,
         outfits, selectedOutfitId,
         // A stored Blob is independent of gallery records and their object URLs.
         portrait: anchor.portrait?.slice(0, anchor.portrait.size, anchor.portrait.type) ?? null,

@@ -821,6 +821,9 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .anchor-source { margin-top: 14px; color: var(--muted); font-size: 12px; }
 .anchor-source summary { cursor: pointer; padding: 8px 0; }
 .anchor-source pre { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.anchor-negative { margin-top: 18px; }
+.anchor-negative > .anchor-toolbar { flex-wrap: wrap; margin: 8px 0 0; }
+.anchor-negative > .anchor-toolbar > .config-status { flex: 1 1 220px; }
 .anchor-outfit-section { margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border); }
 .anchor-outfit-editors { display: grid; gap: 12px; margin-top: 18px; }
 .anchor-outfit { min-width: 0; border: 1px solid var(--border); border-radius: 3px; }

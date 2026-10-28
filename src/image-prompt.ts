@@ -1,5 +1,5 @@
 import { loadAnchors } from './anchor-store.js';
-import { resolveAnchorPrompt } from './anchor-resolver.js';
+import { resolveAnchorPromptFields } from './anchor-resolver.js';
 import { loadSharedOutfits } from './shared-outfit-store.js';
 
 export interface CharacterPrompt {
@@ -78,12 +78,17 @@ export async function prepareImagePrompt(scene: string, globalNegative: string, 
   const positives = [parsed.positive, ...parsed.characters.map(character => character.positive)];
   const anchors = positives.some(prompt => /[\p{Script=Han}@]/u.test(prompt)) ? await loadAnchors() : [];
   const outfits = positives.some(prompt => prompt.includes('#')) ? loadSharedOutfits() : [];
-  const expand = (positive: string) => resolveAnchorPrompt(positive, anchors, outfits);
-  const positive = expand(parsed.positive);
+  const expand = (positive: string) => resolveAnchorPromptFields(positive, anchors, outfits);
+  const expanded = expand(parsed.positive);
+  const mergeNegative = (original: string, anchored: string) => anchored
+    ? [original, anchored].filter(text => text.trim()).join(', ') : original;
   return {
     // Artist tags are not protocol input and are added to the global field only.
-    positive: [positive, artistPositive].filter(text => text.trim()).join(', '),
-    negative: globalNegative,
-    characters: parsed.characters.map(character => ({ positive: expand(character.positive), negative: character.negative })),
+    positive: [expanded.positive, artistPositive].filter(text => text.trim()).join(', '),
+    negative: mergeNegative(globalNegative, expanded.negative),
+    characters: parsed.characters.map(character => {
+      const expanded = expand(character.positive);
+      return { positive: expanded.positive, negative: mergeNegative(character.negative, expanded.negative) };
+    }),
   };
 }

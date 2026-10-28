@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-28', title: '锚定角色负面提示词',
+    changes: [
+      '角色编辑新增“添加负面提示词”按钮，点击后展开输入；支持保存、编辑与移除，随完整配置迁移和 TT 同步。',
+      'NAI 单串生图合入全局负面词，多角色分栏仅合入对应角色栏；生成角色图同样使用。GPT 遇到角色负面词会提示清空或切换 NAI。',
+    ],
+  },
+  {
     date: '2026-10-28', title: '指定插图阅读与配图清单',
     changes: [
       '指定插图改为正文原文、选取文段、选取句子三种方式；连续纸面点击加入清单，文段可按 3、5、8 个非空原文行划分。',

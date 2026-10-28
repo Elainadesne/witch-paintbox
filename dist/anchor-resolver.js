@@ -3,11 +3,14 @@ import { loadSharedOutfits } from './shared-outfit-store.js';
 import { withFault } from './pet-events.js';
 const alternateClothing = new Set(['nude', 'completely nude', 'topless', 'bikini', 'swimsuit', 'nightgown', 'towel']);
 export async function resolveStoredAnchorPrompt(prompt) {
+    return (await resolveStoredAnchorPromptFields(prompt)).positive;
+}
+export async function resolveStoredAnchorPromptFields(prompt) {
     if (!/[\p{Script=Han}@#]/u.test(prompt))
-        return prompt;
+        return { positive: prompt, negative: '' };
     const anchors = /[\p{Script=Han}@]/u.test(prompt) ? await loadAnchors() : [];
     const outfits = prompt.includes('#') ? loadSharedOutfits() : [];
-    return resolveAnchorPrompt(prompt, anchors, outfits);
+    return resolveAnchorPromptFields(prompt, anchors, outfits);
 }
 // Only reference names decode protocol escapes; stored tag strings and all
 // other NAI escapes must survive expansion unchanged.
@@ -95,6 +98,10 @@ function mapTags(source, visit, depth = 0, active = true) {
 }
 /** Expand saved content once. Explicit @/# calls never silently fall through to NAI. */
 export function resolveAnchorPrompt(prompt, anchors, sharedOutfits = []) {
+    return resolveAnchorPromptFields(prompt, anchors, sharedOutfits).positive;
+}
+/** Resolve each source field independently so a character's negatives stay in its own column. */
+export function resolveAnchorPromptFields(prompt, anchors, sharedOutfits = []) {
     const names = new Map();
     for (const anchor of anchors)
         for (const name of [anchor.name, ...anchor.aliases])
@@ -123,7 +130,9 @@ export function resolveAnchorPrompt(prompt, anchors, sharedOutfits = []) {
             return null;
         return { anchor: names.get(name), outfit: body === name ? null : body.slice(name.length).trimStart().slice(1).trim() };
     }
-    return mapTags(prompt, (token, nested) => {
+    const negativeAnchors = new Set();
+    const negatives = [];
+    const positive = mapTags(prompt, (token, nested, active) => {
         if (token.startsWith('#')) {
             const outfit = shared.get(referenceName(token.slice(1).trim()));
             if (outfit)
@@ -157,6 +166,12 @@ export function resolveAnchorPrompt(prompt, anchors, sharedOutfits = []) {
             if (anchor.selectedOutfitId && !outfit)
                 throw withFault(new Error(`角色“${anchor.name}”选中的服装不存在，请重新选择。`), 'reference');
         }
+        if (active && !negativeAnchors.has(anchor.id) && anchor.negative?.trim()) {
+            negativeAnchors.add(anchor.id);
+            negatives.push(anchor.negative);
+        }
         return [anchor.appearance, outfit?.tags].filter(Boolean).join(', ');
     });
+    // Stored negative tags are opaque text, never another round of @/# or |/~ parsing.
+    return { positive, negative: negatives.join(', ') };
 }

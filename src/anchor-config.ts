@@ -63,6 +63,7 @@ export class AnchorConfig {
   private roundError = false;
   private anchorsError = '';
   private draft: CharacterAnchor | null = null;
+  private negativeExpanded = false;
   private sourcePrompt = '';
   private dirty = false;
   private busy = false;
@@ -272,6 +273,11 @@ export class AnchorConfig {
         <div class="anchor-toolbar anchor-tag-tools"><p class="config-status">仅保留版权角色、发色发型、瞳色、肤色、体型与种族等固定特征；服装单独保存，表情、动作和场景留给当轮生图。由你确认保留的 tag，插件不会自动删改。</p><button type="button" class="text-button" data-anchor-action="pick-tags">筛选外貌 tag</button></div>
         ${this.pickerView()}
         ${this.sourcePrompt ? `<details class="anchor-source"><summary>查看这张图片的完整生成 tag</summary><pre>${escape(this.sourcePrompt)}</pre></details>` : ''}
+        <div class="anchor-negative">
+          ${this.negativeExpanded ? `<label class="config-field"><span>角色负面提示词</span><textarea rows="3" data-anchor-field="negative" maxlength="${ANCHOR_TAG_LIMIT}" spellcheck="false" aria-describedby="anchor-negative-hint">${escape(draft.negative)}</textarea></label>
+            <div class="anchor-toolbar"><p class="config-status" id="anchor-negative-hint">NAI 单串生图时加入全局负面词；多角色分栏时只加入该角色栏。GPT 不支持独立负面词。</p><button type="button" class="text-button" data-anchor-action="remove-negative">移除负面提示词</button></div>`
+            : '<button type="button" class="text-button" data-anchor-action="add-negative">添加负面提示词</button>'}
+        </div>
         <section class="anchor-outfit-section"><div class="anchor-toolbar"><h3 class="subsection-title">服装库</h3><button type="button" class="text-button" data-anchor-action="add-outfit">＋ 添加服装</button></div>
           <label class="config-field"><span>当前服装（默认）</span><select data-anchor-field="selectedOutfitId"><option value="">只用固定外貌</option>${draft.outfits.map(outfit => `<option value="${escape(outfit.id)}"${draft.selectedOutfitId === outfit.id ? ' selected' : ''}>${escape(outfit.name || '未命名服装')}</option>`).join('')}</select></label>
           <p class="config-status">当前选择作为 default；其他服装也会随角色资料提供给模型，供当轮选择。</p>
@@ -331,8 +337,8 @@ export class AnchorConfig {
       this.draft.aliases = field.value.split(/[,，\r\n]+/).map(alias => alias.trim()).filter(Boolean);
       this.markDirty();
     }
-    if (key === 'name' || key === 'appearance' || key === 'selectedOutfitId') {
-      if (key !== 'name' && this.draft[key] !== field.value) this.cancelPortrait('外貌或服装已修改，已取消本次生成等待。');
+    if (key === 'name' || key === 'appearance' || key === 'negative' || key === 'selectedOutfitId') {
+      if (key !== 'name' && this.draft[key] !== field.value) this.cancelPortrait('角色提示词或服装已修改，已取消本次生成等待。');
       this.draft[key] = field.value;
       if (key === 'appearance') { this.picker = null; this.container?.querySelector('.anchor-tag-picker')?.remove(); }
       this.markDirty();
@@ -377,10 +383,11 @@ export class AnchorConfig {
     if (this.draft && this.dirty && !window.confirm('放弃当前尚未保存的角色修改？')) return false;
     this.cancelPortrait('已切换角色，已取消之前的生成等待。');
     this.draft = anchor ? structuredClone(anchor) : {
-      id: newAnchorId(), name: '', aliases: [], appearance: source ? imageHistoryPositive(source.entry) : '', outfits: [],
+      id: newAnchorId(), name: '', aliases: [], appearance: source ? imageHistoryPositive(source.entry) : '', negative: '', outfits: [],
       selectedOutfitId: '', portrait: source?.entry.blob ?? null, updatedAt: Date.now(),
     };
     this.sourcePrompt = source ? imageHistoryPositive(source.entry) : '';
+    this.negativeExpanded = !!this.draft.negative.trim();
     this.dirty = !anchor;
     this.deleting = false;
     this.picker = null;
@@ -448,7 +455,7 @@ export class AnchorConfig {
       // Only update the matching editor; navigation may have unmounted it.
       if (this.draft === draft) {
         this.anchors = remove ? this.anchors.filter(item => item.id !== snapshot.id)
-          : [...this.anchors.filter(item => item.id !== snapshot.id), { ...snapshot, name: snapshot.name.trim(), appearance: snapshot.appearance.trim() }];
+          : [...this.anchors.filter(item => item.id !== snapshot.id), { ...snapshot, name: snapshot.name.trim(), appearance: snapshot.appearance.trim(), negative: snapshot.negative.trim() }];
         this.draft = null;
         this.sourcePrompt = '';
         this.picker = null;
@@ -496,9 +503,9 @@ export class AnchorConfig {
   private async generatePortrait(): Promise<void> {
     const draft = this.draft;
     if (!draft || this.busy || this.portraitRequest) return;
-    const appearance = draft.appearance, outfitId = draft.selectedOutfitId, portrait = draft.portrait;
+    const appearance = draft.appearance, negative = draft.negative, outfitId = draft.selectedOutfitId, portrait = draft.portrait;
     const outfitTags = draft.outfits.find(outfit => outfit.id === outfitId)?.tags ?? '';
-    const current = () => this.draft === draft && draft.appearance === appearance && draft.selectedOutfitId === outfitId
+    const current = () => this.draft === draft && draft.appearance === appearance && draft.negative === negative && draft.selectedOutfitId === outfitId
       && (draft.outfits.find(outfit => outfit.id === outfitId)?.tags ?? '') === outfitTags && draft.portrait === portrait;
     this.deleting = false;
     this.container?.querySelector('.anchor-delete-confirm')?.remove();
@@ -512,9 +519,13 @@ export class AnchorConfig {
     try {
       if (!appearance.trim()) throw withFault(new Error('请先填写角色的固定外貌 tag。'), 'setup');
       const settings = loadImageSettings();
+      if (settings.provider === 'openai' && negative.trim()) {
+        throw withFault(new Error('GPT 生图不支持角色独立负面提示词，请清空该角色的负面词或切换 NAI。'), 'setup');
+      }
       emitPetEvent({ type: 'image', id: pet, source: 'portrait', phase: 'start', provider: settings.provider, summary: draft.name });
       const positive = [settings.positive, appearance, outfitTags].map(part => part.trim()).filter(Boolean).join(', ');
-      const result = await generatePreparedImage(settings, { positive, negative: settings.negative, characters: [] }, request.signal, progress => {
+      const combinedNegative = [settings.negative, negative].map(part => part.trim()).filter(Boolean).join(', ');
+      const result = await generatePreparedImage(settings, { positive, negative: combinedNegative, characters: [] }, request.signal, progress => {
         if (request.signal.aborted || !current()) return;
         this.portraitPhase = progress.state;
         this.portraitNotice = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在生成角色图…';
@@ -608,6 +619,23 @@ export class AnchorConfig {
       case 'generate-portrait': await this.generatePortrait(); break;
       case 'cancel-portrait': this.cancelPortrait(); break;
       case 'remove-portrait': if (this.draft) { this.cancelPortrait('角色图已移除，已取消本次生成等待。'); this.draft.portrait = null; this.markDirty(); this.render(); } break;
+      case 'add-negative':
+        if (!this.draft) return;
+        this.negativeExpanded = true;
+        this.render();
+        this.container?.querySelector<HTMLTextAreaElement>('[data-anchor-field="negative"]')?.focus();
+        break;
+      case 'remove-negative':
+        if (!this.draft) return;
+        if (this.draft.negative) {
+          this.cancelPortrait('角色负面词已移除，已取消本次生成等待。');
+          this.draft.negative = '';
+          this.markDirty();
+        }
+        this.negativeExpanded = false;
+        this.render();
+        this.container?.querySelector<HTMLButtonElement>('[data-anchor-action="add-negative"]')?.focus();
+        break;
       case 'add-outfit': this.addOutfit(); break;
       case 'remove-outfit': {
         if (!this.draft) return;

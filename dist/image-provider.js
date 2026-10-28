@@ -1,5 +1,5 @@
 import { prepareImagePrompt } from './image-prompt.js';
-import { resolveStoredAnchorPrompt } from './anchor-resolver.js';
+import { resolveStoredAnchorPromptFields } from './anchor-resolver.js';
 import { generateImage } from './novelai.js';
 import { generateOpenAIImage } from './openai-image.js';
 import { withFault } from './pet-events.js';
@@ -46,8 +46,11 @@ export async function generateConfiguredImage(settings, scene, signal, onProgres
         if (snapshot.negative.trim())
             throw withFault(new Error('GPT 生图接口不支持独立负面提示词，请在当前配置中清空负面词后生成。'), 'setup');
         // No NAI column parsing, weight conversion, or hidden instructions are added to a GPT prompt.
-        const expanded = await resolveStoredAnchorPrompt(scene);
-        prompt = { positive: [expanded, artistPositive].filter(value => value.trim()).join(', '), negative: '', characters: [] };
+        const expanded = await resolveStoredAnchorPromptFields(scene);
+        if (expanded.negative.trim()) {
+            throw withFault(new Error('GPT 生图不支持角色独立负面提示词，请清空该角色的负面词或切换 NAI。'), 'setup');
+        }
+        prompt = { positive: [expanded.positive, artistPositive].filter(value => value.trim()).join(', '), negative: '', characters: [] };
     }
     else {
         const model = snapshot.parameters.model;

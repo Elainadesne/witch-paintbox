@@ -4,11 +4,20 @@ import { withFault } from './pet-events.js';
 
 const alternateClothing = new Set(['nude', 'completely nude', 'topless', 'bikini', 'swimsuit', 'nightgown', 'towel']);
 
+export interface ResolvedAnchorPrompt {
+  positive: string;
+  negative: string;
+}
+
 export async function resolveStoredAnchorPrompt(prompt: string): Promise<string> {
-  if (!/[\p{Script=Han}@#]/u.test(prompt)) return prompt;
+  return (await resolveStoredAnchorPromptFields(prompt)).positive;
+}
+
+export async function resolveStoredAnchorPromptFields(prompt: string): Promise<ResolvedAnchorPrompt> {
+  if (!/[\p{Script=Han}@#]/u.test(prompt)) return { positive: prompt, negative: '' };
   const anchors = /[\p{Script=Han}@]/u.test(prompt) ? await loadAnchors() : [];
   const outfits = prompt.includes('#') ? loadSharedOutfits() : [];
-  return resolveAnchorPrompt(prompt, anchors, outfits);
+  return resolveAnchorPromptFields(prompt, anchors, outfits);
 }
 
 interface Wrapper { prefix: string; body: string; suffix: string; active: boolean }
@@ -78,6 +87,11 @@ function mapTags(source: string, visit: (token: string, nested: boolean, active:
 
 /** Expand saved content once. Explicit @/# calls never silently fall through to NAI. */
 export function resolveAnchorPrompt(prompt: string, anchors: readonly CharacterAnchor[], sharedOutfits: readonly SharedOutfit[] = []): string {
+  return resolveAnchorPromptFields(prompt, anchors, sharedOutfits).positive;
+}
+
+/** Resolve each source field independently so a character's negatives stay in its own column. */
+export function resolveAnchorPromptFields(prompt: string, anchors: readonly CharacterAnchor[], sharedOutfits: readonly SharedOutfit[] = []): ResolvedAnchorPrompt {
   const names = new Map<string, CharacterAnchor>();
   for (const anchor of anchors) for (const name of [anchor.name, ...anchor.aliases]) names.set(name, anchor);
   const orderedNames = [...names.keys()].sort((a, b) => b.length - a.length);
@@ -102,7 +116,9 @@ export function resolveAnchorPrompt(prompt: string, anchors: readonly CharacterA
     return { anchor: names.get(name)!, outfit: body === name ? null : body.slice(name.length).trimStart().slice(1).trim() };
   }
 
-  return mapTags(prompt, (token, nested) => {
+  const negativeAnchors = new Set<string>();
+  const negatives: string[] = [];
+  const positive = mapTags(prompt, (token, nested, active) => {
     if (token.startsWith('#')) {
       const outfit = shared.get(referenceName(token.slice(1).trim()));
       if (outfit) return outfit.tags;
@@ -130,6 +146,12 @@ export function resolveAnchorPrompt(prompt: string, anchors: readonly CharacterA
       outfit = anchor.outfits.find(item => item.id === anchor.selectedOutfitId);
       if (anchor.selectedOutfitId && !outfit) throw withFault(new Error(`角色“${anchor.name}”选中的服装不存在，请重新选择。`), 'reference');
     }
+    if (active && !negativeAnchors.has(anchor.id) && anchor.negative?.trim()) {
+      negativeAnchors.add(anchor.id);
+      negatives.push(anchor.negative);
+    }
     return [anchor.appearance, outfit?.tags].filter(Boolean).join(', ');
   });
+  // Stored negative tags are opaque text, never another round of @/# or |/~ parsing.
+  return { positive, negative: negatives.join(', ') };
 }
