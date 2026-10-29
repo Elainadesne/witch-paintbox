@@ -35,9 +35,11 @@ function tagEnd(text: string, start: number): number {
   return -1;
 }
 
+function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
 /** From an excluded opening tag at `start` (ending at `openEnd`) to its matching close; -1 when it never closes. */
 function excludedEnd(text: string, name: string, openEnd: number): number {
-  const tokens = new RegExp(`<(/?)${name.replace(/[.]/g, '\\.')}(?=[\\s/>])[^<>]*>`, 'gi');
+  const tokens = new RegExp(`<(/?)${escapeRegExp(name)}(?=[\\s/>])[^<>]*>`, 'gi');
   tokens.lastIndex = openEnd;
   let depth = 1;
   for (let token = tokens.exec(text); token; token = tokens.exec(text)) {
@@ -53,7 +55,8 @@ function excludedEnd(text: string, name: string, openEnd: number): number {
  * variable updates and the like are never offered for illustration. An unclosed one only covers its own tag.
  */
 export function imageTextRegions(text: string, excludedTags: readonly string[] = []): TextRegion[] {
-  const excluded = new Set(excludedTags.map(tag => tag.toLowerCase()));
+  // Excluded names may use characters ordinary HTML names cannot (<nailong~>, <思考>), so they are matched on their own; longest first.
+  const excludedOpening = excludedTags.length ? new RegExp(`^<(${[...excludedTags].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|')})(?=[\\s/>])`, 'i') : null;
   const lines = textLines(text);
   const regions: TextRegion[] = [];
   const fence = /^ {0,3}(?:> ?)*(`{3,}|~{3,})(.*)$/;
@@ -122,14 +125,16 @@ export function imageTextRegions(text: string, excludedTags: readonly string[] =
         add('html', end < 0 ? text.length : end + terminator.length, end >= 0);
         continue;
       }
+      const own = excludedOpening?.exec(text.slice(at));
+      if (own) {
+        const end = tagEnd(text, at);
+        const close = end > 0 && !/\/\s*>$/.test(text.slice(at, end)) ? excludedEnd(text, own[1], end) : -1;
+        if (close > 0) { add('html', close, true, false, own[1].toLowerCase()); continue; }
+      }
       const tag = /^<\/?([a-z][a-z\d:-]*)(?=[\s/>]|$)/i.exec(text.slice(at));
       if (tag || text.startsWith('<!', at)) {
         const end = tagEnd(text, at);
         if (end < 0) { add('html', text.length, false); continue; }
-        if (tag && tag[0][1] !== '/' && excluded.has(tag[1].toLowerCase()) && !/\/\s*>$/.test(text.slice(at, end))) {
-          const close = excludedEnd(text, tag[1], end);
-          if (close > 0) { add('html', close, true, false, tag[1].toLowerCase()); continue; }
-        }
         if (tag && /^<(?:pre|code|script|style|textarea|title|a|button|select|option)\b/i.test(tag[0]) && !/\/\s*>$/.test(text.slice(at, end))) {
           const close = new RegExp(`</${tag[1]}\\s*>`, 'gi');
           close.lastIndex = end;

@@ -14,7 +14,12 @@ export interface Settings {
   lastPage: PageId;
   position: Position | null;
   imageRetentionDays: 0 | 1 | 3 | 7;
+  /** 正文写完后自动调用模型写配图标记（相当于自动点“AI生图”） */
+  autoProcessReplies: boolean;
+  /** 自动点击生图：新出现的配图标记自动绘制 */
   autoGenerateImages: boolean;
+  /** 自动点击生图在提示词稳定后、以及两张图之间等待的秒数；0 为立即接上 */
+  autoImageDelay: number;
   petLines: boolean;
   petMotion: boolean;
   petScale: number;
@@ -29,10 +34,10 @@ export interface Settings {
 export const DEFAULT_EXCLUDED_TAGS: readonly string[] = ['think', 'thinking', 'UpdateVariable'];
 export const MAX_EXCLUDED_TAGS = 24;
 
-/** 标签名：允许写成 <tag>，去掉尖括号与斜杠；只收合法的 XML 名称。 */
+/** 标签名：允许写成 <tag>，去掉尖括号与斜杠。思维链标签常带 ~ ! 或中文，只拒绝空白、引号、等号、斜杠与尖括号。 */
 export function normalizeTagName(value: string): string | null {
   const name = value.trim().replace(/^<\/?|\/?>$/g, '').trim();
-  return /^[A-Za-z_][\w:.-]{0,39}$/.test(name) ? name : null;
+  return name.length <= 40 && /^[^\s<>/"'=]+$/.test(name) ? name : null;
 }
 
 export function readExcludedTags(value: unknown): string[] | null {
@@ -59,7 +64,15 @@ export interface TavernContext {
 
 export function defaultSettings(): Settings {
   return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-    imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto', excludedTags: [...DEFAULT_EXCLUDED_TAGS] };
+    imageRetentionDays: 0, autoProcessReplies: false, autoGenerateImages: false, autoImageDelay: 1, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto', excludedTags: [...DEFAULT_EXCLUDED_TAGS] };
+}
+
+export const MAX_AUTO_IMAGE_DELAY = 60;
+
+/** 秒数保留一位小数；超出 0～60 或不是数字时返回 null。 */
+export function readAutoImageDelay(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > MAX_AUTO_IMAGE_DELAY) return null;
+  return Math.round(value * 10) / 10;
 }
 
 export function readPetScale(value: unknown): number {
@@ -95,7 +108,9 @@ export function readSettings(context: TavernContext): Settings {
   if (typeof saved.rememberPage === 'boolean') settings.rememberPage = saved.rememberPage;
   if (typeof saved.rememberPosition === 'boolean') settings.rememberPosition = saved.rememberPosition;
   if ([0, 1, 3, 7].includes(saved.imageRetentionDays!)) settings.imageRetentionDays = saved.imageRetentionDays!;
+  if (typeof saved.autoProcessReplies === 'boolean') settings.autoProcessReplies = saved.autoProcessReplies;
   if (typeof saved.autoGenerateImages === 'boolean') settings.autoGenerateImages = saved.autoGenerateImages;
+  settings.autoImageDelay = readAutoImageDelay(saved.autoImageDelay) ?? settings.autoImageDelay;
   if (typeof saved.petLines === 'boolean') settings.petLines = saved.petLines;
   if (typeof saved.petMotion === 'boolean') settings.petMotion = saved.petMotion;
   settings.petScale = readPetScale(saved.petScale);

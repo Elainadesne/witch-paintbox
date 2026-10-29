@@ -1,5 +1,5 @@
 import { navigation, pages, pluginName, type PageId } from './pages.js';
-import type { Settings } from './settings.js';
+import { MAX_AUTO_IMAGE_DELAY, type Settings } from './settings.js';
 import { updateHistoryView } from './update-history.js';
 import { getHostStore, isTauriHost } from './host-storage.js';
 import { getSyncApiKeys } from './host-settings.js';
@@ -32,7 +32,8 @@ const guideLinks = {
   currentImages: { label: '当前角色卡', page: 'review', reviewScope: 'current' },
   allImages: { label: '全部角色卡', page: 'review', reviewScope: 'all' },
   habits: { label: '配图与留存', page: 'preferences', selector: '[aria-labelledby="image-habits-heading"]' },
-  autoImages: { label: '自动生图', page: 'preferences', selector: '[name="autoGenerateImages"]' },
+  autoProcess: { label: '自动 AI 生图', page: 'preferences', selector: '[name="autoProcessReplies"]' },
+  autoImages: { label: '自动点击生图', page: 'preferences', selector: '[name="autoGenerateImages"]' },
   retention: { label: '自动清理', page: 'preferences', selector: '[name="imageRetentionDays"]' },
   tia: { label: '桌宠缇娅', page: 'preferences', selector: '[aria-labelledby="pet-heading"]' },
   exportConfig: { label: '导出配置', page: 'preferences', selector: '[data-config-transfer] .config-section' },
@@ -112,7 +113,7 @@ function guideView(): string {
         </div>
         <div class="map-branch">${node('preferences')}
           <div class="map-leaves">
-            ${guideLeaf('habits', '使用习惯', '安排配图留存，调整缇娅的陪伴', ['autoImages', 'retention', 'tia', 'updates'])}
+            ${guideLeaf('habits', '使用习惯', '安排配图留存，调整缇娅的陪伴', ['autoProcess', 'autoImages', 'retention', 'tia', 'updates'])}
             ${guideLeaf('exportConfig', '配置迁移与分享', '选择配置范围，迁移或分享', ['exportConfig', 'importConfig'])}
           </div>
         </div>
@@ -123,8 +124,8 @@ function guideView(): string {
       <ol class="guide-steps">
         <li><span class="guide-step-number" aria-hidden="true">01</span><div><h4>连接接口，导入预设</h4><p>选择 NAI 或 GPT，配置两类 API，再导入对应服务的预设。</p></div></li>
         <li><span class="guide-step-number" aria-hidden="true">02</span><div><h4>补充角色与世界资料</h4><p>按需要配置标签锚定、上传世界书，并勾选要挂载的条目。</p></div></li>
-        <li><span class="guide-step-number" aria-hidden="true">03</span><div><h4>让 AI 处理最新回复</h4><p>打开悬浮球菜单，点击“AI生图”，为正文插入配图位置。</p></div></li>
-        <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层中生成图片</h4><p>点击“生成图片”，或在使用偏好开启自动生图。已保存图片可在生图回顾中翻看。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">03</span><div><h4>让 AI 处理最新回复</h4><p>打开悬浮球菜单，点击“AI生图”，为正文插入配图位置；也可在使用偏好开启自动 AI 生图，正文写完自动处理。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层中生成图片</h4><p>点击“生成图片”，或在使用偏好开启自动点击生图。已保存图片可在生图回顾中翻看。</p></div></li>
       </ol>
     </section>
     <section class="guide-transfer" aria-labelledby="guide-transfer-heading">
@@ -153,7 +154,10 @@ function preferencesView(settings: Settings): string {
       <label class="preference-row"><span><strong>自动清理生图</strong><span>按生成时间清理所有角色卡的本机图片历史；角色锚定图保留。开启后立即清理，关闭酒馆期间的过期图片会在下次打开时清理。</span></span>
         <select name="imageRetentionDays" aria-label="图片保留时间">${[[0, '关闭'], [1, '保留 1 天'], [3, '保留 3 天'], [7, '保留 7 天']].map(([value, label]) => `<option value="${value}"${settings.imageRetentionDays === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
       <p class="config-status" data-cleanup-status role="status"></p>
-      <label class="preference-row"><span><strong>自动生图</strong><span>仅限最新一楼。AI 回复结束、提示词稳定 1 秒后，按正文顺序依次绘制。会消耗生图额度；已有图片跳过，失败不自动重试，打开聊天或开启功能时不补跑历史标记。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>自动 AI 生图</strong><span>正文写完后自动为最新回复调用模型写配图标记，相当于替你点菜单里的“AI生图”；配合“自动点击生图”即可全程自动出图。会等酒馆空闲、角色卡的变量更新等后续请求都结束 3 秒后再开始；手动停止的回复和已有配图标记的楼层不处理。会消耗模型 API 额度。</span></span><input type="checkbox" name="autoProcessReplies" ${settings.autoProcessReplies ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>自动点击生图</strong><span>仅限最新一楼。楼层里出现新的配图标记后自动点“生成图片”：AI 回复结束、提示词稳定后，按正文顺序依次绘制。会消耗生图额度；已有图片跳过，失败不自动重试，打开聊天或开启功能时不补跑历史标记。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>自动点击生图间隔</strong><span>提示词稳定后等多久开始画，以及画完一张后隔多久接上下一张。填 0 为立即接上，默认 1 秒，最多 ${MAX_AUTO_IMAGE_DELAY} 秒。</span></span>
+        <span class="preference-number"><input type="number" name="autoImageDelay" min="0" max="${MAX_AUTO_IMAGE_DELAY}" step="0.1" inputmode="decimal" value="${settings.autoImageDelay}" aria-label="自动生图间隔（秒）">秒</span></label>
     </section>
     <section class="preference-section" aria-labelledby="pet-heading">
       <header class="section-heading section-heading--plain"><div class="pet-heading-line"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><small class="pet-credit">由 <strong>Lovéthia</strong> 宝宝制作，无比感谢！</small></div><p class="section-description">调整缇娅的大小、台词与动作；人物和画匣会一起缩放。</p></header>

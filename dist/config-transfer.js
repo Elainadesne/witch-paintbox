@@ -1,4 +1,5 @@
-import { applyArchive, archiveKeyCount, archiveUrlCount, exportArchive, MAX_ARCHIVE_BYTES, parseArchive, summarizeArchive } from './config-archive.js';
+import { archiveKeyCount, archiveUrlCount, exportArchive, MAX_ARCHIVE_BYTES, parseArchive, summarizeArchive } from './config-archive.js';
+import { applyArchive, defaultImportModes, importSections, importSectionTitles, loadLocalConfig, mergeArchive } from './config-merge.js';
 import { imageProviderName, loadImageSettings } from './image-settings.js';
 function escape(value) {
     return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -10,12 +11,7 @@ const scopeDescriptions = {
     presets: '分享当前生图类型的预设名称、文本条目、编排顺序、功能层启用状态及共用标记开关。',
     worldbooks: '包含完整世界书库、原文条目，以及 NAI / GPT 两套已保存的挂载选择。',
 };
-const replacementDescriptions = {
-    all: '确认后，文件中的 NAI / GPT 两套配置、共用配置和编辑草稿将替换当前内容，包括角色库与世界书库；生成图片历史保留。',
-    artists: '确认后，将替换文件指定生图类型的画师配置、提示词及选用状态；另一套画师配置、接口和参数保持不变。',
-    presets: '确认后，将替换文件指定类型的预设名称、文本条目、编排顺序及功能层启用状态，同时更新两套共用的标记开关；模型连接、请求参数和世界书挂载保持不变。',
-    worldbooks: '确认后，将替换完整世界书库及 NAI / GPT 两套挂载选择；两套预设、世界书层的启用状态和位置、模型连接保持不变。',
-};
+const modeLabels = { skip: '跳过', overwrite: '覆盖' };
 export class ConfigTransfer {
     context;
     onApplied;
@@ -66,6 +62,15 @@ export class ConfigTransfer {
                 this.container?.querySelector(`[data-transfer-kind="${kind}"]`)?.focus();
                 return;
             }
+            const section = button.dataset.transferSection, mode = button.dataset.transferMode;
+            if (this.pending && (mode === 'skip' || mode === 'overwrite')) {
+                for (const item of importSections(this.pending.archive))
+                    if (!section || item === section)
+                        this.pending.modes[item] = mode;
+                this.render();
+                this.container?.querySelector(section ? `[data-transfer-section="${section}"][data-transfer-mode="${mode}"]` : `[data-transfer-all][data-transfer-mode="${mode}"]`)?.focus();
+                return;
+            }
             if (button.dataset.transferAction === 'export')
                 void this.download();
             if (button.dataset.transferAction === 'confirm')
@@ -95,6 +100,17 @@ export class ConfigTransfer {
             return;
         const busy = this.phase !== 'idle';
         const archive = this.pending?.archive;
+        let details = new Map(), planError = '';
+        if (this.pending) {
+            try {
+                details = mergeArchive(this.pending.archive, this.pending.local, this.pending.modes).details;
+            }
+            catch (error) {
+                planError = error instanceof Error ? error.message : '无法按当前方式合并。';
+            }
+        }
+        const modes = this.pending ? { ...defaultImportModes(this.pending.archive), ...this.pending.modes } : {};
+        const sections = archive ? importSections(archive) : [];
         this.container.innerHTML = `<div class="image-settings transfer-settings">
       <section class="config-section"><header class="section-heading"><span class="section-index" aria-hidden="true">01</span><h2 class="section-title">配置导出</h2><p class="section-description">选择要保存或分享的内容。</p></header>
         <div class="transfer-scope-options" role="group" aria-label="导出范围">${Object.keys(scopeTitles).map(kind => `<button type="button" data-transfer-kind="${kind}" aria-pressed="${this.kind === kind}"${busy ? ' disabled' : ''}>${scopeTitles[kind]}</button>`).join('')}</div>
@@ -114,8 +130,14 @@ export class ConfigTransfer {
             ${archive.kind === 'all' ? `<li><strong>API 密钥</strong><br><span>${archiveKeyCount(archive) ? `包含 ${archiveKeyCount(archive)} 处密钥，内容不在此展示。` : '未包含有效密钥；完整导入后需重新填写。'}</span></li>` : ''}
             ${archive.kind === 'all' ? `<li><strong>API 请求 URL</strong><br><span>${archiveUrlCount(archive) ? `包含 ${archiveUrlCount(archive)} 处请求 URL。` : '未包含请求 URL；完整导入后，自定义接口需重新填写地址。'}</span></li>` : ''}
           </ul>
-          <p class="config-status">${replacementDescriptions[archive.kind]}</p>
-          <div class="transfer-actions"><button type="button" class="text-button" data-transfer-action="confirm"${busy ? ' disabled' : ''}>${this.isApplying ? '正在导入…' : '确认导入以上配置'}</button><button type="button" class="text-button" data-transfer-action="cancel"${busy ? ' disabled' : ''}>取消</button></div>
+          <h3>导入方式</h3>
+          <p class="config-status">跳过：本地已有的同名条目和已经配置过的设置保持不变，只补充本地没有的内容。覆盖：同名条目和设置改用文件内容。本地独有的条目始终保留；文件没有密钥的 API 连接不会替换本地连接。生成图片历史不受影响。</p>
+          ${sections.length > 1 ? `<div class="transfer-mode-all" role="group" aria-label="全部类别">${['skip', 'overwrite'].map(mode => `<button type="button" class="text-button" data-transfer-all data-transfer-mode="${mode}"${busy ? ' disabled' : ''}>全部${modeLabels[mode]}</button>`).join('')}</div>` : ''}
+          <ul class="transfer-summary transfer-plan">${sections.map(section => `<li><div><strong>${importSectionTitles[section]}</strong><br><span>${escape(details.get(section) ?? '')}</span></div>
+            <div class="transfer-mode" role="group" aria-label="${importSectionTitles[section]}的导入方式">${['skip', 'overwrite'].map(mode => `<button type="button" data-transfer-section="${section}" data-transfer-mode="${mode}" aria-pressed="${modes[section] === mode}"${busy ? ' disabled' : ''}>${modeLabels[mode]}</button>`).join('')}</div></li>`).join('')}
+          </ul>
+          ${planError ? `<p class="config-status is-error">无法按当前方式导入：${escape(planError)}</p>` : ''}
+          <div class="transfer-actions"><button type="button" class="text-button" data-transfer-action="confirm"${busy || planError ? ' disabled' : ''}>${this.isApplying ? '正在导入…' : '确认导入以上配置'}</button><button type="button" class="text-button" data-transfer-action="cancel"${busy ? ' disabled' : ''}>取消</button></div>
         </section>` : ''}
       </section>
       <p class="config-status${this.error ? ' is-error' : ''}" data-transfer-status role="status">${escape(this.notice)}</p>
@@ -139,8 +161,11 @@ export class ConfigTransfer {
             if (request !== this.request)
                 return;
             const archive = parseArchive(source);
-            this.pending = { filename: file.name, archive };
-            this.notice = '校验完成，请核对导入内容和覆盖范围。';
+            const local = await loadLocalConfig(archive, this.context);
+            if (request !== this.request)
+                return;
+            this.pending = { filename: file.name, archive, local, modes: defaultImportModes(archive) };
+            this.notice = '校验完成，请核对导入内容，并为每一类选择跳过或覆盖。';
         }
         catch (error) {
             if (request !== this.request)
@@ -212,13 +237,13 @@ export class ConfigTransfer {
             this.render();
             return;
         }
-        const archive = this.pending.archive;
+        const { archive, modes } = this.pending;
         this.phase = 'apply';
         this.notice = '正在导入已确认的配置…';
         this.error = false;
         this.render();
         try {
-            await applyArchive(archive, this.context);
+            await applyArchive(archive, this.context, modes);
             this.onApplied(archive.kind, archive.kind === 'artists' || archive.kind === 'presets' ? archive.data.provider : undefined);
             this.pending = null;
             this.notice = archive.kind === 'all' ? '配置已导入，当前页面即可继续使用；使用偏好已提交酒馆保存。' : `${scopeTitles[archive.kind]}已导入，当前页面即可继续使用。`;

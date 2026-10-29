@@ -4,7 +4,7 @@ import type { FloorTarget } from './pet-targets.js';
 export type PetFault = 'reference' | 'setup' | 'host' | 'auth' | 'quota' | 'busy'
   | 'network' | 'timeout' | 'format' | 'decode' | 'storage' | 'unknown';
 
-/** 'auto' = a floor picture started by 自动生图. Floor and auto events carry floor/turn. */
+/** 'auto' = a floor picture started by 自动点击生图. Floor and auto events carry floor/turn. */
 export type PetImageSource = 'floor' | 'auto' | 'config' | 'portrait';
 
 export interface PetPicture {

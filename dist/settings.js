@@ -2,10 +2,10 @@ import { isPageId } from './pages.js';
 export const extensionId = 'tavern-image-plugin';
 export const DEFAULT_EXCLUDED_TAGS = ['think', 'thinking', 'UpdateVariable'];
 export const MAX_EXCLUDED_TAGS = 24;
-/** 标签名：允许写成 <tag>，去掉尖括号与斜杠；只收合法的 XML 名称。 */
+/** 标签名：允许写成 <tag>，去掉尖括号与斜杠。思维链标签常带 ~ ! 或中文，只拒绝空白、引号、等号、斜杠与尖括号。 */
 export function normalizeTagName(value) {
     const name = value.trim().replace(/^<\/?|\/?>$/g, '').trim();
-    return /^[A-Za-z_][\w:.-]{0,39}$/.test(name) ? name : null;
+    return name.length <= 40 && /^[^\s<>/"'=]+$/.test(name) ? name : null;
 }
 export function readExcludedTags(value) {
     if (!Array.isArray(value))
@@ -26,7 +26,14 @@ export function readExcludedTags(value) {
 export const isPaintboxTheme = (value) => value === 'auto' || value === 'day' || value === 'night';
 export function defaultSettings() {
     return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-        imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto', excludedTags: [...DEFAULT_EXCLUDED_TAGS] };
+        imageRetentionDays: 0, autoProcessReplies: false, autoGenerateImages: false, autoImageDelay: 1, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto', excludedTags: [...DEFAULT_EXCLUDED_TAGS] };
+}
+export const MAX_AUTO_IMAGE_DELAY = 60;
+/** 秒数保留一位小数；超出 0～60 或不是数字时返回 null。 */
+export function readAutoImageDelay(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > MAX_AUTO_IMAGE_DELAY)
+        return null;
+    return Math.round(value * 10) / 10;
 }
 export function readPetScale(value) {
     return typeof value === 'number' && Number.isFinite(value)
@@ -65,8 +72,11 @@ export function readSettings(context) {
         settings.rememberPosition = saved.rememberPosition;
     if ([0, 1, 3, 7].includes(saved.imageRetentionDays))
         settings.imageRetentionDays = saved.imageRetentionDays;
+    if (typeof saved.autoProcessReplies === 'boolean')
+        settings.autoProcessReplies = saved.autoProcessReplies;
     if (typeof saved.autoGenerateImages === 'boolean')
         settings.autoGenerateImages = saved.autoGenerateImages;
+    settings.autoImageDelay = readAutoImageDelay(saved.autoImageDelay) ?? settings.autoImageDelay;
     if (typeof saved.petLines === 'boolean')
         settings.petLines = saved.petLines;
     if (typeof saved.petMotion === 'boolean')

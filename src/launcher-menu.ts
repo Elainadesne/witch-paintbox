@@ -1,3 +1,4 @@
+import { autoProcessReplies } from './auto-process.js';
 import { ChatProcessor } from './chat-processor.js';
 import { bindIllustrationPicker } from './illustration-picker.js';
 import { emitPetEvent } from './pet-events.js';
@@ -68,6 +69,7 @@ export function bindLauncherMenu(
     if (!menu.hidden) place();
   });
   const picker = bindIllustrationPicker(root, signal, processor);
+  autoProcessReplies(processor, signal);
 
   // 贴着画匣弹出：优先放在画匣远离缇娅的一侧；放不下就放到画匣上方或下方；都不行再退回整体旁边。
   function place() {

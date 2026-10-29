@@ -26,7 +26,10 @@ export function automaticImages(handlers) {
         active?.controller.abort();
         notifyPet();
     }
-    function arm(delay = 1000) {
+    // Retries while the host is still busy keep a floor, so a 0-second interval never spins.
+    const RETRY_FLOOR = 250;
+    function interval() { return currentPreferences().autoImageDelay * 1000; }
+    function arm(delay = interval()) {
         if (disposed || active || timer !== undefined || !waiting.size)
             return;
         timer = setTimeout(() => { timer = undefined; void next(); }, delay);
@@ -46,13 +49,18 @@ export function automaticImages(handlers) {
         const controller = new AbortController();
         const job = { candidate: pending, controller };
         active = job;
+        let retry = false;
         try {
-            if (!await isChatReadyForImages())
+            if (!await isChatReadyForImages()) {
+                retry = true;
                 return;
+            }
             if (controller.signal.aborted || waiting.get(pending.entry.key) !== pending || pending.readyAt > Date.now())
                 return;
-            if (isImageSizeModeSaving())
-                return; // Keep this unpaid job queued until both controls finish synchronizing.
+            if (isImageSizeModeSaving()) {
+                retry = true;
+                return;
+            } // Keep this unpaid job queued until both controls finish synchronizing.
             waiting.delete(pending.entry.key);
             notifyPet();
             await handlers.generate(pending, controller.signal);
@@ -65,11 +73,11 @@ export function automaticImages(handlers) {
             if (active === job)
                 active = null;
             notifyPet();
-            arm();
+            arm(retry ? Math.max(interval(), RETRY_FLOOR) : interval());
         }
     }
     return {
-        settled() { waiting.forEach(item => { item.readyAt = Date.now() + 1000; }); },
+        settled() { waiting.forEach(item => { item.readyAt = Date.now() + interval(); }); },
         update(candidates, parsingEnabled) {
             if (disposed)
                 return;
@@ -98,7 +106,7 @@ export function automaticImages(handlers) {
                 if (!enabled || !current)
                     waiting.delete(key);
                 else if (current.message.text !== pending.message.text) {
-                    waiting.set(key, { ...current, readyAt: Date.now() + 1000 });
+                    waiting.set(key, { ...current, readyAt: Date.now() + interval() });
                 }
             }
             for (const candidate of candidates) {
@@ -106,7 +114,7 @@ export function automaticImages(handlers) {
                     continue;
                 seen.add(candidate.entry.key);
                 if (enabled && eligible.has(candidate.entry.key))
-                    waiting.set(candidate.entry.key, { ...candidate, readyAt: Date.now() + 1000 });
+                    waiting.set(candidate.entry.key, { ...candidate, readyAt: Date.now() + interval() });
             }
             notifyPet();
             arm();

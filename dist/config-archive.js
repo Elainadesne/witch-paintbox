@@ -1,9 +1,9 @@
-import { defaultImageSettings, loadImageSettings, saveImageSettings, validateImageSettings, loadAllImageSettings, saveAllImageSettings, validateAllImageSettings, IMAGE_PROVIDERS, imageProviderName } from './image-settings.js';
-import { defaultModelSettings, loadModelSettings, saveModelSettings, validateModelSettings, loadAllModelSettings, saveAllModelSettings, validateAllModelSettings } from './model-settings.js';
-import { loadAnchors, replaceAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT } from './anchor-store.js';
-import { loadSharedOutfits, replaceSharedOutfits, validateSharedOutfits } from './shared-outfit-store.js';
-import { loadWorldbookArchive, replaceWorldbookArchive, validateWorldbookArchive } from './worldbook-source.js';
-import { defaultSettings, readPetPlacement, readPetScale, readSettings, saveSettings, isPaintboxTheme, readExcludedTags } from './settings.js';
+import { defaultImageSettings, loadImageSettings, validateImageSettings, loadAllImageSettings, validateAllImageSettings, IMAGE_PROVIDERS, imageProviderName } from './image-settings.js';
+import { defaultModelSettings, loadModelSettings, validateModelSettings, loadAllModelSettings, validateAllModelSettings } from './model-settings.js';
+import { loadAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT } from './anchor-store.js';
+import { loadSharedOutfits, validateSharedOutfits } from './shared-outfit-store.js';
+import { loadWorldbookArchive, validateWorldbookArchive } from './worldbook-source.js';
+import { defaultSettings, readPetPlacement, readPetScale, readSettings, isPaintboxTheme, readAutoImageDelay, readExcludedTags } from './settings.js';
 import { isPageId } from './pages.js';
 export const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
 function object(value, label) {
@@ -35,10 +35,21 @@ function preferences(value) {
             throw new Error('图片保留时间格式无效。');
         optional.imageRetentionDays = source.imageRetentionDays;
     }
+    if (source.autoProcessReplies !== undefined) {
+        if (typeof source.autoProcessReplies !== 'boolean')
+            throw new Error('自动 AI 生图偏好格式无效。');
+        optional.autoProcessReplies = source.autoProcessReplies;
+    }
     if (source.autoGenerateImages !== undefined) {
         if (typeof source.autoGenerateImages !== 'boolean')
-            throw new Error('自动生图偏好格式无效。');
+            throw new Error('自动点击生图偏好格式无效。');
         optional.autoGenerateImages = source.autoGenerateImages;
+    }
+    if (source.autoImageDelay !== undefined) {
+        const delay = readAutoImageDelay(source.autoImageDelay);
+        if (delay === null)
+            throw new Error('自动点击生图间隔须在 0～60 秒之间。');
+        optional.autoImageDelay = delay;
     }
     for (const name of ['petLines', 'petMotion', 'petAway']) {
         const value = source[name];
@@ -90,7 +101,7 @@ function presetSettings(value, provider) {
     fields(source, ['presetName', 'head', 'tail', 'promptOrder', 'enabledLayers', 'parseImageMarkers', 'hideImageContext'], '预设');
     return selectPreset(validateModelSettings({ ...defaultModelSettings(provider), ...source }));
 }
-function modelAttachments(model) {
+export function modelAttachments(model) {
     return Object.fromEntries(IMAGE_PROVIDERS.map(provider => [provider, model.presets[provider].worldbooks]));
 }
 function worldbookSettings(value, version) {
@@ -157,7 +168,7 @@ function anchors(value) {
         return { ...item, portrait: decodePortrait(item.portrait) };
     }));
 }
-function checkWorldbookLinks(attachments, books) {
+export function checkWorldbookLinks(attachments, books) {
     const available = new Map(books.map(book => [book.name, new Set(book.entries.map(entry => entry.id))]));
     for (const provider of IMAGE_PROVIDERS) {
         for (const selected of attachments[provider]) {
@@ -305,8 +316,8 @@ export function summarizeArchive(archive) {
     const rows = [];
     if (archive.version === 1)
         rows.push({ title: '旧版配置兼容', detail: archive.kind === 'all'
-                ? '旧版单套配置将迁入 NAI；GPT 生图配置与预设将恢复为空的初始配置。'
-                : archive.kind === 'worldbooks' ? '旧版世界书挂载归入 NAI；GPT 的挂载将清空，以免引用替换前的书籍。'
+                ? '旧版单套配置归入 NAI；文件中其他通道为空，不会改动本地对应配置。'
+                : archive.kind === 'worldbooks' ? '旧版世界书挂载归入 NAI。'
                     : '旧版分享文件的目标为 NAI，不会替换 GPT 的画师串或预设。' });
     if (archive.kind === 'artists') {
         const artists = archive.data.artists;
@@ -337,88 +348,6 @@ export function summarizeArchive(archive) {
             : provider === 'gemini' ? settings.geminiParameters.model : settings.grokParameters.model;
         rows.push({ title: `${providerName(provider)} 生图 API`, detail: `${settings.connectionProfiles.length} 个保存连接；模型 ${modelLabel || '未选模型'}，${canvas}，含全部生图参数。` }, { title: `${providerName(provider)} 画师串`, detail: `${settings.artists.length} 个命名配置及当前提示词。${settings.artists.map(item => item.name).join('、')}` }, { title: `${providerName(provider)} 预设`, detail: `“${preset.presetName || '未命名'}”，${preset.head.length + preset.tail.length} 个文本条目，含编排、功能层选择和 ${preset.worldbooks.length} 本世界书挂载。` });
     }
-    rows.push({ title: '共用模型 API', detail: `${model.api.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.api.model || '未选模型'}`}；含回复参数及配图标记开关。` }, { title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` }, { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装；完整导入将替换当前通用服装库。${sharedOutfits.map(outfit => outfit.name).join('、')}` }, { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含各通道挂载关系。${worldbooks.map(book => book.name).join('、')}` }, { title: '使用偏好', detail: `含页面记忆与悬浮球位置。自动生图：${archive.data.preferences.autoGenerateImages ? '开启' : '关闭'}（仅限最新一楼）；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，导入后会清理本机过期图片` : '关闭'}。` });
+    rows.push({ title: '共用模型 API', detail: `${model.api.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.api.model || '未选模型'}`}；含回复参数及配图标记开关。` }, { title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` }, { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装。${sharedOutfits.map(outfit => outfit.name).join('、')}` }, { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含各通道挂载关系。${worldbooks.map(book => book.name).join('、')}` }, { title: '使用偏好', detail: `含页面记忆与悬浮球位置。自动 AI 生图：${archive.data.preferences.autoProcessReplies ? '开启' : '关闭'}；自动点击生图：${archive.data.preferences.autoGenerateImages ? '开启' : '关闭'}（仅限最新一楼，间隔 ${archive.data.preferences.autoImageDelay} 秒）；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，采用文件偏好后会清理本机过期图片` : '关闭'}。` });
     return rows;
-}
-/** Validate everything before writes; restore completed sections if a later storage operation fails. */
-export async function applyArchive(archive, context) {
-    if (archive.kind === 'artists') {
-        const image = loadImageSettings(archive.data.provider);
-        try {
-            await saveImageSettings({ ...image, ...archive.data.artists });
-        }
-        catch (error) {
-            let restored = true;
-            try {
-                await saveImageSettings(image);
-            }
-            catch {
-                restored = false;
-            }
-            throw new Error(`${error instanceof Error ? error.message : '画师串导入失败。'}${restored ? '原配置已恢复。' : '原配置未能恢复，请检查浏览器存储。'}`);
-        }
-        return;
-    }
-    if (archive.kind === 'presets') {
-        const model = loadModelSettings(archive.data.provider);
-        try {
-            await saveModelSettings({ ...model, ...archive.data.presets });
-        }
-        catch (error) {
-            await rollback(error, [() => saveModelSettings(model)]);
-        }
-        return;
-    }
-    if (archive.kind === 'worldbooks') {
-        const model = loadAllModelSettings(), previousBooks = await loadWorldbookArchive();
-        const undo = [];
-        try {
-            checkWorldbookLinks(archive.data.attachments, archive.data.worldbooks);
-            await replaceWorldbookArchive(archive.data.worldbooks);
-            undo.push(() => replaceWorldbookArchive(previousBooks));
-            undo.push(() => saveAllModelSettings(model));
-            const next = structuredClone(model);
-            for (const provider of IMAGE_PROVIDERS)
-                next.presets[provider].worldbooks = archive.data.attachments[provider];
-            await saveAllModelSettings(next);
-        }
-        catch (error) {
-            await rollback(error, undo);
-        }
-        return;
-    }
-    const image = loadAllImageSettings();
-    const model = loadAllModelSettings(), previousPreferences = readSettings(context);
-    const previousSharedOutfits = loadSharedOutfits();
-    const [previousAnchors, previousBooks] = await Promise.all([loadAnchors(), loadWorldbookArchive()]);
-    const undo = [];
-    try {
-        await replaceAnchors(archive.data.anchors);
-        undo.push(() => replaceAnchors(previousAnchors));
-        undo.push(() => replaceSharedOutfits(previousSharedOutfits));
-        await replaceSharedOutfits(archive.data.sharedOutfits);
-        await replaceWorldbookArchive(archive.data.worldbooks);
-        undo.push(() => replaceWorldbookArchive(previousBooks));
-        undo.push(() => saveAllModelSettings(model));
-        await saveAllModelSettings(archive.data.model);
-        undo.push(() => saveAllImageSettings(image));
-        await saveAllImageSettings(archive.data.image);
-        undo.push(() => saveSettings(context, previousPreferences));
-        saveSettings(context, archive.data.preferences);
-    }
-    catch (error) {
-        await rollback(error, undo);
-    }
-}
-async function rollback(error, undo) {
-    let failed = false;
-    for (const restore of undo.reverse()) {
-        try {
-            await restore();
-        }
-        catch {
-            failed = true;
-        }
-    }
-    throw new Error(`${error instanceof Error ? error.message : '配置导入失败。'}${failed ? '部分配置未能恢复，请保留导入文件并检查浏览器存储。' : '本次更改已撤回，原配置已恢复。'}`);
 }

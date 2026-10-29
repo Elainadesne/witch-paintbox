@@ -305,7 +305,7 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
     event.preventDefault();
     const input = excludedForm.elements.namedItem('tag') as HTMLInputElement;
     const name = normalizeTagName(input.value);
-    if (!name) { excludedNote.textContent = '标签名只能用字母、数字、下划线、连字符、冒号或点，且以字母开头。'; return; }
+    if (!name) { excludedNote.textContent = '标签名不能为空，也不能含空格、引号、等号、斜杠或尖括号，最长 40 个字符。'; return; }
     if (excludedTags.some(tag => tag.toLowerCase() === name.toLowerCase())) { excludedNote.textContent = `<${name}> 已在排除列表里。`; input.value = ''; return; }
     if (excludedTags.length >= MAX_EXCLUDED_TAGS) { excludedNote.textContent = `最多排除 ${MAX_EXCLUDED_TAGS} 个标签。`; return; }
     input.value = '';

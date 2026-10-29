@@ -391,6 +391,39 @@ export function formatChatText(text: string, messageId: number): string {
   return context.messageFormatting(text, message.name ?? '', Boolean(message.is_system), Boolean(message.is_user), formattingId);
 }
 
+export type ReplyActivity = 'reply' | 'activity' | 'stopped' | 'reset';
+
+/**
+ * 'reply' marks a reply the user asked for (send, swipe, regenerate, continue). Quiet and impersonate generations,
+ * dry runs, renders and edits only count as activity, so follow-up calls such as variable updates delay the caller.
+ */
+export function watchReplyGeneration(callback: (event: ReplyActivity) => void): () => void {
+  if (isSifangEnvironment()) {
+    return watchSifangChat((_messageId, event) => callback(event === 'GENERATION_ENDED' ? 'reply' : event === 'CHAT_CHANGED' ? 'reset' : 'activity'));
+  }
+  const context = host();
+  const handlers: Record<string, (...args: unknown[]) => ReplyActivity | null> = {
+    GENERATION_STARTED: (type, _options, dryRun) => dryRun ? null : type === 'quiet' || type === 'impersonate' ? 'activity' : 'reply',
+    GENERATION_STOPPED: () => 'stopped',
+    CHAT_CHANGED: () => 'reset',
+    MESSAGE_DELETED: () => 'reset',
+  };
+  for (const name of ['GENERATION_ENDED', 'MESSAGE_RECEIVED', 'CHARACTER_MESSAGE_RENDERED', 'MESSAGE_UPDATED', 'MESSAGE_EDITED', 'MESSAGE_SWIPED']) {
+    handlers[name] = () => 'activity';
+  }
+  const subscriptions: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];
+  for (const [name, classify] of Object.entries(handlers)) {
+    const event = context.eventTypes?.[name];
+    if (!event) continue;
+    const handler = (...args: unknown[]) => {
+      try { const kind = classify(...args); if (kind) callback(kind); } catch { /* Do not interrupt host generation. */ }
+    };
+    context.eventSource.on(event, handler);
+    subscriptions.push({ event, handler });
+  }
+  return () => { for (const { event, handler } of subscriptions) context.eventSource.removeListener(event, handler); };
+}
+
 export function watchChatRendering(callback: ChatRenderListener): () => void {
   if (isSifangEnvironment()) return watchSifangChat((messageId, event) => callback(messageId, undefined, event));
   const context = host();

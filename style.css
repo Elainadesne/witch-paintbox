@@ -328,6 +328,8 @@ button.map-node:hover { border-color: var(--section-accent); background: var(--a
 .preference-row strong, .preference-row > span > span { display: block; }
 .preference-row > span > span { margin-top: 4px; color: var(--muted); font-size: 13px; }
 .preference-row select { flex: 0 0 auto; max-width: 100%; min-height: 40px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--field-paper); color: var(--ink); font: inherit; }
+.preference-number { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; color: var(--muted); }
+.preference-number input { width: 72px; min-height: 40px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--field-paper); color: var(--ink); font: inherit; text-align: right; }
 .preference-section { margin-bottom: 28px; padding: 20px; border: 1px solid var(--border); border-radius: 5px; background: var(--field-paper); }
 .preference-section .preference-row:last-child { border-bottom: 0; padding-bottom: 0; }
 .preference-section .section-heading { margin-bottom: 0; }
@@ -370,6 +372,12 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .transfer-summary span, .transfer-summary small { color: var(--muted); font-size: 12px; }
 .transfer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; }
 .transfer-actions > button { max-width: 100%; }
+.transfer-plan > li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.transfer-plan > li > div:first-child { flex: 1 1 220px; min-width: 0; }
+.transfer-mode, .transfer-mode-all { display: flex; flex-wrap: wrap; gap: 6px; }
+.transfer-mode > button { min-width: 56px; min-height: 34px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--muted); }
+.transfer-mode > button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.transfer-mode > button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); font-weight: 650; }
 
 .update-history { margin-top: 38px; }
 .update-history-group { border-bottom: 1px solid var(--border); }
@@ -1026,6 +1034,8 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 }
 #image-plugin-panel .image-settings select:focus { background-size: 12px 8px, 100% 2px, 100% 1px; }
 #image-plugin-panel .preference-row select { border: 0; border-radius: 0; }
+#image-plugin-panel .preference-number input { border: 0; border-radius: 0; background: repeating-linear-gradient(90deg, var(--pencil) 0 9px, transparent 9px 11px) 0 100% / 100% 1px no-repeat; }
+#image-plugin-panel .preference-number input:focus { outline: none; background: linear-gradient(var(--wash-ink), var(--wash-ink)) 0 100% / 100% 2px no-repeat; }
 
 /* 文字按钮：悬停上浮 1px，按下沉 1px */
 #image-plugin-panel .image-settings .text-button { letter-spacing: .14em; transition: transform var(--t-fast) ease, color var(--t-fast) ease; }

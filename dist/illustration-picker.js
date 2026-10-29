@@ -309,7 +309,7 @@ export function bindIllustrationPicker(root, signal, processor) {
         const input = excludedForm.elements.namedItem('tag');
         const name = normalizeTagName(input.value);
         if (!name) {
-            excludedNote.textContent = '标签名只能用字母、数字、下划线、连字符、冒号或点，且以字母开头。';
+            excludedNote.textContent = '标签名不能为空，也不能含空格、引号、等号、斜杠或尖括号，最长 40 个字符。';
             return;
         }
         if (excludedTags.some(tag => tag.toLowerCase() === name.toLowerCase())) {

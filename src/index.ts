@@ -9,7 +9,7 @@ import { ConfigTransfer } from './config-transfer.js';
 import { registerBuiltinLayers } from './builtin-layers.js';
 import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName, type PageId } from './pages.js';
-import { defaultSettings, extensionId, isPaintboxTheme, readPetScale, readSettings, saveSettings, type TavernContext } from './settings.js';
+import { defaultSettings, extensionId, isPaintboxTheme, readAutoImageDelay, readPetScale, readSettings, saveSettings, type TavernContext } from './settings.js';
 import { bindPaintboxTheme } from './paintbox-theme.js';
 import { guideDestination, navigationView, pageView, type FeatureTab, type GuideDestination } from './views.js';
 import { getHostStore, initializeHostStorage } from './host-storage.js';
@@ -61,9 +61,11 @@ async function mount() {
       else if (settings.rememberPosition && settings.position) floating?.setPosition(settings.position);
       else floating?.reset();
       for (const input of Array.from(content.querySelectorAll<HTMLInputElement>('.preference-row input'))) {
-        if (input.name === 'rememberPage' || input.name === 'rememberPosition' || input.name === 'autoGenerateImages'
+        if (input.name === 'rememberPage' || input.name === 'rememberPosition' || input.name === 'autoProcessReplies' || input.name === 'autoGenerateImages'
           || input.name === 'petLines' || input.name === 'petMotion') input.checked = settings[input.name];
       }
+      const delay = content.querySelector<HTMLInputElement>('[name="autoImageDelay"]');
+      if (delay) delay.value = String(settings.autoImageDelay);
       const retention = content.querySelector<HTMLSelectElement>('[name="imageRetentionDays"]');
       if (retention) retention.value = String(settings.imageRetentionDays);
       const theme = content.querySelector<HTMLSelectElement>('[name="paintboxTheme"]');
@@ -399,6 +401,15 @@ async function mount() {
         refreshTheme();
         return;
       }
+      if (input instanceof HTMLInputElement && input.name === 'autoImageDelay') {
+        const delay = readAutoImageDelay(input.value.trim() === '' ? NaN : Number(input.value));
+        if (transfer.isApplying || delay === null) { input.value = String(settings.autoImageDelay); return; }
+        settings.autoImageDelay = delay;
+        input.value = String(delay);
+        persist();
+        content.querySelector<HTMLElement>('[data-feedback]')!.textContent = delay ? `自动点击生图间隔已设为 ${delay} 秒。` : '自动点击生图改为立即接上。';
+        return;
+      }
       if (input instanceof HTMLSelectElement && input.name === 'imageRetentionDays') {
         if (transfer.isApplying) { input.value = String(settings.imageRetentionDays); return; }
         const days = Number(input.value);
@@ -407,8 +418,8 @@ async function mount() {
         persist();
         return;
       }
-      if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition', 'autoGenerateImages', 'petLines', 'petMotion'].includes(input.name)) return;
-      if (transfer.isApplying) { input.checked = settings[input.name as 'rememberPage' | 'rememberPosition' | 'autoGenerateImages' | 'petLines' | 'petMotion']; return; }
+      if (!(input instanceof HTMLInputElement) || !['rememberPage', 'rememberPosition', 'autoProcessReplies', 'autoGenerateImages', 'petLines', 'petMotion'].includes(input.name)) return;
+      if (transfer.isApplying) { input.checked = settings[input.name as 'rememberPage' | 'rememberPosition' | 'autoProcessReplies' | 'autoGenerateImages' | 'petLines' | 'petMotion']; return; }
       if (input.name === 'rememberPage') {
         settings.rememberPage = input.checked;
         settings.lastPage = page;
@@ -418,6 +429,7 @@ async function mount() {
         settings.position = input.checked ? floating!.getPosition() : null;
         settings.petPlacement = null;
       }
+      if (input.name === 'autoProcessReplies') settings.autoProcessReplies = input.checked;
       if (input.name === 'autoGenerateImages') settings.autoGenerateImages = input.checked;
       if (input.name === 'petLines') settings.petLines = input.checked;
       if (input.name === 'petMotion') settings.petMotion = input.checked;
