@@ -128,7 +128,7 @@ function snapshotCharacters(characters, model) {
     });
 }
 /** Freeze each click before joining the shared queue; never repeat a billable request. */
-export async function generateImage(connection, params, positive, negative, signal, onProgress, characters = []) {
+export async function generateImage(connection, params, positive, negative, signal, onProgress, characters = [], vibes = null) {
     if (signal.aborted)
         throw abortError();
     const configured = validateImageConnection(connection);
@@ -182,6 +182,13 @@ export async function generateImage(connection, params, positive, negative, sign
         parameters.reference_image_multiple = [];
         parameters.reference_information_extracted_multiple = [];
         parameters.reference_strength_multiple = [];
+    }
+    // Vibe Transfer: V4 / V4.5 send cached encodings, V3 sends raw pictures. V5 never reaches here.
+    if (vibes && vibes.images.length && !isV5) {
+        parameters.reference_image_multiple = [...vibes.images];
+        parameters.reference_information_extracted_multiple = [...vibes.informationExtracted];
+        parameters.reference_strength_multiple = [...vibes.strengths];
+        parameters.normalize_reference_strength_multiple = vibes.normalize;
     }
     const body = JSON.stringify({ input: positive, model: params.model, action: 'generate', parameters });
     return queueImageGeneration(() => requestImage(configured, body, seed, signal), signal, onProgress);

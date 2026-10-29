@@ -5,6 +5,7 @@ import { fetchOpenAIImageModels, validateOpenAIImageConnection, type OpenAIImage
 import { fetchGeminiImageModels } from './gemini-image.js';
 import { fetchGrokImageModels, validateGrokConnection } from './grok-image.js';
 import type { GeminiImageParameters, GrokImageParameters } from './aspect-image.js';
+import { VibePanel } from './vibe-panel.js';
 import { generateConfiguredImage } from './image-provider.js';
 import { imageFileExtension } from './raster-image.js';
 import { imageChatContext } from './chat-host.js';
@@ -47,6 +48,8 @@ export class ImageConfig {
   private modelRequest: AbortController | null = null;
   private modelOptions: string[] = [];
   private moreProviders = false;
+  private advancedOpen = false;
+  private vibePanel: VibePanel | null = null;
   private imageUrl = '';
   private imageRecord: { id: string; createdAt: number } | null = null;
   private stopImageHistory = onImageHistoryChanged(change => {
@@ -135,6 +138,7 @@ export class ImageConfig {
   }
 
   destroy(): void {
+    this.vibePanel?.destroy();
     this.stopImageHistory();
     this.unmount();
     this.request?.abort();
@@ -160,8 +164,9 @@ export class ImageConfig {
     }
     this.container.innerHTML = imageSettingsView(
       { ...this.settings, connection: this.connection, activeConnectionId: this.connectionId, models: this.modelOptions },
-      { connectionName: this.connectionName, artistName: this.artistName, connectionSaved: this.isConnectionSaved(), refreshing: this.modelRequest !== null, moreOpen: this.moreProviders },
+      { connectionName: this.connectionName, artistName: this.artistName, connectionSaved: this.isConnectionSaved(), refreshing: this.modelRequest !== null, moreOpen: this.moreProviders, advancedOpen: this.advancedOpen },
     );
+    this.mountVibes();
     this.syncParameters();
     this.syncImageSizeMode();
     this.syncGeneration();
@@ -260,6 +265,7 @@ export class ImageConfig {
     switch (parameter) {
       case 'model': case 'sampler': case 'noiseSchedule':
         settings.parameters[parameter] = field.value;
+        if (parameter === 'model') this.vibePanel?.setModel(field.value);
         break;
       case 'sm': case 'smDyn':
         settings.parameters[parameter] = (field as HTMLInputElement).checked;
@@ -435,6 +441,7 @@ export class ImageConfig {
           break;
         }
         case 'toggle-more-providers': this.toggleMoreProviders(); break;
+        case 'toggle-advanced': this.toggleAdvanced(); break;
         case 'refresh-models': void this.refreshModels(); break;
         case 'select-size-mode': {
           if (isImageSizeModeSaving()) return;
@@ -535,6 +542,27 @@ export class ImageConfig {
     for (const button of Array.from(this.container?.querySelectorAll<HTMLButtonElement>('[data-action="switch-provider"]') ?? [])) {
       button.disabled = this.writing || this.request !== null;
     }
+  }
+
+  private mountVibes(): void {
+    this.vibePanel?.destroy();
+    this.vibePanel = null;
+    const host = this.container?.querySelector<HTMLElement>('[data-vibe-host]');
+    if (!host || !this.advancedOpen || this.settings?.provider !== 'novelai') return;
+    this.vibePanel = new VibePanel();
+    this.vibePanel.mount(host, this.settings.parameters.model);
+  }
+
+  private toggleAdvanced(): void {
+    this.advancedOpen = !this.advancedOpen;
+    const wrap = this.container?.querySelector<HTMLElement>('.advanced-features');
+    const toggle = wrap?.querySelector<HTMLButtonElement>('[data-action="toggle-advanced"]');
+    const panel = wrap?.querySelector<HTMLElement>('.advanced-panel');
+    if (!wrap || !toggle || !panel) return;
+    wrap.dataset.open = String(this.advancedOpen);
+    toggle.setAttribute('aria-expanded', String(this.advancedOpen));
+    panel.hidden = !this.advancedOpen;
+    this.mountVibes();
   }
 
   /** The paper strip stays open while Gemini or Grok is the active brush. */

@@ -173,6 +173,15 @@ export function imageSettingsView(settings, state) {
       <p class="config-status" data-settings-status role="status"></p>
     </section>
 
+    ${natural ? '' : `<div class="advanced-features" data-open="${Boolean(state.advancedOpen)}">
+      <div class="advanced-toggle-line"><button type="button" class="advanced-toggle" data-action="toggle-advanced" aria-expanded="${Boolean(state.advancedOpen)}" aria-controls="witch-advanced-panel">
+        <span>高级功能</span><span class="advanced-chevron" aria-hidden="true"></span></button></div>
+      <section class="config-section advanced-panel" id="witch-advanced-panel" aria-labelledby="vibe-heading"${state.advancedOpen ? '' : ' hidden'}>
+        <header class="section-heading"><span class="section-index" aria-hidden="true">✦</span>
+          <h2 class="section-title" id="vibe-heading">氛围参考</h2><p class="section-description">上传参考图，让画风、色调和笔触向它靠拢（NAI Vibe Transfer）。</p></header>
+        <div data-vibe-host></div>
+      </section>
+    </div>`}
     <section class="config-section" aria-labelledby="artist-heading">
       <header class="section-heading"><span class="section-index" aria-hidden="true">03</span>
         <h2 class="section-title" id="artist-heading">画师工坊</h2><p class="section-description">${natural ? '保存常用的画风描述，和每个场景的提示词一起使用。' : '统一画风与排除内容，和每个场景的提示词一起使用。'}</p></header>

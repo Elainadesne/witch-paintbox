@@ -105,6 +105,19 @@ NAI 页的自定义渠道需兼容 NovelAI 生图请求协议并允许浏览器�
 
 接口依据：[Gemini 图片生成](https://ai.google.dev/gemini-api/docs/image-generation)、[xAI 图片生成](https://docs.x.ai/developers/model-capabilities/images/generation)。
 
+## NAI 氛围参考（Vibe Transfer）
+
+在“接口配置 → 生图 API → NAI”中，画师工坊上方右侧有“高级功能”按钮，默认折叠。展开后可管理氛围参考图：
+
+- **添加**：上传 PNG / JPEG / WebP（单张 8 MiB 以内），或导入 NAI 官网导出的 `.naiv4vibe` / `.naiv4vibeBundle`；“导出合集”生成 `.naiv4vibeBundle`。
+- **参数**：每张可单独启用，调整参考强度（默认 0.6）与信息提取度（默认 1.0）；“强度总和超过 1 时自动归一化”默认开启。
+- **V4 / V4.5**：普通图片首次生图时调用 `/ai/encode-vibe`（每张 2 Anlas），结果按图片 SHA-256 + 模型 + 信息提取度缓存在 IndexedDB，命中缓存不再编码。改强度不需要重新编码，改信息提取度或换模型需要。导入文件自带的编码直接使用。自定义渠道开启自动补全时把 `/ai/generate-image` 换成 `/ai/encode-vibe`。
+- **V3**：直接发送原图，无需编码。
+- **V5**：NAI 官方尚未开放，面板会提示，生图时自动跳过。
+- **张数**：最多 16 张；启用超过 4 张时，NAI 每多一张额外收取约 2 Anlas，面板会提示。
+
+氛围图只保存在当前浏览器，暂不随配置迁移或 TT 同步。
+
 ## TauriTavern 配置同步
 
 支持 TT 公开的 [Extension Store API](https://github.com/Darkatse/TauriTavern/blob/main/docs/API/Extension.md)。支持该接口时，画匣自动将配置保存在 TT 的原生扩展数据中；在 TT 同步界面选择“扩展数据”即可带走生图连接与参数、模型连接与预设、画师串、角色外貌与服装库、角色图、上传世界书及挂载选择。页面记忆与悬浮球位置仍随酒馆设置同步。生成图片历史不在此次同步范围内。

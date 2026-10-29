@@ -1,6 +1,15 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-10-29', title: 'NAI 氛围参考（Vibe Transfer）',
+    changes: [
+      '生图 API 的画师工坊上方新增“高级功能”按钮，默认折叠，展开后是氛围参考：上传图片或导入 .naiv4vibe / .naiv4vibeBundle，每张可调参考强度与信息提取度，可导出合集。',
+      'V4 / V4.5 首次使用普通图片时调用 /ai/encode-vibe 编码（每张 2 Anlas），按图片、模型与信息提取度缓存在本机，再次生图不重复编码；调整参考强度不需要重新编码。导入自带编码的文件不扣费，没转发编码端点的反代也能用。',
+      'V3 直接发送原图；V5 官方尚未开放氛围参考，选 V5 时面板提示并在生图时自动跳过。最多 16 张，超过 4 张时提示每次生图的额外 Anlas。',
+      '已知限制：氛围图只保存在当前浏览器，暂不随配置迁移与 TT 同步；旧版插件导入新版导出的配置可能报错。',
+    ],
+  },
+  {
     date: '2026-10-29', title: 'Gemini 与 Grok 生图',
     changes: [
       '生图 API 顶部新增“更多画笔”纸条，点开后可选 Gemini 与 Grok；NAI、GPT 仍常驻显示，正在使用 Gemini / Grok 时纸条保持展开。',

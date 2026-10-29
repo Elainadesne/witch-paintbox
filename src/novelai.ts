@@ -2,6 +2,7 @@ import { ImageResponseError, readImageResponse, requireImageSupport } from './im
 import { queueImageGeneration, type ImageGenerationProgress } from './image-queue.js';
 import type { CharacterPrompt } from './image-prompt.js';
 import type { PetFault } from './pet-events.js';
+import type { VibeReferences } from './vibe-transfer.js';
 
 export type { ImageGenerationProgress } from './image-queue.js';
 
@@ -157,6 +158,7 @@ export async function generateImage(
   signal: AbortSignal,
   onProgress?: (progress: ImageGenerationProgress) => void,
   characters: readonly CharacterPrompt[] = [],
+  vibes: VibeReferences | null = null,
 ): Promise<{ blob: Blob; seed: number }> {
   if (signal.aborted) throw abortError();
   const configured = validateImageConnection(connection);
@@ -210,6 +212,13 @@ export async function generateImage(
     parameters.reference_image_multiple = [];
     parameters.reference_information_extracted_multiple = [];
     parameters.reference_strength_multiple = [];
+  }
+  // Vibe Transfer: V4 / V4.5 send cached encodings, V3 sends raw pictures. V5 never reaches here.
+  if (vibes && vibes.images.length && !isV5) {
+    parameters.reference_image_multiple = [...vibes.images];
+    parameters.reference_information_extracted_multiple = [...vibes.informationExtracted];
+    parameters.reference_strength_multiple = [...vibes.strengths];
+    parameters.normalize_reference_strength_multiple = vibes.normalize;
   }
   const body = JSON.stringify({ input: positive, model: params.model, action: 'generate', parameters });
   return queueImageGeneration(() => requestImage(configured, body, seed, signal), signal, onProgress);
