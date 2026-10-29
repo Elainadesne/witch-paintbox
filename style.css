@@ -1130,20 +1130,20 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
   background: radial-gradient(80% 140% at 10% 50%, #a3463e24 0, transparent 75%);
 }
 
-/* 开场：水色从缇娅一侧晕开，纸面随之显出。起点由 index.ts 按缇娅位置写入 --bloom-x/y。
-   缩短到 ~0.5s、去掉大幅模糊和饱和度跳变，避免看着发晕。 */
-#image-plugin-panel.is-opening .shell { animation: wp-wet-in 520ms cubic-bezier(.2, .7, .2, 1) both; }
+/* 开场：水色从点击处晕开，纸面随之显出。起点由 index.ts 写入 --bloom-x/y。
+   整段开场压在 0.5s 内，只用裁切和透明度，不模糊。 */
+#image-plugin-panel.is-opening .shell { animation: wp-wet-in 380ms cubic-bezier(.2, .7, .2, 1) both; }
 @keyframes wp-wet-in {
-  0% { opacity: .4; clip-path: circle(12% at var(--bloom-x, 92%) var(--bloom-y, 92%)); }
+  0% { opacity: .5; clip-path: circle(14% at var(--bloom-x, 92%) var(--bloom-y, 92%)); }
   100% { opacity: 1; clip-path: circle(150% at var(--bloom-x, 92%) var(--bloom-y, 92%)); }
 }
-#image-plugin-panel.is-opening h1 { animation: wp-sketch 420ms ease 180ms both; }
+#image-plugin-panel.is-opening h1 { animation: wp-sketch 260ms ease 120ms both; }
 @keyframes wp-sketch {
   0% { opacity: 0; color: transparent; -webkit-text-stroke: .5px var(--pencil); }
   50% { opacity: 1; color: transparent; -webkit-text-stroke: .5px var(--muted); }
   100% { color: var(--ink); -webkit-text-stroke: 0 transparent; }
 }
-#image-plugin-panel.is-opening .nav-item { animation: wp-develop 360ms ease both; animation-delay: calc(220ms + var(--i, 0) * 40ms); }
+#image-plugin-panel.is-opening .nav-item { animation: wp-develop 240ms ease both; animation-delay: calc(100ms + var(--i, 0) * 30ms); }
 
 /* 切页：显影 */
 #image-plugin-panel .content.is-fresh .page-heading h2 { animation: wp-lay 900ms cubic-bezier(.2, .8, .2, 1) both; transform-origin: left center; }
@@ -1152,6 +1152,10 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 @keyframes wp-develop { from { opacity: 0; } }
 @keyframes wp-lay { from { opacity: 0; transform: scale(1.06); } }
 @keyframes wp-develop-wet { from { opacity: 0; filter: blur(3px); transform: translateY(5px); } }
+/* 开场时不再叠加切页显影，整段控制在 0.5s 内 */
+#image-plugin-panel.is-opening .content.is-fresh .page-heading h2,
+#image-plugin-panel.is-opening .content.is-fresh .page-heading > p,
+#image-plugin-panel.is-opening .content.is-fresh > :not(.page-heading) { animation: none; }
 
 /* 手机：纸铺满，导航移到底部横滑 */
 @media (max-width: 640px), (pointer: coarse) and (max-width: 1100px) {

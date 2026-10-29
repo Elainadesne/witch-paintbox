@@ -60,7 +60,8 @@ export function bindLauncherMenu(launcher, root, signal, configure, options = {}
     processButton.addEventListener('click', () => { void processor.process(); }, { signal });
     selectButton.addEventListener('click', () => { close(); picker.open(launcher); }, { signal });
     cancelButton.addEventListener('click', () => processor.cancel(), { signal });
-    menu.querySelector('[data-configure]').addEventListener('click', () => { close(); configure(); }, { signal });
+    const configureButton = menu.querySelector('[data-configure]');
+    configureButton.addEventListener('click', () => { const from = configureButton.getBoundingClientRect(); close(); configure(from); }, { signal });
     document.addEventListener('pointerdown', event => {
         if (!event.composedPath().includes(menu) && !event.composedPath().includes(launcher))
             close();

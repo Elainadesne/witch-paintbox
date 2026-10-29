@@ -3,7 +3,7 @@ import { bindIllustrationPicker } from './illustration-picker.js';
 import { emitPetEvent } from './pet-events.js';
 
 export function bindLauncherMenu(
-  launcher: HTMLButtonElement, root: ShadowRoot, signal: AbortSignal, configure: () => void,
+  launcher: HTMLButtonElement, root: ShadowRoot, signal: AbortSignal, configure: (from?: DOMRect) => void,
   options: { anchor?: () => DOMRect } = {},
 ) {
   const menu = document.createElement('div');
@@ -60,7 +60,8 @@ export function bindLauncherMenu(
   processButton.addEventListener('click', () => { void processor.process(); }, { signal });
   selectButton.addEventListener('click', () => { close(); picker.open(launcher); }, { signal });
   cancelButton.addEventListener('click', () => processor.cancel(), { signal });
-  menu.querySelector('[data-configure]')!.addEventListener('click', () => { close(); configure(); }, { signal });
+  const configureButton = menu.querySelector<HTMLButtonElement>('[data-configure]')!;
+  configureButton.addEventListener('click', () => { const from = configureButton.getBoundingClientRect(); close(); configure(from); }, { signal });
   document.addEventListener('pointerdown', event => {
     if (!event.composedPath().includes(menu) && !event.composedPath().includes(launcher)) close();
   }, { signal });

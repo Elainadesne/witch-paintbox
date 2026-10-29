@@ -153,11 +153,11 @@ async function mount() {
   };
   window.addEventListener('witch-paintbox:cleanup-status', showCleanupStatus, { signal });
   window.addEventListener('resize', () => { if (panel.open) paintNavigation(); }, { signal });
-  const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'), {
+  const launcherMenu = bindLauncherMenu(launcher, root, signal, from => openPanel(settings.rememberPage ? settings.lastPage : 'guide', launcher, from), {
     anchor: () => pet?.anchor() ?? launcher.getBoundingClientRect(),
   });
 
-  function openPanel(target: PageId, opener: HTMLElement = launcher) {
+  function openPanel(target: PageId, opener: HTMLElement = launcher, from?: DOMRect) {
     if (panel.open) return;
     panelOpener = opener;
     launcherMenu.close();
@@ -165,24 +165,24 @@ async function mount() {
     panel.classList.remove('is-opening');
     void panel.offsetWidth;
     panel.classList.add('is-opening');
-    window.setTimeout(() => panel.classList.remove('is-opening'), 900);
+    window.setTimeout(() => panel.classList.remove('is-opening'), 500);
     panel.showModal();
     panelViewport.refresh();
-    placeBloomOrigin();
+    placeBloomOrigin(from ?? (opener === launcher ? undefined : opener.getBoundingClientRect()));
     paintNavigation();
     emitPetEvent({ type: 'ui', action: 'panel-open' });
     updateNotice.check();
     content.focus({ preventScroll: true });
   }
 
-  // 开场晕染从缇娅（或悬浮球）所在一侧的面板边缘开始：取她的中心点，夹在面板范围内，
-  // 缇娅再大、离得再远，起点也只会落在面板最近的边上。
-  function placeBloomOrigin() {
+  // 开场晕染从点击处开始：菜单里的“设置”、酒馆设置里的入口按钮；都没有时取悬浮球。
+  // 点位夹在面板范围内，远处的起点只会落在面板最近的边上。
+  function placeBloomOrigin(from?: DOMRect) {
     const box = panel.getBoundingClientRect();
     if (!box.width || !box.height) return;
-    const from = pet?.anchor() ?? launcher.getBoundingClientRect();
-    const cx = from.width ? from.x + from.width / 2 : box.right;
-    const cy = from.height ? from.y + from.height / 2 : box.bottom;
+    const source = from && from.width ? from : launcher.getBoundingClientRect();
+    const cx = source.width ? source.x + source.width / 2 : box.right;
+    const cy = source.height ? source.y + source.height / 2 : box.bottom;
     const x = Math.min(1, Math.max(0, (cx - box.left) / box.width));
     const y = Math.min(1, Math.max(0, (cy - box.top) / box.height));
     panel.style.setProperty('--bloom-x', `${(x * 100).toFixed(1)}%`);
