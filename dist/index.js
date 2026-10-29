@@ -148,6 +148,8 @@ async function mount() {
     const updateNotice = bindUpdateNotice(root, signal);
     const persist = () => saveSettings(context, settings);
     const refreshTheme = bindPaintboxTheme(host, () => settings.paintboxTheme, signal);
+    // 指定插图窗会直接改排除标签；主面板之后保存其他偏好时不能把它写回旧值
+    window.addEventListener('witch-paintbox:preferences-changed', () => { settings.excludedTags = readSettings(context).excludedTags; }, { signal });
     function syncPetScale() {
         const percent = Math.round(settings.petScale * 100);
         const input = content.querySelector('[name="petScale"]');
@@ -192,7 +194,7 @@ async function mount() {
         panel.classList.remove('is-opening');
         void panel.offsetWidth;
         panel.classList.add('is-opening');
-        window.setTimeout(() => panel.classList.remove('is-opening'), 500);
+        window.setTimeout(() => panel.classList.remove('is-opening'), 320);
         panel.showModal();
         panelViewport.refresh();
         placeBloomOrigin(from ?? (opener === launcher ? undefined : opener.getBoundingClientRect()));

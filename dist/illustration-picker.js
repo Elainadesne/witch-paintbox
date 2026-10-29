@@ -2,6 +2,7 @@ import { buildIllustrationUnits } from './illustration-selection.js';
 import { textLines } from './image-text-regions.js';
 import { bindPanelViewport } from './panel-viewport.js';
 import { emitPetEvent } from './pet-events.js';
+import { currentPreferences, MAX_EXCLUDED_TAGS, normalizeTagName, saveExcludedTags } from './settings.js';
 /** Reading and shopping-list state stay local; submitting uses the shared model pipeline. */
 export function bindIllustrationPicker(root, signal, processor) {
     const panel = document.createElement('dialog');
@@ -22,6 +23,15 @@ export function bindIllustrationPicker(root, signal, processor) {
           <button type="button" data-mode="sentence" aria-pressed="false">选取句子</button>
         </div>
         <label class="illustration-grouping" hidden>每 <select aria-label="每段非空原文行数"><option value="3">3</option><option value="5">5</option><option value="8">8</option></select> 行一段</label>
+        <div class="illustration-excluded" role="group" aria-labelledby="illustration-excluded-label">
+          <span id="illustration-excluded-label" class="illustration-excluded-label">不参与配图的标签</span>
+          <ul class="illustration-excluded-tags" data-excluded-tags></ul>
+          <form class="illustration-excluded-add" data-excluded-form>
+            <input type="text" name="tag" placeholder="添加标签" aria-label="添加不参与配图的标签" autocomplete="off" spellcheck="false" maxlength="42">
+            <button type="submit" class="text-button">添加</button>
+          </form>
+          <p class="illustration-excluded-note" data-excluded-note role="status"></p>
+        </div>
       </div>
       <div class="illustration-picker-workspace">
         <div class="illustration-reading" tabindex="0" role="group" aria-label="点击正文加入配图清单"></div>
@@ -57,6 +67,10 @@ export function bindIllustrationPicker(root, signal, processor) {
     const grouping = panel.querySelector('.illustration-grouping');
     const groupSize = grouping.querySelector('select');
     const modes = panel.querySelector('.illustration-modes');
+    const excludedList = panel.querySelector('[data-excluded-tags]');
+    const excludedForm = panel.querySelector('[data-excluded-form]');
+    const excludedNote = panel.querySelector('[data-excluded-note]');
+    let excludedTags = currentPreferences().excludedTags;
     const desktop = window.matchMedia('(min-width: 760px)');
     const button = (name) => panel.querySelector(`[data-${name}]`);
     let cart = [];
@@ -106,6 +120,33 @@ export function bindIllustrationPicker(root, signal, processor) {
                 ? '与清单中已有范围重叠，请先移除对应项' : `加入配图清单 · ${range(unit)} · 第 ${unit.lineStart}—${unit.lineEnd} 行`;
         }
         cartList.querySelectorAll('button').forEach(control => { control.disabled = busy; });
+        excludedList.querySelectorAll('button').forEach(control => { control.disabled = busy; });
+        excludedForm.querySelectorAll('input, button').forEach(control => { control.disabled = busy; });
+    }
+    function renderExcluded() {
+        const fragment = document.createDocumentFragment();
+        for (const tag of excludedTags) {
+            const item = document.createElement('li');
+            const label = document.createElement('span');
+            label.textContent = `<${tag}>`;
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.dataset.removeTag = tag;
+            remove.textContent = '×';
+            remove.setAttribute('aria-label', `不再排除 ${tag} 标签`);
+            item.append(label, remove);
+            fragment.append(item);
+        }
+        excludedList.replaceChildren(fragment);
+    }
+    // 排除标签变了，插入点也会变：保存后重新读取正文，清单随之清空
+    function changeExcluded(next, note) {
+        if (loading || running || processor.busy)
+            return;
+        excludedTags = saveExcludedTags(next);
+        renderExcluded();
+        excludedNote.textContent = note + (cart.length ? '正文已重新读取，配图清单已清空。' : '正文已重新读取。');
+        void read();
     }
     function renderCart() {
         const fragment = document.createDocumentFragment();
@@ -137,7 +178,7 @@ export function bindIllustrationPicker(root, signal, processor) {
         if (!selection)
             return;
         const fraction = reading.scrollTop / Math.max(1, reading.scrollHeight - reading.clientHeight);
-        units = buildIllustrationUnits(selection.plan, mode, Number(groupSize.value));
+        units = buildIllustrationUnits(selection.plan, mode, Number(groupSize.value), excludedTags);
         reading.dataset.mode = mode;
         hint.textContent = mode === 'sentence' ? '点击一句话加入清单，配图插在这句话后。'
             : mode === 'lines' ? '按非空原文行分段；每项由 AI 在所选范围内选一处配图。'
@@ -145,7 +186,33 @@ export function bindIllustrationPicker(root, signal, processor) {
         const fragment = document.createDocumentFragment();
         let passage;
         let previousLine = -1;
+        let fold = null;
         units.forEach((unit, index) => {
+            // 被排除的标签块折叠成一行，点开可看原文；不可选
+            if (unit.excluded) {
+                if (!fold || fold.tag !== unit.excluded) {
+                    const details = document.createElement('details');
+                    details.className = 'illustration-excluded-block';
+                    const summary = document.createElement('summary');
+                    const body = document.createElement('div');
+                    details.append(summary, body);
+                    fragment.append(details);
+                    fold = { tag: unit.excluded, body, lines: 0 };
+                    passage = undefined;
+                }
+                const span = document.createElement('span');
+                span.className = 'illustration-unit is-inert';
+                span.textContent = unit.text;
+                fold.body.append(span);
+                fold.lines += unit.lineEnd - unit.lineStart + 1;
+                const tag = unit.text.match(/<([A-Za-z_][\w:.-]*)/)?.[1] ?? fold.tag;
+                const summary = fold.body.previousElementSibling;
+                if (!summary.textContent)
+                    summary.textContent = `<${tag}> · 不参与配图`;
+                previousLine = unit.lineEnd;
+                return;
+            }
+            fold = null;
             if (mode !== 'sentence' || !passage || previousLine !== unit.lineStart) {
                 passage = document.createElement('div');
                 passage.className = 'illustration-passage';
@@ -153,7 +220,7 @@ export function bindIllustrationPicker(root, signal, processor) {
             }
             previousLine = unit.lineEnd;
             const element = document.createElement(unit.pointIds.length ? 'button' : 'span');
-            element.className = 'illustration-unit';
+            element.className = unit.pointIds.length ? 'illustration-unit' : 'illustration-unit is-inert';
             // The original text remains inert, including markup and any code blocks.
             element.textContent = unit.text;
             if (element instanceof HTMLButtonElement) {
@@ -237,6 +304,33 @@ export function bindIllustrationPicker(root, signal, processor) {
         renderReading();
     }, { signal });
     groupSize.addEventListener('change', renderReading, { signal });
+    excludedForm.addEventListener('submit', event => {
+        event.preventDefault();
+        const input = excludedForm.elements.namedItem('tag');
+        const name = normalizeTagName(input.value);
+        if (!name) {
+            excludedNote.textContent = '标签名只能用字母、数字、下划线、连字符、冒号或点，且以字母开头。';
+            return;
+        }
+        if (excludedTags.some(tag => tag.toLowerCase() === name.toLowerCase())) {
+            excludedNote.textContent = `<${name}> 已在排除列表里。`;
+            input.value = '';
+            return;
+        }
+        if (excludedTags.length >= MAX_EXCLUDED_TAGS) {
+            excludedNote.textContent = `最多排除 ${MAX_EXCLUDED_TAGS} 个标签。`;
+            return;
+        }
+        input.value = '';
+        changeExcluded([...excludedTags, name], `已排除 <${name}>。`);
+    }, { signal });
+    excludedList.addEventListener('click', event => {
+        const target = event.target.closest('button[data-remove-tag]');
+        if (!target || target.disabled)
+            return;
+        const name = target.dataset.removeTag;
+        changeExcluded(excludedTags.filter(tag => tag !== name), `<${name}> 不再排除。`);
+    }, { signal });
     reading.addEventListener('click', event => {
         const target = event.target.closest('button[data-unit]');
         if (!target || target.disabled || loading || running || !selection)
@@ -274,6 +368,13 @@ export function bindIllustrationPicker(root, signal, processor) {
             if (panel.open || processor.busy || signal.aborted)
                 return;
             opener = from;
+            const saved = currentPreferences().excludedTags;
+            if (saved.join('\n') !== excludedTags.join('\n')) {
+                excludedTags = saved;
+                selection = null;
+            }
+            renderExcluded();
+            excludedNote.textContent = '';
             panel.showModal();
             viewport.refresh();
             fitDrawer();

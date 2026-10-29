@@ -22,6 +22,31 @@ export interface Settings {
   petPlacement: PetPlacement | null;
   /** 画匣色调：跟随酒馆主题、日间或夜间 */
   paintboxTheme: PaintboxTheme;
+  /** 这些标签包住的内容不参与配图：指定插图里不可选，AI 生图也不会插在里面 */
+  excludedTags: string[];
+}
+
+export const DEFAULT_EXCLUDED_TAGS: readonly string[] = ['think', 'thinking', 'UpdateVariable'];
+export const MAX_EXCLUDED_TAGS = 24;
+
+/** 标签名：允许写成 <tag>，去掉尖括号与斜杠；只收合法的 XML 名称。 */
+export function normalizeTagName(value: string): string | null {
+  const name = value.trim().replace(/^<\/?|\/?>$/g, '').trim();
+  return /^[A-Za-z_][\w:.-]{0,39}$/.test(name) ? name : null;
+}
+
+export function readExcludedTags(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const item of value) {
+    const name = typeof item === 'string' ? normalizeTagName(item) : null;
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    tags.push(name);
+    if (tags.length >= MAX_EXCLUDED_TAGS) break;
+  }
+  return tags;
 }
 
 export type PaintboxTheme = 'auto' | 'day' | 'night';
@@ -34,7 +59,7 @@ export interface TavernContext {
 
 export function defaultSettings(): Settings {
   return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-    imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto' };
+    imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto', excludedTags: [...DEFAULT_EXCLUDED_TAGS] };
 }
 
 export function readPetScale(value: unknown): number {
@@ -77,6 +102,7 @@ export function readSettings(context: TavernContext): Settings {
   if (typeof saved.petAway === 'boolean') settings.petAway = saved.petAway;
   settings.petPlacement = readPetPlacement(saved.petPlacement);
   if (isPaintboxTheme(saved.paintboxTheme)) settings.paintboxTheme = saved.paintboxTheme;
+  settings.excludedTags = readExcludedTags(saved.excludedTags) ?? settings.excludedTags;
   if (isPageId(saved.lastPage)) settings.lastPage = saved.lastPage;
   if (saved.position && Number.isFinite(saved.position.x) && Number.isFinite(saved.position.y)) {
     settings.position = { x: saved.position.x, y: saved.position.y };
@@ -88,6 +114,18 @@ export function saveSettings(context: TavernContext, settings: Settings): void {
   context.extensionSettings[extensionId] = structuredClone(settings);
   context.saveSettingsDebounced();
   window.dispatchEvent(new Event('witch-paintbox:preferences-changed'));
+}
+
+/** 在指定插图窗里改排除标签：直接写回酒馆扩展设置，再广播偏好变化让主面板同步。 */
+export function saveExcludedTags(tags: readonly string[]): string[] {
+  const host = (globalThis as typeof globalThis & { SillyTavern?: { getContext(): TavernContext } }).SillyTavern;
+  const next = readExcludedTags([...tags]) ?? [];
+  if (!host) return next;
+  const context = host.getContext();
+  const settings = readSettings(context);
+  settings.excludedTags = next;
+  saveSettings(context, settings);
+  return next;
 }
 
 export function currentPreferences(): Settings {

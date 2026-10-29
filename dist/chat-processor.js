@@ -6,6 +6,7 @@ import { isImageSizeModeSaving, loadModelSettings } from './model-settings.js';
 import { runConfiguredModel } from './model-service.js';
 import { emitPetEvent, petFault, petTaskId, withFault } from './pet-events.js';
 import { imageSizeMode } from './image-size-mode.js';
+import { currentPreferences } from './settings.js';
 function processingSettings() {
     if (isImageSizeModeSaving())
         throw withFault(new Error('画幅模式正在同步，请完成后再开始 AI 生图。'), 'setup');
@@ -19,7 +20,8 @@ function processingSettings() {
 }
 async function captureSelection(targeted = false) {
     const snapshot = await captureLatestAssistant();
-    const plan = targeted ? createSelectedImageInsertionPlan(snapshot.text) : createImageInsertionPlan(snapshot.text);
+    const { excludedTags } = currentPreferences();
+    const plan = targeted ? createSelectedImageInsertionPlan(snapshot.text, excludedTags) : createImageInsertionPlan(snapshot.text, excludedTags);
     if (!plan.points.length)
         throw withFault(new Error('当前正文没有可用的行间插入点。'), 'format');
     const capacity = MAX_IMAGE_MARKERS - parseImageMarkers(snapshot.text).length;

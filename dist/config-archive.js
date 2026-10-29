@@ -3,7 +3,7 @@ import { defaultModelSettings, loadModelSettings, saveModelSettings, validateMod
 import { loadAnchors, replaceAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT } from './anchor-store.js';
 import { loadSharedOutfits, replaceSharedOutfits, validateSharedOutfits } from './shared-outfit-store.js';
 import { loadWorldbookArchive, replaceWorldbookArchive, validateWorldbookArchive } from './worldbook-source.js';
-import { defaultSettings, readPetPlacement, readPetScale, readSettings, saveSettings, isPaintboxTheme } from './settings.js';
+import { defaultSettings, readPetPlacement, readPetScale, readSettings, saveSettings, isPaintboxTheme, readExcludedTags } from './settings.js';
 import { isPageId } from './pages.js';
 export const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
 function object(value, label) {
@@ -47,6 +47,12 @@ function preferences(value) {
         if (typeof value !== 'boolean')
             throw new Error('使用偏好格式无效。');
         optional[name] = value;
+    }
+    if (source.excludedTags !== undefined) {
+        const tags = readExcludedTags(source.excludedTags);
+        if (!tags)
+            throw new Error('排除标签格式无效。');
+        optional.excludedTags = tags;
     }
     if (source.paintboxTheme !== undefined) {
         if (!isPaintboxTheme(source.paintboxTheme))

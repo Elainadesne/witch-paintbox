@@ -5,6 +5,8 @@ export interface TextRegion {
   kind: 'code' | 'html' | 'image';
   closed: boolean;
   nested?: boolean;
+  /** Whole block of an excluded tag (think, UpdateVariable…), name in lower case. */
+  excluded?: string;
 }
 
 export function textLines(text: string): TextLine[] {
@@ -33,15 +35,32 @@ function tagEnd(text: string, start: number): number {
   return -1;
 }
 
-/** Conservative literal regions; this is deliberately not a Markdown/HTML renderer. */
-export function imageTextRegions(text: string): TextRegion[] {
+/** From an excluded opening tag at `start` (ending at `openEnd`) to its matching close; -1 when it never closes. */
+function excludedEnd(text: string, name: string, openEnd: number): number {
+  const tokens = new RegExp(`<(/?)${name.replace(/[.]/g, '\\.')}(?=[\\s/>])[^<>]*>`, 'gi');
+  tokens.lastIndex = openEnd;
+  let depth = 1;
+  for (let token = tokens.exec(text); token; token = tokens.exec(text)) {
+    if (token[1]) { if (--depth === 0) return token.index + token[0].length; }
+    else if (!/\/\s*>$/.test(token[0])) depth++;
+  }
+  return -1;
+}
+
+/**
+ * Conservative literal regions; this is deliberately not a Markdown/HTML renderer.
+ * `excludedTags` (case-insensitive) swallow everything up to their matching close tag, so think blocks,
+ * variable updates and the like are never offered for illustration. An unclosed one only covers its own tag.
+ */
+export function imageTextRegions(text: string, excludedTags: readonly string[] = []): TextRegion[] {
+  const excluded = new Set(excludedTags.map(tag => tag.toLowerCase()));
   const lines = textLines(text);
   const regions: TextRegion[] = [];
   const fence = /^ {0,3}(?:> ?)*(`{3,}|~{3,})(.*)$/;
   let lineIndex = 0;
   let at = 0;
-  const add = (kind: TextRegion['kind'], end: number, closed = true, nested = false) => {
-    regions.push({ start: at, end, kind, closed, ...(nested ? { nested: true } : {}) });
+  const add = (kind: TextRegion['kind'], end: number, closed = true, nested = false, excludedTag?: string) => {
+    regions.push({ start: at, end, kind, closed, ...(nested ? { nested: true } : {}), ...(excludedTag ? { excluded: excludedTag } : {}) });
     at = end;
   };
   while (at < text.length) {
@@ -107,6 +126,10 @@ export function imageTextRegions(text: string): TextRegion[] {
       if (tag || text.startsWith('<!', at)) {
         const end = tagEnd(text, at);
         if (end < 0) { add('html', text.length, false); continue; }
+        if (tag && tag[0][1] !== '/' && excluded.has(tag[1].toLowerCase()) && !/\/\s*>$/.test(text.slice(at, end))) {
+          const close = excludedEnd(text, tag[1], end);
+          if (close > 0) { add('html', close, true, false, tag[1].toLowerCase()); continue; }
+        }
         if (tag && /^<(?:pre|code|script|style|textarea|title|a|button|select|option)\b/i.test(tag[0]) && !/\/\s*>$/.test(text.slice(at, end))) {
           const close = new RegExp(`</${tag[1]}\\s*>`, 'gi');
           close.lastIndex = end;

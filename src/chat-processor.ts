@@ -7,6 +7,7 @@ import { isImageSizeModeSaving, loadModelSettings } from './model-settings.js';
 import { runConfiguredModel } from './model-service.js';
 import { emitPetEvent, petFault, petTaskId, withFault } from './pet-events.js';
 import { imageSizeMode } from './image-size-mode.js';
+import { currentPreferences } from './settings.js';
 
 export interface IllustrationSelection {
   readonly snapshot: ChatSnapshot;
@@ -30,7 +31,8 @@ function processingSettings() {
 
 async function captureSelection(targeted = false): Promise<IllustrationSelection> {
   const snapshot = await captureLatestAssistant();
-  const plan = targeted ? createSelectedImageInsertionPlan(snapshot.text) : createImageInsertionPlan(snapshot.text);
+  const { excludedTags } = currentPreferences();
+  const plan = targeted ? createSelectedImageInsertionPlan(snapshot.text, excludedTags) : createImageInsertionPlan(snapshot.text, excludedTags);
   if (!plan.points.length) throw withFault(new Error('当前正文没有可用的行间插入点。'), 'format');
   const capacity = MAX_IMAGE_MARKERS - parseImageMarkers(snapshot.text).length;
   if (!capacity) throw withFault(new Error('当前楼层已有 64 处图片标记，请先移除部分标记。'), 'format');

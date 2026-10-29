@@ -17,6 +17,8 @@ export interface IllustrationUnit extends IllustrationItem {
   readonly text: string;
   readonly lineStart: number;
   readonly lineEnd: number;
+  /** Set when the unit lies entirely inside an excluded tag block. */
+  readonly excluded?: string;
 }
 
 interface Span { start: number; end: number }
@@ -64,12 +66,20 @@ function hasProse(text: string, span: Span, regions: readonly TextRegion[]): boo
 
 /** All units retain their exact source slices; unselectable markup and code remain visible. */
 export function buildIllustrationUnits(plan: ImageInsertionPlan, mode: IllustrationSelectionMode,
-  linesPerParagraph = 3): readonly IllustrationUnit[] {
+  linesPerParagraph = 3, excludedTags: readonly string[] = []): readonly IllustrationUnit[] {
   const original = plan.original;
-  const regions = imageTextRegions(original);
+  const regions = imageTextRegions(original, excludedTags);
   const sentences = mode === 'sentence' ? imageSentenceSpans(original, regions) : null;
-  const spans = sentences ?? paragraphSpans(original, mode === 'lines'
+  const rawSpans: Span[] = sentences ?? paragraphSpans(original, mode === 'lines'
     ? [3, 5, 8].includes(linesPerParagraph) ? linesPerParagraph : 3 : undefined);
+  // Excluded blocks (think, UpdateVariable…) always stand alone, even without a blank line around them.
+  const cuts = regions.filter(region => region.excluded).flatMap(region => [region.start, region.end]);
+  const spans: Span[] = cuts.length ? rawSpans.flatMap(span => {
+    const inside = cuts.filter(cut => cut > span.start && cut < span.end);
+    if (!inside.length) return [span];
+    const edges = [span.start, ...inside, span.end];
+    return edges.slice(1).map((end, index) => ({ start: edges[index], end }));
+  }) : rawSpans;
   const byOffset = new Map(plan.points.map(point => [point.offset, point.id]));
   const units: Array<Span & IllustrationItem> = [];
   let pointIndex = 0;
@@ -115,8 +125,10 @@ export function buildIllustrationUnits(plan: ImageInsertionPlan, mode: Illustrat
     const text = original.slice(unit.start, unit.end);
     const first = text.length - text.trimStart().length;
     const last = Math.max(first, text.trimEnd().length - 1);
+    const from = unit.start + first, to = unit.start + last + 1;
+    const block = regions.find(region => region.excluded && region.start <= from && to <= region.end);
     return Object.freeze({ ...unit, id: `${mode}:${unit.start}:${unit.end}`, text,
-      lineStart: lineAt(unit.start + first), lineEnd: lineAt(unit.start + last) });
+      lineStart: lineAt(from), lineEnd: lineAt(unit.start + last), ...(block ? { excluded: block.excluded } : {}) });
   }));
 }
 

@@ -83,17 +83,17 @@ export function narrativeSpans(text, regions = imageTextRegions(text)) {
     }
     return spans;
 }
-export function createImageInsertionPlan(original) {
-    return insertionPlan(original, false);
+export function createImageInsertionPlan(original, excludedTags = []) {
+    return insertionPlan(original, false, excludedTags);
 }
 /** Fine-grained positions are reserved for the manual picker; automatic placement stays line based. */
-export function createSelectedImageInsertionPlan(original) {
-    return insertionPlan(original, true);
+export function createSelectedImageInsertionPlan(original, excludedTags = []) {
+    return insertionPlan(original, true, excludedTags);
 }
-function insertionPlan(original, includeSentences) {
+function insertionPlan(original, includeSentences, excludedTags) {
     if (typeof original !== 'string' || original.length > MAX_ORIGINAL_LENGTH)
         throw withFault(new Error('正文过长或格式无效，无法建立插入位置。'), 'format');
-    const regions = imageTextRegions(original);
+    const regions = imageTextRegions(original, excludedTags);
     const spans = narrativeSpans(original, regions);
     const bounds = spans.length ? spans : [{ start: 0, end: original.length }];
     const offsets = new Set();

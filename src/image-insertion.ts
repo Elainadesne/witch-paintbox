@@ -87,18 +87,18 @@ export function narrativeSpans(text: string, regions: readonly TextRegion[] = im
   return spans;
 }
 
-export function createImageInsertionPlan(original: string): ImageInsertionPlan {
-  return insertionPlan(original, false);
+export function createImageInsertionPlan(original: string, excludedTags: readonly string[] = []): ImageInsertionPlan {
+  return insertionPlan(original, false, excludedTags);
 }
 
 /** Fine-grained positions are reserved for the manual picker; automatic placement stays line based. */
-export function createSelectedImageInsertionPlan(original: string): ImageInsertionPlan {
-  return insertionPlan(original, true);
+export function createSelectedImageInsertionPlan(original: string, excludedTags: readonly string[] = []): ImageInsertionPlan {
+  return insertionPlan(original, true, excludedTags);
 }
 
-function insertionPlan(original: string, includeSentences: boolean): ImageInsertionPlan {
+function insertionPlan(original: string, includeSentences: boolean, excludedTags: readonly string[]): ImageInsertionPlan {
   if (typeof original !== 'string' || original.length > MAX_ORIGINAL_LENGTH) throw withFault(new Error('正文过长或格式无效，无法建立插入位置。'), 'format');
-  const regions = imageTextRegions(original);
+  const regions = imageTextRegions(original, excludedTags);
   const spans = narrativeSpans(original, regions);
   const bounds: NarrativeSpan[] = spans.length ? spans : [{ start: 0, end: original.length }];
   const offsets = new Set<number>();
