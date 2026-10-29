@@ -1,12 +1,19 @@
 import { createSettingsStorage } from './host-settings.js';
 import { defaultOpenAIImageParameters, validateOpenAIImageParameters } from './openai-image.js';
 import { withFault } from './pet-events.js';
-export const IMAGE_PROVIDERS = ['novelai', 'openai'];
+import { defaultGeminiImageParameters, defaultGrokImageParameters, validateGeminiImageParameters, validateGrokImageParameters, } from './aspect-image.js';
+export const IMAGE_PROVIDERS = ['novelai', 'openai', 'gemini', 'grok'];
+/** Providers that send one natural-language prompt: no negative field, no NAI columns. */
+export function isNaturalLanguageProvider(provider) { return provider !== 'novelai'; }
+export function imageProviderName(provider) {
+    return { novelai: 'NAI', openai: 'GPT', gemini: 'Gemini', grok: 'Grok' }[provider];
+}
 import { defaultImageParameters, NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES, } from './novelai.js';
 const storageKey = 'witch-paintbox:image-settings:v1';
 export function defaultImageSettings(provider = 'novelai') {
     return {
         provider, openaiParameters: defaultOpenAIImageParameters(), models: [],
+        geminiParameters: defaultGeminiImageParameters(), grokParameters: defaultGrokImageParameters(),
         connection: { channel: 'official', url: '', key: '', appendSuffix: true },
         connectionProfiles: [],
         activeConnectionId: '',
@@ -101,8 +108,8 @@ function selectedId(value, items) {
 }
 export function validateImageSettings(value) {
     const source = record(value);
-    const provider = source.provider ?? 'novelai';
-    if (provider !== 'novelai' && provider !== 'openai')
+    const provider = (source.provider ?? 'novelai');
+    if (!IMAGE_PROVIDERS.includes(provider))
         invalid();
     const models = source.models ?? [];
     if (!Array.isArray(models) || models.length > 10_000)
@@ -123,12 +130,15 @@ export function validateImageSettings(value) {
             negative: text(item.negative),
         };
     });
-    if (provider === 'openai' && (text(source.negative).trim() || artists.some(item => item.negative.trim()))) {
-        throw new Error('GPT 配置不支持独立负面提示词，请先在来源配置中移除负面字段内容，再导入 GPT 配置。');
+    if (isNaturalLanguageProvider(provider) && (text(source.negative).trim() || artists.some(item => item.negative.trim()))) {
+        const name = imageProviderName(provider);
+        throw new Error(`${name} 配置不支持独立负面提示词，请先在来源配置中移除负面字段内容，再导入 ${name} 配置。`);
     }
     return {
         provider, models: modelNames,
         openaiParameters: validateOpenAIImageParameters(source.openaiParameters ?? defaultOpenAIImageParameters()),
+        geminiParameters: validateGeminiImageParameters(source.geminiParameters ?? defaultGeminiImageParameters(), invalid),
+        grokParameters: validateGrokImageParameters(source.grokParameters ?? defaultGrokImageParameters(), invalid),
         connection: connection(source.connection, provider),
         connectionProfiles,
         activeConnectionId: selectedId(source.activeConnectionId, connectionProfiles),
@@ -145,6 +155,7 @@ function sameConnection(left, right) {
 export function defaultAllImageSettings() {
     return { version: 2, activeProvider: 'novelai', profiles: {
             novelai: defaultImageSettings('novelai'), openai: defaultImageSettings('openai'),
+            gemini: defaultImageSettings('gemini'), grok: defaultImageSettings('grok'),
         } };
 }
 export function validateAllImageSettings(value) {
@@ -159,11 +170,19 @@ export function validateAllImageSettings(value) {
     if (source.version !== 2 || !IMAGE_PROVIDERS.includes(source.activeProvider))
         invalid();
     const profiles = record(source.profiles);
-    const novelai = validateImageSettings(profiles.novelai);
-    const openai = validateImageSettings(profiles.openai);
-    if (novelai.provider !== 'novelai' || openai.provider !== 'openai')
-        invalid();
-    return { version: 2, activeProvider: source.activeProvider, profiles: { novelai, openai } };
+    // Files from before Gemini / Grok only carry novelai + openai; fill the rest with defaults.
+    const parsed = {};
+    for (const provider of IMAGE_PROVIDERS) {
+        const raw = profiles[provider];
+        if (raw === undefined && (provider === 'gemini' || provider === 'grok')) {
+            parsed[provider] = defaultImageSettings(provider);
+            continue;
+        }
+        parsed[provider] = validateImageSettings(raw);
+        if (parsed[provider].provider !== provider)
+            invalid();
+    }
+    return { version: 2, activeProvider: source.activeProvider, profiles: parsed };
 }
 const settingsStorage = createSettingsStorage({
     localKey: storageKey, hostKey: 'image-settings-v1', label: '生图配置',

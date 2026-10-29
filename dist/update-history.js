@@ -1,6 +1,15 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-10-29', title: 'Gemini 与 Grok 生图',
+        changes: [
+            '生图 API 顶部新增“更多画笔”纸条，点开后可选 Gemini 与 Grok；NAI、GPT 仍常驻显示，正在使用 Gemini / Grok 时纸条保持展开。',
+            'Gemini 支持 Interactions、generateContent 与 OpenAI 兼容三种协议；Grok 支持 xAI 原生与 OpenAI 兼容两种协议。两者都按“比例 + 分辨率”出图，AI 动态画幅的 7 种尺寸会自动换成对应比例。',
+            '四个通道分别保存连接、模型、画幅与画师配置；Gemini / Grok 的模型 API 预设首次使用时复制 GPT 预设。旧版配置文件可直接导入，缺少的通道用默认值补齐。',
+            '已知限制：旧版插件导入新版导出的配置可能报错，请先把插件更新到同一版本再迁移配置。',
+        ],
+    },
+    {
         date: '2026-10-29', title: '画幅与预设双向联动',
         changes: [
             '已保存预设中的画幅协议开关现在立即同步生图画幅；画幅按钮也反向更新协议勾选，两处共用已保存的协议状态。',

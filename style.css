@@ -1783,3 +1783,62 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
   .illustration-excluded-add { flex: 1 1 100%; }
   .illustration-excluded-add input { flex: 1 1 auto; width: auto; min-width: 0; }
 }
+
+/* ── 更多画笔：折叠纸条（NAI / GPT 常驻，Gemini / Grok 收在纸条里） ── */
+#image-plugin-panel .image-provider-switch { flex-wrap: wrap; align-items: center; row-gap: 10px; }
+#image-plugin-panel .image-provider-switch .provider-more-toggle {
+  display: inline-flex; align-items: center; gap: 8px; padding: 4px 14px 4px 12px;
+  border: 1px dashed color-mix(in oklab, var(--muted) 55%, transparent); border-radius: 2px;
+  background: linear-gradient(135deg, var(--field-paper) 0 calc(100% - 12px), transparent calc(100% - 12px));
+  color: var(--muted); font-size: 14px; letter-spacing: .14em;
+  box-shadow: 1px 2px 0 #3a24160f;
+}
+#image-plugin-panel .image-provider-switch .provider-more-toggle::after { display: none; }
+#image-plugin-panel .image-provider-switch .provider-more-fold {
+  position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px;
+  background: linear-gradient(315deg, transparent 50%, color-mix(in oklab, var(--wash, var(--accent)) 30%, var(--surface)) 50%);
+  box-shadow: -1px -1px 0 #3a24161a;
+  transition: transform var(--t-mid, 320ms) var(--ease, ease);
+}
+#image-plugin-panel .image-provider-switch .provider-more-toggle[aria-expanded="true"] .provider-more-fold { transform: scale(.4); opacity: 0; }
+#image-plugin-panel .image-provider-switch .provider-more-toggle[aria-expanded="true"] { color: var(--ink); border-style: solid; }
+#image-plugin-panel .image-provider-switch .provider-more-toggle[aria-disabled="true"] { cursor: default; opacity: .6; transform: none; }
+#image-plugin-panel .image-provider-switch .provider-more-toggle:hover:not([aria-disabled="true"]) { color: var(--ink); transform: translateY(-1px) rotate(-1deg); }
+
+#image-plugin-panel .provider-more-strip {
+  position: relative; display: flex; align-items: center; gap: 22px; padding: 4px 22px 4px 26px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 9px, #3a24160a 9px 10px),
+    var(--field-paper);
+  box-shadow: 0 1px 0 #3a24161f, 2px 3px 6px #3a241612;
+  clip-path: polygon(0 6%, 4% 0, 30% 5%, 58% 0, 83% 4%, 100% 0, 98% 50%, 100% 100%, 72% 95%, 44% 100%, 18% 96%, 0 100%, 2% 50%);
+  transform-origin: left center;
+  animation: wp-strip-unfold 420ms var(--ease, ease) both;
+}
+#image-plugin-panel .provider-more-strip[hidden] { display: none; }
+#image-plugin-panel .provider-more-strip::before {
+  content: ""; position: absolute; left: 8px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%;
+  background: var(--wash, var(--accent)); opacity: .65;
+}
+@keyframes wp-strip-unfold {
+  from { opacity: 0; transform: perspective(500px) rotateY(-70deg) scaleX(.4); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #image-plugin-panel .provider-more-strip { animation: none; }
+  #image-plugin-panel .image-provider-switch .provider-more-fold { transition: none; }
+}
+:host([data-theme="night"]) #image-plugin-panel .provider-more-strip {
+  background: repeating-linear-gradient(0deg, transparent 0 9px, #ffffff08 9px 10px), #3b2b1f;
+  box-shadow: 0 1px 0 #00000055, 2px 3px 8px #00000040;
+}
+:host([data-theme="night"]) #image-plugin-panel .image-provider-switch .provider-more-toggle {
+  background: linear-gradient(135deg, #3b2b1f 0 calc(100% - 12px), transparent calc(100% - 12px));
+  border-color: #b7a18566;
+}
+@media (max-width: 640px) {
+  #image-plugin-panel .image-provider-switch { gap: 14px; }
+  #image-plugin-panel .provider-more-strip { flex-basis: 100%; justify-content: flex-start; padding-inline: 26px 18px; }
+}
+#image-plugin-panel [data-aspect-block] { margin-top: 14px; }
+#image-plugin-panel [data-aspect-block] .config-status { margin-top: 8px; }

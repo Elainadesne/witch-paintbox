@@ -15,14 +15,14 @@ export interface OpenAIImageParameters {
 }
 
 const OFFICIAL_ENDPOINT = 'https://api.openai.com/v1/images/generations';
-const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
-const MAX_JSON_BYTES = 46 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+export const MAX_JSON_BYTES = 46 * 1024 * 1024;
 
 export function defaultOpenAIImageParameters(): OpenAIImageParameters {
   return { model: '', width: 1024, height: 1536, quality: 'auto' };
 }
 
-function fail(message: string, fault?: PetFault): never { throw new ImageResponseError(message, fault); }
+export function fail(message: string, fault?: PetFault): never { throw new ImageResponseError(message, fault); }
 
 export function validateOpenAIImageParameters(value: unknown, dimensions: 'request' | 'image' = 'request'): OpenAIImageParameters {
   const params = value as OpenAIImageParameters | null;
@@ -36,17 +36,17 @@ export function validateOpenAIImageParameters(value: unknown, dimensions: 'reque
 }
 
 /** Accept an API base or a complete generations endpoint without guessing other protocols. */
-export function validateOpenAIImageConnection(connection: ImageConnection): ImageConnection {
+export function validateOpenAIImageConnection(connection: ImageConnection, officialEndpoint = OFFICIAL_ENDPOINT): ImageConnection {
   if (!connection || !['official', 'custom'].includes(connection.channel)) fail('请选择官方或自定义渠道。', 'setup');
   const key = typeof connection.key === 'string' ? connection.key.trim().replace(/^Bearer\s+/i, '') : '';
   if (!key || /[^\x21-\x7e]/.test(key)) fail('请填写有效的 API 密钥。', 'setup');
   const { appendSuffix } = connection;
-  if (connection.channel === 'official') return { channel: 'official', url: OFFICIAL_ENDPOINT, key, appendSuffix };
+  if (connection.channel === 'official') return { channel: 'official', url: officialEndpoint, key, appendSuffix };
   let url: URL;
   try { url = new URL(connection.url.trim()); }
   catch { return fail('请输入完整的自定义 URL，包含 https:// 或 http://。', 'setup'); }
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
-    fail('GPT 生图 URL 仅支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。', 'setup');
+    fail('生图 URL 仅支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。', 'setup');
   }
   if (appendSuffix) {
     const path = url.pathname.replace(/\/+$/, '');
@@ -55,7 +55,7 @@ export function validateOpenAIImageConnection(connection: ImageConnection): Imag
   return { channel: 'custom', url: appendSuffix ? url.href : connection.url.trim(), key, appendSuffix };
 }
 
-async function withRequest<T>(signal: AbortSignal, timeout: number, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+export async function withRequest<T>(signal: AbortSignal, timeout: number, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
   const cancel = () => controller.abort();
@@ -88,7 +88,7 @@ function requireSuccess(response: Response): void {
   fail(`接口请求失败（HTTP ${response.status}），请检查模型和参数；没有自动重试。`, 'unknown');
 }
 
-async function readBytes(response: Response, limit: number, signal: AbortSignal): Promise<Uint8Array> {
+export async function readBytes(response: Response, limit: number, signal: AbortSignal): Promise<Uint8Array> {
   requireSuccess(response);
   const length = Number(response.headers.get('content-length'));
   if (Number.isFinite(length) && length > limit) {
@@ -122,11 +122,11 @@ async function readBytes(response: Response, limit: number, signal: AbortSignal)
   }
 }
 
-function object(value: unknown): Record<string, unknown> {
+export function object(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-async function readJson(response: Response, limit: number, signal: AbortSignal): Promise<Record<string, unknown>> {
+export async function readJson(response: Response, limit: number, signal: AbortSignal): Promise<Record<string, unknown>> {
   const bytes = await readBytes(response, limit, signal);
   let payload: Record<string, unknown>;
   try { payload = object(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))); }
@@ -135,8 +135,8 @@ async function readJson(response: Response, limit: number, signal: AbortSignal):
   return payload;
 }
 
-export async function fetchOpenAIImageModels(connection: ImageConnection, signal: AbortSignal): Promise<string[]> {
-  const configured = validateOpenAIImageConnection(connection);
+export async function fetchOpenAIImageModels(connection: ImageConnection, signal: AbortSignal, officialEndpoint = OFFICIAL_ENDPOINT): Promise<string[]> {
+  const configured = validateOpenAIImageConnection(connection, officialEndpoint);
   const url = new URL(configured.url);
   const path = url.pathname.replace(/\/+$/, '');
   if (!path.endsWith('/images/generations')) {
@@ -156,7 +156,7 @@ export async function fetchOpenAIImageModels(connection: ImageConnection, signal
   });
 }
 
-async function imageBytes(item: Record<string, unknown>, signal: AbortSignal): Promise<Uint8Array> {
+export async function imageBytes(item: Record<string, unknown>, signal: AbortSignal): Promise<Uint8Array> {
   if (typeof item.b64_json === 'string' && item.b64_json.trim()) return decodeImageBase64(item.b64_json, signal);
   if (typeof item.url !== 'string' || !item.url) fail('接口没有返回 b64_json 或图片 URL。');
   if (/^data:/i.test(item.url.trim())) return decodeImageBase64(item.url, signal);
@@ -169,6 +169,27 @@ async function imageBytes(item: Record<string, unknown>, signal: AbortSignal): P
     signal, mode: 'cors', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
   });
   return readBytes(response, MAX_IMAGE_BYTES, signal);
+}
+
+/** POST one OpenAI-shaped generations request and decode its single image. */
+export async function postImagesGeneration(
+  configured: ImageConnection,
+  body: Record<string, unknown>,
+  signal: AbortSignal,
+  onProgress?: (progress: ImageGenerationProgress) => void,
+): Promise<{ blob: Blob; width: number; height: number }> {
+  const json = JSON.stringify(body);
+  return queueImageGeneration(() => withRequest(signal, 300_000, async requestSignal => {
+    const response = await fetch(configured.url, {
+      method: 'POST', headers: { Authorization: `Bearer ${configured.key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: json, signal: requestSignal, mode: 'cors', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
+    });
+    const payload = await readJson(response, MAX_JSON_BYTES, requestSignal);
+    if (!Array.isArray(payload.data) || payload.data.length !== 1) fail('生图接口应返回且仅返回一张图片。');
+    const bytes = await imageBytes(object(payload.data[0]), requestSignal);
+    const image = await readRasterImage(bytes, requestSignal);
+    return { blob: image.blob, width: image.width, height: image.height };
+  }), signal, onProgress);
 }
 
 export async function generateOpenAIImage(
@@ -190,16 +211,7 @@ export async function generateOpenAIImage(
     }
   }
   if (typeof prompt !== 'string' || !prompt.trim()) fail('请填写正面提示词。', 'setup');
-  const body = JSON.stringify({ model: params.model, prompt, n: 1, size: `${params.width}x${params.height}`, quality: params.quality, output_format: 'png' });
-  return queueImageGeneration(() => withRequest(signal, 300_000, async requestSignal => {
-    const response = await fetch(configured.url, {
-      method: 'POST', headers: { Authorization: `Bearer ${configured.key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body, signal: requestSignal, mode: 'cors', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
-    });
-    const payload = await readJson(response, MAX_JSON_BYTES, requestSignal);
-    if (!Array.isArray(payload.data) || payload.data.length !== 1) fail('生图接口应返回且仅返回一张图片。');
-    const bytes = await imageBytes(object(payload.data[0]), requestSignal);
-    const image = await readRasterImage(bytes, requestSignal);
-    return { blob: image.blob, parameters: { ...params, width: image.width, height: image.height } };
-  }), signal, onProgress);
+  const body = { model: params.model, prompt, n: 1, size: `${params.width}x${params.height}`, quality: params.quality, output_format: 'png' };
+  const image = await postImagesGeneration(configured, body, signal, onProgress);
+  return { blob: image.blob, parameters: { ...params, width: image.width, height: image.height } };
 }

@@ -80,7 +80,7 @@ NAI 页的自定义渠道需兼容 NovelAI 生图请求协议并允许浏览器�
 
 ## GPT 生图与服务切换
 
-- 在“生图 API”顶部选择 NAI 或 GPT（OpenAI 兼容）。连接、密钥配置、参数、模型列表、画师配置分别保存；旧版本配置归入 NAI。切换会同时选择模型 API 中对应服务的预设条目、编排、功能层启用状态与世界书挂载。模型 API 的连接和请求参数共用，GPT 预设初始不含文本指令，由用户导入或填写。
+- 在“生图 API”顶部选择 NAI 或 GPT（OpenAI 兼容），Gemini 与 Grok 收在“更多画笔”纸条里。连接、密钥配置、参数、模型列表、画师配置分别保存；旧版本配置归入 NAI。切换会同时选择模型 API 中对应服务的预设条目、编排、功能层启用状态与世界书挂载。模型 API 的连接和请求参数共用，GPT 预设初始不含文本指令，由用户导入或填写。
 - GPT 模型名支持手填或点击“刷新列表”，以当前连接请求 `GET /v1/models`。列表只反映服务返回的名称，不保证每个模型都能生图；拉取失败仍可手填。修改连接会清空旧列表但保留已填模型名，刷新不自动替换模型。
 - 官方使用 `https://api.openai.com/v1/images/generations`。自定义可填站点根、API base（如 `https://example.com/v1`）或完整的 `/images/generations` 地址，模型列表请求使用同一 base 的 `/models`。服务需允许浏览器跨域访问，并实现此 Images API 协议；聊天补全与异步任务轮询协议不属于本通道。
 - GPT 默认竖图 1024×1536，提供横图、方图及自定义尺寸，质量可选 auto/low/medium/high/xhigh/max。实际支持范围以所选模型和服务为准。每次请求一张 PNG，读取 `data[0].b64_json` 或兼容站点的 `data[0].url`，也支持内嵌图片 data URL、换行或省略末尾填充的 base64。部分兼容站返回 JPEG 或静态 WebP 时，按真实文件内容校验并保留原始格式，继续使用原队列、局部画框、历史与全屏界面；下载扩展名与属性显示实际格式。图片限制为 32 MiB、单边不超过 4096 像素；损坏图片、动态 WebP、HTML 和错误 JSON 不会当作图片保存。取图片 URL 时不附带 API 密钥。
@@ -88,6 +88,22 @@ NAI 页的自定义渠道需兼容 NovelAI 生图请求协议并允许浏览器�
 - GPT 图片历史保存模型、实际尺寸和请求质量；旧 NAI 历史继续显示种子、步数及采样器等参数。两种服务共用串行队列，取消与超时不会自动重试付费请求。
 
 接口依据：[OpenAI 图片生成](https://developers.openai.com/api/reference/resources/images/methods/generate)、[模型列表](https://developers.openai.com/api/reference/resources/models/methods/list)。
+
+## Gemini 与 Grok 生图
+
+- “生图 API”顶部默认只显示 NAI、GPT 和一张“更多画笔”纸条，点开纸条可选 Gemini 与 Grok。选中其中之一时纸条保持展开；切回 NAI / GPT 后自动收起。系统开启“减少动态效果”时纸条直接出现，不播放展开动画。
+- 四个通道各自保存连接、模型列表、画幅参数与画师配置；模型 API 预设同样分四套，Gemini / Grok 首次使用时复制 GPT 预设。三者都是自然语言单串：不提供独立负面栏，不做 NAI 角色分栏。
+- **Gemini** 可选三种接口协议：
+  - Interactions（官方默认）：`POST https://generativelanguage.googleapis.com/v1beta/interactions`，请求体为 `input` + `response_format.{aspect_ratio,image_size}`。
+  - generateContent：`{base}/v1beta/models/{模型}:generateContent`，请求体为 `generationConfig.imageConfig.{aspectRatio,imageSize}`。
+  - OpenAI 兼容：仅限自定义中转站，走 `/v1/images/generations`。
+  - 官方渠道只发 `x-goog-api-key`；自定义渠道同时带 `Authorization: Bearer`。`gemini-2.5-flash-image` 不发分辨率档位，`gemini-3.1-flash-lite-image` 固定 1K。返回内容依次读取 `output_image`、`steps`/`outputs` 中的图片块、`candidates[].content.parts[].inlineData`；没有图片时报告 `finishReason`（如安全拦截）。
+- **Grok** 可选 xAI 原生（官方默认，`https://api.x.ai/v1/images/generations`）或 OpenAI 兼容协议。原生请求只发 `aspect_ratio`、`resolution`（1k / 2k）和 `response_format: b64_json`，不发 GPT 的 `size` 与 `output_format`；质量为 auto 时省略 `quality`，避免旧型号拒绝。
+- 画幅：Gemini 比例 1:1、2:3、3:2、3:4、4:3、4:5、5:4、9:16、16:9，分辨率 1K / 2K / 4K；Grok 另有 auto 与超宽比例。AI 动态画幅的 7 种尺寸换算为：832x1216→2:3，1216x832→3:2，1024x1024→1:1，768x1344→9:16，1344x768→16:9，896x1152→Gemini 4:5 / Grok 3:4，1152x896→Gemini 5:4 / Grok 4:3。配置页显示的像素只是预估，历史记录写入返回图片的实际尺寸。
+- 兼容协议下比例会换成约 1536 长边的 `size` 发送，实际支持范围以中转站为准。服务需允许浏览器跨域访问。
+- 已知限制：旧版插件导入新版导出的配置文件可能报错（新增的 Gemini / Grok 字段旧版不认识）。迁移配置前请先把两边插件更新到同一版本。新版导入旧版文件不受影响。
+
+接口依据：[Gemini 图片生成](https://ai.google.dev/gemini-api/docs/image-generation)、[xAI 图片生成](https://docs.x.ai/developers/model-capabilities/images/generation)。
 
 ## TauriTavern 配置同步
 

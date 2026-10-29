@@ -1,3 +1,4 @@
+import { IMAGE_PROVIDERS } from './image-settings.js';
 import { bindLauncher } from './launcher.js';
 import { bindLauncherMenu } from './launcher-menu.js';
 import { bindChatImages } from './chat-images.js';
@@ -50,8 +51,7 @@ async function mount() {
     if (kind === 'all' || kind === 'artists') imageConfig.reloadSaved(kind === 'artists');
     if (kind === 'presets') modelConfig.reloadSaved(kind, provider);
     if (kind === 'worldbooks') {
-      modelConfig.reloadSaved('worldbooks', 'novelai');
-      modelConfig.reloadSaved('worldbooks', 'openai');
+      for (const provider of IMAGE_PROVIDERS) modelConfig.reloadSaved('worldbooks', provider);
     }
     if (kind === 'all') {
       modelConfig.reloadSaved();

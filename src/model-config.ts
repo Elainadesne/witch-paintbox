@@ -9,7 +9,7 @@ import { onSharedOutfitsChanged } from './shared-outfit-store.js';
 import { getContextFilterStatus, onContextFilterStatusChanged } from './context-filter.js';
 import { assertChatSnapshot, captureLatestAssistant } from './chat-host.js';
 import { getHostStore } from './host-storage.js';
-import { loadImageSettings, type ImageProvider } from './image-settings.js';
+import { IMAGE_PROVIDERS, loadImageSettings, type ImageProvider } from './image-settings.js';
 import { applyImageSizeMode, imageSizeEntryMode, imageSizeSelection, normalizeSizeProtocolEntries, type ImageSizeMode, type ImageSizeSelection } from './image-size-mode.js';
 
 function escape(value: string): string {
@@ -51,7 +51,7 @@ export class ModelConfig {
     const sizeModeSaving = () => this.syncSave();
     const sizeModeChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ provider: ImageProvider; mode: ImageSizeSelection }>).detail;
-      if (!detail || !['novelai', 'openai'].includes(detail.provider) || (detail.mode !== null && !['fixed', 'ai'].includes(detail.mode))) return;
+      if (!detail || !IMAGE_PROVIDERS.includes(detail.provider) || (detail.mode !== null && !['fixed', 'ai'].includes(detail.mode))) return;
       this.applySavedSizeMode(detail.provider, detail.mode);
     };
     window.addEventListener('witch-paintbox:image-provider-changed', providerChanged);

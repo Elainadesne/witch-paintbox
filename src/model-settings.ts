@@ -1,5 +1,5 @@
 import { createSettingsStorage } from './host-settings.js';
-import { loadImageSettings, type ImageProvider } from './image-settings.js';
+import { IMAGE_PROVIDERS, loadImageSettings, type ImageProvider } from './image-settings.js';
 import type { ModelApiSettings, ModelMessage } from './model-types.js';
 import { applyImageSizeMode, normalizeSizeProtocolEntries, sameSizeProtocolEntries, selectImageSizeMode, type ImageSizeSelection } from './image-size-mode.js';
 
@@ -97,7 +97,7 @@ function entries(value: unknown): PromptEntry[] {
 
 export function validateModelSettings(value: unknown): ModelSettings {
   const source = record(value);
-  if (source.presetProvider !== undefined && source.presetProvider !== 'novelai' && source.presetProvider !== 'openai') invalid();
+  if (source.presetProvider !== undefined && !IMAGE_PROVIDERS.includes(source.presetProvider as ImageProvider)) invalid();
   if (source.mode !== 'tavern' && source.mode !== 'custom') invalid();
   if (source.transport !== 'nonstream' && source.transport !== 'stream' && source.transport !== 'compatible') invalid();
   if (source.parseImageMarkers !== undefined && typeof source.parseImageMarkers !== 'boolean') invalid();
@@ -129,7 +129,7 @@ export function validateModelSettings(value: unknown): ModelSettings {
   });
   if (new Set(worldbooks.map(book => book.name)).size !== worldbooks.length) invalid();
   return normalizeSizeProtocolEntries<ModelSettings>({
-    presetProvider: source.presetProvider === 'openai' ? 'openai' : 'novelai',
+    presetProvider: (source.presetProvider as ImageProvider | undefined) ?? 'novelai',
     mode: source.mode, url: text(source.url, 8192), key: text(source.key, 16_384),
     model: text(source.model, 512), models: stringList(source.models, 10_000),
     maxTokens: number(source.maxTokens, 1, 65_536, true), temperature: number(source.temperature, 0, 2),
@@ -155,7 +155,7 @@ function defaultAllModelSettings(): AllModelSettings {
   return {
     version: 2,
     api: modelSharedSettings(defaultModelSettings()),
-    presets: { novelai: modelPresetSettings(defaultModelSettings('novelai')), openai: modelPresetSettings(defaultModelSettings('openai')) },
+    presets: Object.fromEntries(IMAGE_PROVIDERS.map(provider => [provider, modelPresetSettings(defaultModelSettings(provider))])) as Record<ImageProvider, ModelPresetSettings>,
   };
 }
 
@@ -165,16 +165,21 @@ export function validateAllModelSettings(value: unknown): AllModelSettings {
     // Every pre-provider record belongs to the original NovelAI preset.
     const legacy = validateModelSettings(source);
     return { ...defaultAllModelSettings(), api: modelSharedSettings(legacy), presets: {
-      novelai: modelPresetSettings(legacy), openai: modelPresetSettings(defaultModelSettings('openai')),
+      ...defaultAllModelSettings().presets, novelai: modelPresetSettings(legacy),
     } };
   }
   if (source.version !== 2) invalid();
   const api = record(source.api), presets = record(source.presets);
-  const novelai = validateModelSettings({ ...record(presets.novelai), ...api, presetProvider: 'novelai' });
-  const openai = validateModelSettings({ ...record(presets.openai), ...api, presetProvider: 'openai' });
-  return { version: 2, api: modelSharedSettings(novelai), presets: {
-    novelai: modelPresetSettings(novelai), openai: modelPresetSettings(openai),
-  } };
+  const parsed = {} as Record<ImageProvider, ModelPresetSettings>;
+  let shared: ModelSharedSettings | null = null;
+  for (const provider of IMAGE_PROVIDERS) {
+    // Gemini and Grok write natural-language prompts like GPT: start from the GPT preset when missing.
+    const raw = presets[provider] ?? (provider === 'gemini' || provider === 'grok' ? presets.openai : undefined);
+    const value = validateModelSettings({ ...record(raw), ...api, presetProvider: provider });
+    parsed[provider] = modelPresetSettings(value);
+    shared ??= modelSharedSettings(value);
+  }
+  return { version: 2, api: shared!, presets: parsed };
 }
 
 const settingsStorage = createSettingsStorage<AllModelSettings>({
@@ -200,7 +205,7 @@ export function hasSavedModelSettings(): boolean { return settingsStorage.hasSav
 export async function detachStoredWorldbook(name: string): Promise<void> {
   if (!hasSavedModelSettings()) return;
   await settingsStorage.update(settings => {
-    for (const provider of ['novelai', 'openai'] as const) {
+    for (const provider of IMAGE_PROVIDERS) {
       settings.presets[provider].worldbooks = settings.presets[provider].worldbooks.filter(book => book.name !== name);
     }
     return settings;

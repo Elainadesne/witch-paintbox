@@ -3,7 +3,7 @@ import { hasPendingFrontendFrame, iframeNarrativeRoot, locateImageInsertionPoint
 import type { ImageMarker } from './image-markers.js';
 import { loadImageSettings } from './image-settings.js';
 import { loadModelSettings } from './model-settings.js';
-import { generateConfiguredImage, imageSettingsForMarker } from './image-provider.js';
+import { expectedImageSize, generateConfiguredImage, imageSettingsForMarker } from './image-provider.js';
 import { createChatImageView } from './chat-image-view.js';
 import { createImageGallery, type GalleryImage } from './image-gallery.js';
 import { loadImageHistory, saveImageHistory, deleteImageHistory, onImageHistoryChanged, historyWasDeleted, type ImageHistoryChange, type ImageHistoryEntry } from './image-history.js';
@@ -259,7 +259,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
     const { slot, root, button, buttonLabel, regenerate, cancel, status, canvas, preview, image, placeholder, download, refreshTheme, setImageSize, veil } = createChatImageView(marker.summary, controls.signal);
     try {
       const settings = imageSettingsForMarker(loadImageSettings(), marker);
-      const { width, height } = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
+      const { width, height } = expectedImageSize(settings);
       setImageSize(width, height);
     } catch { /* A saved image can still provide its own dimensions. */ }
     let request: AbortController | null = null;
@@ -312,8 +312,8 @@ export function bindChatImages(signal: AbortSignal): () => void {
       canvas.hidden = !selected && !request;
       if (selected) {
         image.src = download.href = selected.url;
-        image.title = selected.entry.provider === 'openai' ? selected.entry.parameters.model : `种子 ${selected.entry.seed}`;
-        download.download = `witch-paintbox-${selected.entry.provider === 'openai' ? selected.entry.id : selected.entry.seed}.${imageFileExtension(selected.entry.blob)}`;
+        image.title = selected.entry.seed === undefined ? selected.entry.parameters.model : `种子 ${selected.entry.seed}`;
+        download.download = `witch-paintbox-${selected.entry.seed ?? selected.entry.id}.${imageFileExtension(selected.entry.blob)}`;
         setImageSize(selected.entry.parameters.width, selected.entry.parameters.height);
       } else {
         image.removeAttribute('src');
@@ -368,7 +368,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
       const petImage = { type: 'end', id: pet, task: 'image', source, floor: message.messageId } as const;
       try {
         const settings = imageSettingsForMarker(loadImageSettings(), marker);
-        const parameters = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
+        const parameters = expectedImageSize(settings);
         emitPetEvent({ type: 'image', id: pet, source, phase: 'start', provider: settings.provider, floor: message.messageId,
           turn: message.turnId !== null, summary: marker.summary, again: history.length > 0, width: parameters.width, height: parameters.height });
         controller.signal.throwIfAborted();

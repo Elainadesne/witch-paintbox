@@ -1,3 +1,4 @@
+import { imageProviderName } from './image-settings.js';
 import type { ModelSettings, PromptEntry } from './model-settings.js';
 import { listFeatureLayers } from './feature-layers.js';
 import type { WorldbookSourceEntry } from './worldbook-source.js';
@@ -167,11 +168,11 @@ export function presetWorkspaceView(settings: ModelSettings, state: ModelViewSta
 }
 
 export function modelSettingsView(settings: ModelSettings, state: ModelViewState): string {
-  const providerName = settings.presetProvider === 'openai' ? 'GPT' : 'NAI';
+  const providerName = imageProviderName(settings.presetProvider);
   return `<div class="image-settings model-settings">
     <section class="config-section" aria-labelledby="model-connection-heading">
       <header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
-        <h2 class="section-title" id="model-connection-heading">模型连接</h2><p class="section-description">理解正文，生成场景提示词并插入正文，交给生图 API 绘图。连接与回复参数由两种生图接口共用。</p></header>
+        <h2 class="section-title" id="model-connection-heading">模型连接</h2><p class="section-description">理解正文，生成场景提示词并插入正文，交给生图 API 绘图。连接与回复参数由各生图通道共用。</p></header>
       <label class="config-field channel-field"><span>连接方式</span>
         <select data-model-field="mode">${options([
           { value: 'tavern', label: '跟随酒馆主 API' },

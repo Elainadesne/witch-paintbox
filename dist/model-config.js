@@ -9,7 +9,7 @@ import { onSharedOutfitsChanged } from './shared-outfit-store.js';
 import { getContextFilterStatus, onContextFilterStatusChanged } from './context-filter.js';
 import { assertChatSnapshot, captureLatestAssistant } from './chat-host.js';
 import { getHostStore } from './host-storage.js';
-import { loadImageSettings } from './image-settings.js';
+import { IMAGE_PROVIDERS, loadImageSettings } from './image-settings.js';
 import { applyImageSizeMode, imageSizeEntryMode, imageSizeSelection, normalizeSizeProtocolEntries } from './image-size-mode.js';
 function escape(value) {
     return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -47,7 +47,7 @@ export class ModelConfig {
         const sizeModeSaving = () => this.syncSave();
         const sizeModeChanged = (event) => {
             const detail = event.detail;
-            if (!detail || !['novelai', 'openai'].includes(detail.provider) || (detail.mode !== null && !['fixed', 'ai'].includes(detail.mode)))
+            if (!detail || !IMAGE_PROVIDERS.includes(detail.provider) || (detail.mode !== null && !['fixed', 'ai'].includes(detail.mode)))
                 return;
             this.applySavedSizeMode(detail.provider, detail.mode);
         };

@@ -1,7 +1,10 @@
 import { loadImageSettings, saveImageSettings, switchImageProvider, type ImageSettings } from './image-settings.js';
-import { imageSettingsView, OPENAI_SIZE_PRESETS } from './image-view.js';
+import { aspectParameters, imageSettingsView, OPENAI_SIZE_PRESETS } from './image-view.js';
 import { NAI_SIZE_PRESETS, validateImageConnection, type ImageConnection } from './novelai.js';
 import { fetchOpenAIImageModels, validateOpenAIImageConnection, type OpenAIImageParameters } from './openai-image.js';
+import { fetchGeminiImageModels } from './gemini-image.js';
+import { fetchGrokImageModels, validateGrokConnection } from './grok-image.js';
+import type { GeminiImageParameters, GrokImageParameters } from './aspect-image.js';
 import { generateConfiguredImage } from './image-provider.js';
 import { imageFileExtension } from './raster-image.js';
 import { imageChatContext } from './chat-host.js';
@@ -9,6 +12,23 @@ import { saveImageHistory, onImageHistoryChanged, type ImageHistoryEntry } from 
 import { emitPetEvent, petEnd, petFault, petTaskId } from './pet-events.js';
 import { isImageSizeModeSaving, loadModelSettings, saveImageSizeMode } from './model-settings.js';
 import { imageSizeMode } from './image-size-mode.js';
+
+/** Check one draft connection the same way the matching provider will send it. */
+function validateConnectionFor(settings: ImageSettings, connection: ImageConnection): ImageConnection {
+  if (settings.provider === 'novelai') return validateImageConnection(connection);
+  if (settings.provider === 'grok') return validateGrokConnection(connection);
+  if (settings.provider === 'gemini') {
+    if (connection.channel === 'custom' || settings.geminiParameters.protocol === 'openai') return validateOpenAIImageConnection(connection);
+    const key = connection.key.trim().replace(/^Bearer\s+/i, '');
+    if (!key || /[^\x21-\x7e]/.test(key)) throw new Error('请填写有效的 API 密钥。');
+    return { channel: 'official', url: '', key, appendSuffix: connection.appendSuffix };
+  }
+  return validateOpenAIImageConnection(connection);
+}
+
+const OFFICIAL_NAMES: Record<ImageSettings['provider'], string> = {
+  novelai: 'NovelAI 官方', openai: 'OpenAI 官方', gemini: 'Google 官方', grok: 'xAI 官方',
+};
 
 function newId(): string {
   return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
@@ -26,6 +46,7 @@ export class ImageConfig {
   private request: AbortController | null = null;
   private modelRequest: AbortController | null = null;
   private modelOptions: string[] = [];
+  private moreProviders = false;
   private imageUrl = '';
   private imageRecord: { id: string; createdAt: number } | null = null;
   private stopImageHistory = onImageHistoryChanged(change => {
@@ -139,7 +160,7 @@ export class ImageConfig {
     }
     this.container.innerHTML = imageSettingsView(
       { ...this.settings, connection: this.connection, activeConnectionId: this.connectionId, models: this.modelOptions },
-      { connectionName: this.connectionName, artistName: this.artistName, connectionSaved: this.isConnectionSaved(), refreshing: this.modelRequest !== null },
+      { connectionName: this.connectionName, artistName: this.artistName, connectionSaved: this.isConnectionSaved(), refreshing: this.modelRequest !== null, moreOpen: this.moreProviders },
     );
     this.syncParameters();
     this.syncImageSizeMode();
@@ -216,6 +237,10 @@ export class ImageConfig {
       return;
     }
     const parameter = field.dataset.parameter;
+    if (settings.provider === 'gemini' || settings.provider === 'grok') {
+      if (parameter) this.editAspect(settings, parameter, field.value);
+      return;
+    }
     const parameters = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
     if (!parameter || !Object.hasOwn(parameters, parameter)) return;
     if (parameter === 'width' || parameter === 'height') this.syncSizePreset();
@@ -248,6 +273,26 @@ export class ImageConfig {
     void this.persist('settings');
   }
 
+  private editAspect(settings: ImageSettings, parameter: string, value: string): void {
+    const target = (settings.provider === 'gemini' ? settings.geminiParameters : settings.grokParameters) as unknown as Record<string, string>;
+    if (!Object.hasOwn(target, parameter) || target[parameter] === value) return;
+    target[parameter] = value;
+    if (parameter === 'protocol') {
+      // Protocol changes the URL suffix and the model list endpoint; redraw and drop stale lists.
+      this.cancelModelRefresh();
+      this.clearModels();
+      this.render();
+      this.message('settings', '接口协议已切换；如使用中转站，请确认服务 URL。');
+    } else if (parameter !== 'model') {
+      this.render();
+    } else {
+      // Typing a model name keeps focus; only the ratio block (resolution lock and hint) is redrawn.
+      const block = this.container?.querySelector<HTMLElement>('[data-aspect-block]');
+      if (block) { block.innerHTML = aspectParameters(settings); this.syncImageSizeMode(); }
+    }
+    void this.persist('settings');
+  }
+
   private syncConnection(): void {
     const saved = this.isConnectionSaved();
     const line = this.container?.querySelector<HTMLElement>('.credential-line');
@@ -260,7 +305,7 @@ export class ImageConfig {
   }
 
   private syncParameters(): void {
-    if (this.settings!.provider === 'openai') return;
+    if (this.settings!.provider !== 'novelai') return;
     const p = this.settings!.parameters;
     const legacy = p.model === 'nai-diffusion-3';
     if (!legacy) p.sm = p.smDyn = false;
@@ -301,9 +346,12 @@ export class ImageConfig {
       button.setAttribute('aria-pressed', String(button.dataset.sizeMode === mode));
       button.disabled = this.writing || isImageSizeModeSaving() || Boolean(error);
     }
+    const aspect = this.settings.provider === 'gemini' || this.settings.provider === 'grok';
     const label = this.container.querySelector<HTMLElement>('[data-size-selection-label]');
-    if (label) label.textContent = mode === 'ai' ? '兜底尺寸' : '预设尺寸';
-    this.message('size-mode', error || (isImageSizeModeSaving() ? '正在同步画幅模式…' : mode === 'ai'
+    if (label) label.textContent = aspect ? mode === 'ai' ? '兜底比例' : '画面比例' : mode === 'ai' ? '兜底尺寸' : '预设尺寸';
+    this.message('size-mode', error || (isImageSizeModeSaving() ? '正在同步画幅模式…' : aspect ? mode === 'ai'
+      ? 'AI 动态画幅启用中：配图标记里的 7 种画幅会换成对应比例（1:1 / 2:3 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9），按下方分辨率生成；没写画幅时用兜底比例。'
+      : '所有配图使用下方比例与分辨率。切换模式会互斥启用当前模型 API 预设中的同名格式条目。' : mode === 'ai'
       ? '按每张配图返回的 size 选择画幅；缺少或不支持的尺寸使用下方兜底尺寸。'
       : '所有配图使用下方画幅。切换模式会互斥启用当前模型 API 预设中的同名格式条目。'), Boolean(error));
   }
@@ -383,9 +431,10 @@ export class ImageConfig {
         case 'save-connection': await this.write(() => this.saveConnection()); break;
         case 'switch-provider': {
           const provider = target.closest<HTMLButtonElement>('button')?.dataset.provider;
-          if (provider === 'novelai' || provider === 'openai') await this.changeProvider(provider);
+          if (provider === 'novelai' || provider === 'openai' || provider === 'gemini' || provider === 'grok') await this.changeProvider(provider);
           break;
         }
+        case 'toggle-more-providers': this.toggleMoreProviders(); break;
         case 'refresh-models': void this.refreshModels(); break;
         case 'select-size-mode': {
           if (isImageSizeModeSaving()) return;
@@ -407,11 +456,10 @@ export class ImageConfig {
 
   private async saveConnection(): Promise<void> {
     this.cancelModelRefresh();
-    const openai = this.settings!.provider === 'openai';
-    const connection = openai ? validateOpenAIImageConnection(this.connection) : validateImageConnection(this.connection);
+    const connection = validateConnectionFor(this.settings!, this.connection);
     // Store the entered URL so disabling suffix completion does not keep an appended path.
     if (connection.channel === 'custom') connection.url = this.connection.url.trim();
-    const name = this.connectionName.trim() || (connection.channel === 'official' ? openai ? 'OpenAI 官方' : 'NovelAI 官方' : new URL(connection.url).host);
+    const name = this.connectionName.trim() || (connection.channel === 'official' ? OFFICIAL_NAMES[this.settings!.provider] : new URL(connection.url).host);
     const id = this.connectionId || newId();
     const settings = this.settings!;
     if (settings.connectionProfiles.some(item => item.id !== id && item.name === name)) {
@@ -420,7 +468,7 @@ export class ImageConfig {
     const profile = { ...connection, id, name };
     const next = {
       ...settings, connection, activeConnectionId: id,
-      models: settings.provider === 'openai' ? [...this.modelOptions] : settings.models,
+      models: settings.provider === 'novelai' ? settings.models : [...this.modelOptions],
       connectionProfiles: settings.connectionProfiles.some(item => item.id === id)
         ? settings.connectionProfiles.map(item => item.id === id ? profile : item)
         : [...settings.connectionProfiles, profile],
@@ -489,6 +537,24 @@ export class ImageConfig {
     }
   }
 
+  /** The paper strip stays open while Gemini or Grok is the active brush. */
+  private toggleMoreProviders(): void {
+    const provider = this.settings?.provider;
+    if (provider === 'gemini' || provider === 'grok') return;
+    this.moreProviders = !this.moreProviders;
+    const group = this.container?.querySelector<HTMLElement>('.image-provider-switch');
+    const toggle = group?.querySelector<HTMLButtonElement>('[data-action="toggle-more-providers"]');
+    const strip = group?.querySelector<HTMLElement>('.provider-more-strip');
+    if (!group || !toggle || !strip) return;
+    group.dataset.moreOpen = String(this.moreProviders);
+    toggle.setAttribute('aria-expanded', String(this.moreProviders));
+    toggle.querySelector('.provider-more-label')!.textContent = this.moreProviders ? '收起' : '更多画笔';
+    strip.hidden = !this.moreProviders;
+    for (const button of Array.from(strip.querySelectorAll<HTMLButtonElement>('button'))) {
+      if (this.moreProviders) button.removeAttribute('tabindex'); else button.tabIndex = -1;
+    }
+  }
+
   private async changeProvider(provider: ImageSettings['provider']): Promise<void> {
     if (!this.settings || provider === this.settings.provider || this.request || !this.validParameters()) return;
     this.cancelModelRefresh();
@@ -496,6 +562,8 @@ export class ImageConfig {
       // The connection editor is a separate draft: switching never confirms an unsaved key.
       await saveImageSettings(structuredClone(this.settings!));
       await switchImageProvider(provider);
+      // Leaving Gemini / Grok for NAI or GPT folds the strip back up.
+      this.moreProviders = provider === 'gemini' || provider === 'grok';
       this.clearOutput();
       this.reloadSaved();
     });
@@ -510,7 +578,7 @@ export class ImageConfig {
   }
 
   private clearModels(): void {
-    if (this.settings?.provider !== 'openai') return;
+    if (!this.settings || this.settings.provider === 'novelai') return;
     this.modelOptions = [];
     this.settings.models = [];
     this.container?.querySelector<HTMLDataListElement>('#witch-image-model-options')?.replaceChildren();
@@ -525,7 +593,7 @@ export class ImageConfig {
 
   private async refreshModels(): Promise<void> {
     const settings = this.settings;
-    if (!settings || settings.provider !== 'openai' || this.modelRequest) return;
+    if (!settings || settings.provider === 'novelai' || this.modelRequest) return;
     const request = new AbortController();
     this.modelRequest = request;
     this.syncModelRefresh();
@@ -533,7 +601,9 @@ export class ImageConfig {
     const connection = { ...this.connection };
     const current = () => this.modelRequest === request && !request.signal.aborted && this.settings === settings;
     try {
-      const models = await fetchOpenAIImageModels(connection, request.signal);
+      const models = settings.provider === 'gemini' ? await fetchGeminiImageModels(connection, settings.geminiParameters, request.signal)
+        : settings.provider === 'grok' && settings.grokParameters.protocol === 'xai' ? await fetchGrokImageModels(connection, request.signal)
+          : await fetchOpenAIImageModels(connection, request.signal);
       if (!current()) return;
       if (!models.length) {
         this.message('model-list', '接口没有返回可选模型，已保留原列表，可手动填写模型名称。');

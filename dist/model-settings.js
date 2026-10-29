@@ -1,5 +1,5 @@
 import { createSettingsStorage } from './host-settings.js';
-import { loadImageSettings } from './image-settings.js';
+import { IMAGE_PROVIDERS, loadImageSettings } from './image-settings.js';
 import { applyImageSizeMode, normalizeSizeProtocolEntries, sameSizeProtocolEntries, selectImageSizeMode } from './image-size-mode.js';
 export const MAX_PRESET_ENTRIES = 10_000;
 const storageKey = 'witch-paintbox:model-settings:v1';
@@ -66,7 +66,7 @@ function entries(value) {
 }
 export function validateModelSettings(value) {
     const source = record(value);
-    if (source.presetProvider !== undefined && source.presetProvider !== 'novelai' && source.presetProvider !== 'openai')
+    if (source.presetProvider !== undefined && !IMAGE_PROVIDERS.includes(source.presetProvider))
         invalid();
     if (source.mode !== 'tavern' && source.mode !== 'custom')
         invalid();
@@ -109,7 +109,7 @@ export function validateModelSettings(value) {
     if (new Set(worldbooks.map(book => book.name)).size !== worldbooks.length)
         invalid();
     return normalizeSizeProtocolEntries({
-        presetProvider: source.presetProvider === 'openai' ? 'openai' : 'novelai',
+        presetProvider: source.presetProvider ?? 'novelai',
         mode: source.mode, url: text(source.url, 8192), key: text(source.key, 16_384),
         model: text(source.model, 512), models: stringList(source.models, 10_000),
         maxTokens: number(source.maxTokens, 1, 65_536, true), temperature: number(source.temperature, 0, 2),
@@ -132,7 +132,7 @@ function defaultAllModelSettings() {
     return {
         version: 2,
         api: modelSharedSettings(defaultModelSettings()),
-        presets: { novelai: modelPresetSettings(defaultModelSettings('novelai')), openai: modelPresetSettings(defaultModelSettings('openai')) },
+        presets: Object.fromEntries(IMAGE_PROVIDERS.map(provider => [provider, modelPresetSettings(defaultModelSettings(provider))])),
     };
 }
 export function validateAllModelSettings(value) {
@@ -141,17 +141,22 @@ export function validateAllModelSettings(value) {
         // Every pre-provider record belongs to the original NovelAI preset.
         const legacy = validateModelSettings(source);
         return { ...defaultAllModelSettings(), api: modelSharedSettings(legacy), presets: {
-                novelai: modelPresetSettings(legacy), openai: modelPresetSettings(defaultModelSettings('openai')),
+                ...defaultAllModelSettings().presets, novelai: modelPresetSettings(legacy),
             } };
     }
     if (source.version !== 2)
         invalid();
     const api = record(source.api), presets = record(source.presets);
-    const novelai = validateModelSettings({ ...record(presets.novelai), ...api, presetProvider: 'novelai' });
-    const openai = validateModelSettings({ ...record(presets.openai), ...api, presetProvider: 'openai' });
-    return { version: 2, api: modelSharedSettings(novelai), presets: {
-            novelai: modelPresetSettings(novelai), openai: modelPresetSettings(openai),
-        } };
+    const parsed = {};
+    let shared = null;
+    for (const provider of IMAGE_PROVIDERS) {
+        // Gemini and Grok write natural-language prompts like GPT: start from the GPT preset when missing.
+        const raw = presets[provider] ?? (provider === 'gemini' || provider === 'grok' ? presets.openai : undefined);
+        const value = validateModelSettings({ ...record(raw), ...api, presetProvider: provider });
+        parsed[provider] = modelPresetSettings(value);
+        shared ??= modelSharedSettings(value);
+    }
+    return { version: 2, api: shared, presets: parsed };
 }
 const settingsStorage = createSettingsStorage({
     localKey: storageKey, hostKey: 'model-settings-v1', label: '模型配置',
@@ -175,7 +180,7 @@ export async function detachStoredWorldbook(name) {
     if (!hasSavedModelSettings())
         return;
     await settingsStorage.update(settings => {
-        for (const provider of ['novelai', 'openai']) {
+        for (const provider of IMAGE_PROVIDERS) {
             settings.presets[provider].worldbooks = settings.presets[provider].worldbooks.filter(book => book.name !== name);
         }
         return settings;

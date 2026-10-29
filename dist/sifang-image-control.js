@@ -1,4 +1,4 @@
-import { generateConfiguredImage, imageSettingsForMarker } from './image-provider.js';
+import { expectedImageSize, generateConfiguredImage, imageSettingsForMarker } from './image-provider.js';
 import { loadImageSettings } from './image-settings.js';
 import { imageChatContext } from './chat-host.js';
 import { createImageGallery } from './image-gallery.js';
@@ -96,7 +96,7 @@ export function createSifangImageControl(entry, root, hooks) {
         const petImage = { type: 'end', id: pet, task: 'image', source, floor };
         try {
             const settings = imageSettingsForMarker(loadImageSettings(), entry.marker);
-            const parameters = settings.provider === 'openai' ? settings.openaiParameters : settings.parameters;
+            const parameters = expectedImageSize(settings);
             emitPetEvent({ type: 'image', id: pet, source, phase: 'start', provider: settings.provider, floor, turn: true,
                 summary: entry.marker.summary, again: history.length > 0, width: parameters.width, height: parameters.height });
             await ready;

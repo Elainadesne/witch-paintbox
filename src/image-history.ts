@@ -1,6 +1,11 @@
 import type { ImageParameters } from './novelai.js';
 import type { CharacterPrompt } from './image-prompt.js';
 import { validateOpenAIImageParameters, type OpenAIImageParameters } from './openai-image.js';
+import {
+  validateGeminiImageParameters, validateGrokImageParameters, type GeminiImageParameters, type GrokImageParameters,
+} from './aspect-image.js';
+
+type Sized<T> = T & { width: number; height: number };
 
 interface ImageHistoryData {
   id: string;
@@ -21,6 +26,8 @@ interface ImageHistoryData {
 export type ImageHistoryEntry = ImageHistoryData & (
   | { provider?: 'novelai'; parameters: ImageParameters; seed: number }
   | { provider: 'openai'; parameters: OpenAIImageParameters; seed?: never }
+  | { provider: 'gemini'; parameters: Sized<GeminiImageParameters>; seed?: never }
+  | { provider: 'grok'; parameters: Sized<GrokImageParameters>; seed?: never }
 );
 
 /** Positive tags for display and manual character selection, not for recreating a request. */
@@ -170,7 +177,7 @@ function snapshot(value: unknown): ImageHistoryEntry {
     || !Number.isFinite(entry.createdAt) || entry.createdAt < 0
     || typeof entry.positive !== 'string' || typeof entry.negative !== 'string'
     || (entry.scenePrompt !== undefined && typeof entry.scenePrompt !== 'string')
-    || (entry.provider !== undefined && entry.provider !== 'novelai' && entry.provider !== 'openai')) {
+    || (entry.provider !== undefined && !['novelai', 'openai', 'gemini', 'grok'].includes(entry.provider))) {
     throw new Error('图片历史记录格式无效，原有记录未修改。');
   }
   let characters: CharacterPrompt[] | undefined;
@@ -204,6 +211,16 @@ function snapshot(value: unknown): ImageHistoryEntry {
       throw new Error('GPT 图片历史记录格式无效，原有记录未修改。');
     }
     return { ...common, provider: 'openai', parameters };
+  }
+  if (entry.provider === 'gemini' || entry.provider === 'grok') {
+    const bad = (): never => { throw new Error('图片历史记录格式无效，原有记录未修改。'); };
+    const raw = entry.parameters as Sized<GeminiImageParameters | GrokImageParameters>;
+    const sized = [raw?.width, raw?.height].every(size => Number.isInteger(size) && size >= 1 && size <= 16_384);
+    if (!sized || entry.negative || characters?.length || entry.seed !== undefined) bad();
+    const { width, height } = raw;
+    return entry.provider === 'gemini'
+      ? { ...common, provider: 'gemini', parameters: { ...validateGeminiImageParameters(raw, bad), width, height } }
+      : { ...common, provider: 'grok', parameters: { ...validateGrokImageParameters(raw, bad), width, height } };
   }
   const parameters = entry.parameters;
   if (!Number.isInteger(entry.seed) || entry.seed < 0 || entry.seed > 4_294_967_295
