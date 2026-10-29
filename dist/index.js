@@ -100,6 +100,17 @@ async function mount() {
     stylesheet.rel = 'stylesheet';
     stylesheet.href = new URL('../style.css', import.meta.url).href;
     root.innerHTML = `
+    <svg class="paint-defs" width="0" height="0" aria-hidden="true" focusable="false">
+      <filter id="wp-deckle" x="-2%" y="-2%" width="104%" height="104%">
+        <feTurbulence type="fractalNoise" baseFrequency=".035" numOctaves="3" seed="7" result="n"/>
+        <feDisplacementMap in="SourceGraphic" in2="n" scale="9" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+      <filter id="wp-bleed" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency=".022" numOctaves="2" seed="3" result="n"/>
+        <feDisplacementMap in="SourceGraphic" in2="n" scale="14" xChannelSelector="R" yChannelSelector="B" result="d"/>
+        <feGaussianBlur in="d" stdDeviation=".8"/>
+      </filter>
+    </svg>
     <button type="button" class="launcher" aria-label="打开${pluginName}菜单，可拖动调整位置"
       aria-haspopup="dialog" aria-expanded="false" title="点击打开菜单 · 拖动调整位置">绘</button>
     <dialog id="image-plugin-panel" class="panel" aria-labelledby="image-plugin-title">
@@ -161,6 +172,8 @@ async function mount() {
             status.textContent = imageRetentionStatus();
     };
     window.addEventListener('witch-paintbox:cleanup-status', showCleanupStatus, { signal });
+    window.addEventListener('resize', () => { if (panel.open)
+        paintNavigation(); }, { signal });
     const launcherMenu = bindLauncherMenu(launcher, root, signal, () => openPanel(settings.rememberPage ? settings.lastPage : 'guide'), {
         anchor: () => pet?.anchor() ?? launcher.getBoundingClientRect(),
     });
@@ -170,8 +183,13 @@ async function mount() {
         panelOpener = opener;
         launcherMenu.close();
         navigate(target, false);
+        panel.classList.remove('is-opening');
+        void panel.offsetWidth;
+        panel.classList.add('is-opening');
+        window.setTimeout(() => panel.classList.remove('is-opening'), 1600);
         panel.showModal();
         panelViewport.refresh();
+        paintNavigation();
         emitPetEvent({ type: 'ui', action: 'panel-open' });
         updateNotice.check();
         content.focus({ preventScroll: true });
@@ -184,6 +202,48 @@ async function mount() {
             target.tabIndex = -1;
         target.scrollIntoView({ block: 'start' });
         target.focus({ preventScroll: true });
+    }
+    // 选中板块的颜料色块与主色；从旧位置滑过来时留一道渐淡的拖痕
+    function paintNavigation(fromTop, fromPaint) {
+        const current = sidebar.querySelector('.nav-item[aria-current="page"]');
+        const mark = sidebar.querySelector('.wash-mark');
+        if (!current || !mark)
+            return;
+        const paint = current.style.getPropertyValue('--c');
+        panel.style.setProperty('--wash', paint);
+        const place = () => {
+            const top = current.offsetTop, left = current.offsetLeft;
+            const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (!still && fromTop !== undefined && fromTop !== top && current.offsetHeight) {
+                mark.style.transition = 'none';
+                mark.style.top = `${fromTop}px`;
+                if (fromPaint)
+                    mark.style.backgroundColor = fromPaint;
+                void mark.offsetWidth;
+                mark.style.transition = '';
+                const trail = document.createElement('i');
+                trail.className = 'wash-trail';
+                trail.setAttribute('aria-hidden', 'true');
+                trail.style.top = `${Math.min(fromTop, top) + current.offsetHeight / 2 - 4}px`;
+                trail.style.height = `${Math.abs(top - fromTop) + 8}px`;
+                trail.style.left = `${left + 14}px`;
+                if (fromPaint)
+                    trail.style.backgroundColor = fromPaint;
+                sidebar.prepend(trail);
+                trail.addEventListener('animationend', () => trail.remove(), { once: true });
+                window.setTimeout(() => trail.remove(), 1200);
+            }
+            mark.style.top = `${top}px`;
+            mark.style.left = `${left}px`;
+            mark.style.width = `${current.offsetWidth}px`;
+            mark.style.height = `${current.offsetHeight}px`;
+            mark.style.backgroundColor = '';
+            mark.dataset.top = String(top);
+        };
+        if (current.offsetHeight)
+            place();
+        else
+            requestAnimationFrame(place);
     }
     function navigate(next, focus = true, nextFeatureTab, destination) {
         if (transfer.isApplying || changingSyncKeys)
@@ -199,8 +259,12 @@ async function mount() {
         const isConnection = page === 'image-api' || page === 'model-api';
         if (isConnection)
             connectionPage = page;
+        const previousMark = sidebar.querySelector('.wash-mark');
+        const fromTop = previousMark?.dataset.top;
+        const fromPaint = panel.style.getPropertyValue('--wash');
         sidebar.innerHTML = navigationView(page);
         sidebar.querySelector('[data-page="image-api"]').dataset.page = connectionPage;
+        paintNavigation(fromTop === undefined ? undefined : Number(fromTop), fromPaint);
         apiSwitch.hidden = !isConnection;
         apiSwitch.querySelectorAll('button').forEach(button => {
             if (button.dataset.page === page)
@@ -209,6 +273,9 @@ async function mount() {
                 button.removeAttribute('aria-current');
         });
         content.innerHTML = pageView(page, settings, featureTab);
+        content.classList.remove('is-fresh');
+        void content.offsetWidth;
+        content.classList.add('is-fresh');
         const imageContainer = content.querySelector('[data-image-settings]');
         const anchorContainer = content.querySelector('[data-anchor-settings]');
         const modelContainer = content.querySelector('[data-model-settings]');

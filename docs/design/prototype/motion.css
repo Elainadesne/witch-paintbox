@@ -1,0 +1,142 @@
+/* 魔女画匣原型「颜料未干」：动效与状态
+   时长与缓动借鉴四方世界：--ease cubic-bezier(.16,1,.3,1)；
+   印章按压 700ms（62% 压过头 / 82% 回弹 / 100% 落定）→ 颜料滴；
+   墨迹 inkin 620ms + 下划线 520ms → 输入洇墨；显影 develop 1.4s / lay 0.9s → 切页。 */
+
+/* ---------- 开场：水色从画匣处晕开，纸面随之显出 ---------- */
+.bloom {
+  position: fixed; inset: 0; z-index: 50; pointer-events: none;
+  background: radial-gradient(circle at var(--ox, 92%) var(--oy, 90%), var(--wash) 0, color-mix(in oklab, var(--wash) 60%, #f7f0e3) 18%, transparent 42%);
+  filter: url(#bleed);
+  opacity: 0;
+}
+body.opening .bloom { animation: bloom 1100ms var(--ease) both; }
+@keyframes bloom {
+  0% { opacity: 0; clip-path: circle(0 at var(--ox, 92%) var(--oy, 90%)); }
+  25% { opacity: .9; }
+  100% { opacity: 0; clip-path: circle(150% at var(--ox, 92%) var(--oy, 90%)); }
+}
+body.opening .sheet { animation: wet-in 1100ms var(--ease) 120ms both; }
+@keyframes wet-in {
+  0% { opacity: 0; clip-path: circle(0 at var(--ox, 92%) var(--oy, 90%)); filter: blur(6px) saturate(1.4); }
+  60% { opacity: 1; filter: blur(1px) saturate(1.15); }
+  100% { clip-path: circle(150% at var(--ox, 92%) var(--oy, 90%)); filter: none; }
+}
+/* 先铅笔底稿，再描墨：标题、编号、页面元素依次显出 */
+body.opening .head h1 { animation: sketch 900ms ease 500ms both; }
+body.opening .nav button { animation: develop 700ms ease both; animation-delay: calc(700ms + var(--i, 0) * 70ms); }
+@keyframes sketch {
+  0% { opacity: 0; color: transparent; -webkit-text-stroke: .5px var(--pencil); }
+  50% { opacity: 1; color: transparent; -webkit-text-stroke: .5px var(--ink-3); }
+  100% { color: var(--ink); -webkit-text-stroke: 0 transparent; }
+}
+
+/* ---------- 切页：显影 ---------- */
+.page.fresh .page-title { animation: lay 900ms cubic-bezier(.2, .8, .2, 1) both; }
+.page.fresh .page-lede { animation: develop 800ms ease 200ms both; }
+.page.fresh .section { animation: develop-wet 1000ms ease both; animation-delay: calc(260ms + var(--i, 0) * 110ms); }
+@keyframes develop { from { opacity: 0; } }
+@keyframes lay { from { opacity: 0; transform: scale(1.06); transform-origin: left center; } }
+@keyframes develop-wet { from { opacity: 0; filter: blur(3px); transform: translateY(5px); } }
+
+/* ---------- 导航色块拖痕 ---------- */
+.nav .wash-mark { transition: top 520ms var(--ease), background-color var(--t-mid) ease; }
+.nav .trail {
+  position: absolute; left: 22px; width: 6px; z-index: 0; pointer-events: none;
+  background: var(--trail-c, var(--wash)); border-radius: 3px; opacity: .35;
+  filter: url(#bleed);
+  animation: trail 900ms ease forwards;
+}
+@keyframes trail { 0% { opacity: .45; } 100% { opacity: 0; } }
+
+/* ---------- 输入洇墨与写干 ---------- */
+.line.inking::after { animation: inkin 620ms cubic-bezier(.3, .6, .3, 1) both; }
+@keyframes inkin {
+  0% { filter: blur(2px); opacity: 0; }
+  45% { filter: blur(.6px); opacity: .7; }
+  100% { filter: none; opacity: 1; }
+}
+.line.dry input { animation: dry 600ms ease both; }
+@keyframes dry { 0% { color: var(--wash-ink); } 100% { color: var(--ink); } }
+
+/* 手绘圈：画上去，不是亮起来 */
+.choice button[aria-pressed="true"] svg path { animation: circle 520ms var(--ease) both; }
+@keyframes circle { to { stroke-dashoffset: 0; } }
+
+/* ---------- 主按钮：一滴颜料 ---------- */
+.drop-btn {
+  position: relative; display: inline-flex; align-items: center; gap: 16px;
+  padding: 6px 4px; font-size: 17px; letter-spacing: .3em; color: var(--ink);
+}
+.drop-btn .drop {
+  position: relative; width: 52px; height: 52px; flex: none;
+  border-radius: 50% 50% 48% 52% / 56% 54% 46% 44%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, .7) 0 8%, transparent 22%),
+    radial-gradient(circle at 50% 55%, var(--wash) 0 55%, color-mix(in oklab, var(--wash) 70%, var(--ink)) 100%);
+  box-shadow: 0 4px 6px -2px rgba(58, 36, 22, .35), inset 0 -3px 6px rgba(58, 36, 22, .2);
+  transition: transform var(--t-mid) var(--ease), box-shadow var(--t-mid) ease;
+}
+.drop-btn .drop::after {      /* 压下后晕开的一圈 */
+  content: ""; position: absolute; inset: -6px; border-radius: inherit;
+  background: var(--wash); opacity: 0; filter: url(#bleed);
+}
+.drop-btn:hover .drop { transform: translateY(-1px) scale(1.03); }
+.drop-btn:active .drop { transform: translateY(1px) scale(1.12, .86); }
+.drop-btn.pressing .drop { animation: squash 700ms cubic-bezier(.3, 0, .25, 1) both; }
+.drop-btn.pressing .drop::after { animation: spread 1100ms ease both; }
+@keyframes squash {
+  0% { transform: translateY(-6px) scale(1.06); }
+  62% { transform: translateY(1px) scale(1.18, .8); }
+  82% { transform: scale(.97, 1.03); }
+  100% { transform: none; }
+}
+@keyframes spread { 0% { opacity: .5; transform: scale(.9); } 100% { opacity: 0; transform: scale(2.1); } }
+/* 生成中：颜料慢慢沉淀 */
+.drop-btn.busy .drop { animation: settle 2.4s ease-in-out infinite; }
+@keyframes settle { 0%, 100% { filter: none; } 50% { filter: saturate(.7) brightness(.92); } }
+.drop-btn:disabled { cursor: not-allowed; color: var(--ink-3); }
+.drop-btn:disabled .drop { background: radial-gradient(circle at 50% 55%, #d9cdb9 0 55%, #b9a990 100%); box-shadow: none; transform: none; }
+.drop-btn .why { font-size: 12px; letter-spacing: .08em; color: var(--ink-3); }
+
+/* ---------- 成功：颜料干透，边缘积色 ---------- */
+.dried { position: relative; display: inline-block; padding: 4px 12px; font-size: 13px; letter-spacing: .14em; }
+.dried::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: var(--wash-soft);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--wash) 55%, transparent);
+  border-radius: 40% 60% 50% 50% / 60% 40% 60% 40%;
+  filter: url(#bleed);
+  animation: develop 900ms ease both;
+}
+
+/* ---------- 缇娅出面：报错与空态 ---------- */
+.tia-note {
+  display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 20px; align-items: center;
+  margin: 8px 0 34px; padding: 20px 0;
+  position: relative;
+}
+.tia-note::before {           /* 水渍：报错为胭脂回流痕，空态为淡水色 */
+  content: ""; position: absolute; inset: -6px -20px; z-index: -1;
+  background: radial-gradient(70% 90% at 20% 50%, var(--stain, var(--wash-soft)) 0, transparent 70%);
+  filter: url(#bleed);
+}
+.tia-note.error { --stain: color-mix(in oklab, var(--rouge) 18%, transparent); }
+.tia-note .face {             /* 从缇娅原图裁出头部，叠表情贴片 */
+  position: relative; width: 112px; height: 112px; border-radius: 50%; overflow: hidden;
+  -webkit-mask: radial-gradient(closest-side, #000 76%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 76%, transparent 100%);
+}
+.tia-note .face img { position: absolute; width: 330px; left: -110px; top: -116px; }
+.tia-note .face .expr { width: auto; height: 46.3px; left: 17.4px; top: 43.1px; }
+.tia-note .say { font: 16px/1.8 var(--kai); letter-spacing: .06em; margin: 0; }
+.tia-note .raw { margin: 8px 0 0; font: 12px/1.6 ui-monospace, monospace; color: var(--rouge); overflow-wrap: anywhere; }
+.tia-note .next { margin-top: 10px; font-size: 13px; letter-spacing: .2em; color: var(--wash-ink); padding-bottom: 2px; background: linear-gradient(currentColor, currentColor) 0 100% / 100% 1px no-repeat; }
+.tia-note.fresh { animation: develop-wet 900ms ease both; }
+.tia-note.fresh .face { animation: lay 900ms cubic-bezier(.2, .8, .2, 1) both; }
+
+/* ---------- 减少动态 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }
+}
+body.still *, body.still *::before, body.still *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }

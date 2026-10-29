@@ -1,0 +1,55 @@
+/* 魔女画匣原型「颜料未干」：手机端与原型控制条 */
+.actions { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin-top: 8px; }
+
+.proto-bar {
+  position: fixed; left: 12px; bottom: 12px; z-index: 60;
+  display: flex; gap: 8px; flex-wrap: wrap;
+  font: 12px/1 system-ui, sans-serif;
+}
+.proto-bar button { padding: 6px 10px; border-radius: 4px; background: rgba(255, 255, 255, .1); color: #d8cbb8; }
+.proto-bar button:hover { background: rgba(255, 255, 255, .2); }
+
+@media (max-width: 1100px) {
+  .sheet { inset: 28px 40px 56px; }
+}
+
+@media (max-width: 640px) {
+  body { font-size: 15px; }
+  .sheet {
+    inset: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .sheet::before { filter: none; box-shadow: none; }
+  .head { padding: calc(18px + env(safe-area-inset-top)) 20px 6px; }
+  .head h1 { font-size: 24px; letter-spacing: .22em; }
+  .head .tabs { display: none; }
+  .head .close { margin-left: auto; padding: 8px; }
+
+  /* 导航移到底部，变成可横滑的颜料色块 */
+  .nav {
+    grid-row: 3; flex-direction: row; gap: 0;
+    padding: 6px 12px calc(10px + env(safe-area-inset-bottom));
+    overflow-x: auto; scrollbar-width: none;
+    background: linear-gradient(180deg, transparent, var(--paper-deep) 40%);
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav button { flex: none; flex-direction: column; justify-content: center; gap: 4px; height: 58px; padding: 0 16px; font-size: 13px; letter-spacing: .1em; }
+  .nav .well { width: 18px; height: 18px; }
+  .nav .wash-mark { top: 8px !important; height: 50px; }
+  .nav .stroke, .nav .trail { display: none; }
+
+  .content { padding: 8px 20px 28px; }
+  .page-title { font-size: 22px; }
+  .page-lede { margin-bottom: 22px; }
+  .row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; }
+  .choice { gap: 22px; flex-wrap: wrap; }
+  .tia-note { grid-template-columns: 76px minmax(0, 1fr); gap: 14px; }
+  .tia-note .face { width: 76px; height: 76px; }
+  .tia-note .face img { width: 224px; left: -74px; top: -79px; }
+  .tia-note .face .expr { width: auto; height: 31.4px; left: 12.4px; top: 29.1px; }
+  .tia-note .say { font-size: 15px; }
+  /* 手机上控制条会压住题头：默认收起，地址加 ?proto 才显示 */
+  .proto-bar { display: none; }
+  body.proto .proto-bar { display: flex; top: auto; bottom: 86px; left: 8px; opacity: .7; }
+}

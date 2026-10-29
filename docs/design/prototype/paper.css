@@ -1,0 +1,193 @@
+/* 魔女画匣原型「颜料未干」：纸张、版式、控件静态样式 */
+:root {
+  --ink: #3a2416;          /* 缇娅的棕墨线 */
+  --ink-2: #6e4730;
+  --ink-3: #9a8574;
+  --pencil: rgba(58, 36, 22, .22);
+  --paper: #f7f0e3;
+  --paper-deep: #efe4d0;
+  --wash: #e6872a;         /* 当前板块的颜料色，由 app.js 改写 */
+  --wash-soft: color-mix(in oklab, var(--wash) 22%, transparent);
+  --wash-ink: color-mix(in oklab, var(--wash) 62%, var(--ink));
+  --rouge: #a3463e;
+  --serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", STSong, serif;
+  --kai: "AR PL UKai CN", "KaiTi", "STKaiti", var(--serif);
+  --ease: cubic-bezier(.16, 1, .3, 1);
+  --t-fast: 160ms;
+  --t-mid: 320ms;
+  /* 笔刷色块与干刷的形：两端叉开、中段飞白 */
+  --brush-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 50' preserveAspectRatio='none'%3E%3Cpath d='M6 26C4 14 14 8 30 9c40-2 90-5 140-2 16 1 26 6 25 14-1 10-8 16-22 18-30 3-70 4-110 3C30 42 8 38 6 26z'/%3E%3Cpath d='M20 44c40 2 90 1 150-3' stroke='%23000' stroke-width='2' fill='none' opacity='.5'/%3E%3C/svg%3E");
+  --brush-dry: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 400' preserveAspectRatio='none'%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%236e4730' stop-opacity='.9'/%3E%3Cstop offset='.55' stop-color='%236e4730' stop-opacity='.5'/%3E%3Cstop offset='1' stop-color='%236e4730' stop-opacity='0'/%3E%3C/linearGradient%3E%3Cpath d='M3.2 2C2.4 80 3.8 160 2.9 240S3.4 340 3 398' stroke='url(%23g)' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: #2a211b;
+  color: var(--ink);
+  font: 15px/1.75 var(--serif);
+  overflow: hidden;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: 0; padding: 0; }
+:focus-visible { outline: 2px dashed var(--wash-ink); outline-offset: 4px; }
+
+/* ---------- 纸张：无框，毛边由 SVG 滤镜生成 ---------- */
+.sheet {
+  position: fixed;
+  inset: 40px 150px 40px 150px;
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  isolation: isolate;
+}
+.sheet::before {               /* 纸面本体 */
+  content: "";
+  position: absolute; inset: 0; z-index: -2;
+  background:
+    radial-gradient(120% 90% at 18% 0%, #fbf6ec 0%, transparent 60%),
+    radial-gradient(90% 80% at 100% 100%, var(--paper-deep) 0%, transparent 70%),
+    var(--paper);
+  filter: url(#deckle);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .55);
+}
+.sheet::after {                /* 冷压纸颗粒 */
+  content: "";
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 .23 0 0 0 0 .14 0 0 0 0 .09 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+  filter: url(#deckle);
+}
+
+/* ---------- 题头 ---------- */
+.head {
+  grid-column: 1 / -1;
+  display: flex; align-items: flex-end; gap: 18px;
+  padding: 30px 40px 14px 44px;
+}
+.head .eyebrow {
+  display: block;
+  font: 13px/1 var(--kai);
+  letter-spacing: .4em;
+  color: var(--wash-ink);
+  transition: color var(--t-mid) ease;
+}
+.head h1 {
+  margin: 8px 0 0;
+  font: 500 30px/1.2 var(--serif);
+  letter-spacing: .3em;
+}
+.head > div { margin-right: auto; }
+.head .tabs { display: flex; gap: 26px; }
+.head .tabs button {
+  font-size: 14px; letter-spacing: .16em; color: var(--ink-3);
+  padding-bottom: 6px;
+  background: linear-gradient(var(--wash-ink), var(--wash-ink)) 0 100% / 0 2px no-repeat;
+  transition: background-size var(--t-mid) var(--ease), color var(--t-fast) ease;
+}
+.head .tabs button[aria-pressed="true"] { color: var(--ink); background-size: 100% 2px; }
+.head .close { font-size: 22px; line-height: 1; color: var(--ink-3); margin-left: 20px; }
+.head .close:hover { color: var(--ink); }
+
+/* ---------- 颜料导航 ---------- */
+.nav { position: relative; padding: 18px 0 0 26px; display: flex; flex-direction: column; gap: 6px; }
+.nav .wash-mark {             /* 一抹笔刷色块，随选中项滑动 */
+  position: absolute; left: 14px; width: 168px; height: 44px; z-index: 0;
+  background: var(--wash);
+  opacity: .5;
+  -webkit-mask: var(--brush-mask) center / 100% 100% no-repeat;
+  mask: var(--brush-mask) center / 100% 100% no-repeat;
+  filter: url(#bleed);
+  pointer-events: none;
+}
+.nav button {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: 12px;
+  height: 44px; padding: 0 14px;
+  text-align: left; letter-spacing: .14em; color: var(--ink-2);
+  transition: transform var(--t-fast) ease, color var(--t-fast) ease;
+}
+.nav button:hover { transform: translateY(-1px); color: var(--ink); }
+.nav button:active { transform: translateY(1px); }
+.nav button[aria-current="page"] { color: var(--ink); }
+.nav .well {                  /* 颜料格：小块未干的颜色 */
+  flex: none; width: 14px; height: 14px; border-radius: 46% 54% 50% 50% / 55% 45% 55% 45%;
+  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--c) 55%, #fff), var(--c) 60%, color-mix(in oklab, var(--c) 70%, #3a2416));
+  box-shadow: inset 0 0 0 1px rgba(58, 36, 22, .18);
+}
+.nav .stroke {                /* 纸与内容间的一道干刷 */
+  position: absolute; top: 10px; bottom: 30px; right: 0; width: 6px;
+  background: var(--brush-dry) center / 6px 100% no-repeat;
+  opacity: .5;
+}
+
+/* ---------- 内容区 ---------- */
+.content { position: relative; overflow: auto; padding: 16px 52px 60px 44px; scrollbar-width: thin; scrollbar-color: var(--pencil) transparent; }
+.page { max-width: 760px; }
+.page[hidden] { display: none; }
+.page-title { margin: 0; font: 500 26px/1.35 var(--serif); letter-spacing: .14em; }
+.page-lede { margin: 6px 0 30px; color: var(--ink-3); font-size: 14px; letter-spacing: .06em; }
+
+.section { margin: 0 0 40px; }
+.section h3 {
+  display: flex; align-items: baseline; gap: 14px;
+  margin: 0 0 4px;
+  font: 500 19px/1.4 var(--serif); letter-spacing: .14em;
+}
+.section h3 .no { font: 14px/1 var(--kai); color: var(--wash-ink); letter-spacing: .1em; }
+.section .hint { margin: 0 0 18px; color: var(--ink-3); font-size: 13px; letter-spacing: .04em; }
+
+/* 字段：一道铅笔线，聚焦时墨水沿线洇开（motion.css） */
+.field { display: block; margin: 0 0 22px; }
+.field > span:first-child { display: block; font-size: 12px; letter-spacing: .24em; color: var(--ink-3); margin-bottom: 2px; }
+.line { position: relative; display: flex; align-items: center; gap: 18px; }
+.line::before {               /* 铅笔底线 */
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: repeating-linear-gradient(90deg, var(--pencil) 0 9px, transparent 9px 11px);
+}
+.line::after {                /* 墨线 */
+  content: ""; position: absolute; left: var(--from, 0px); right: calc(100% - var(--from, 0px)); bottom: -1px; height: 2px;
+  background: var(--ink);
+  border-radius: 2px;
+  opacity: 0;
+  transition: left 520ms var(--ease), right 520ms var(--ease), opacity var(--t-fast) ease, background-color var(--t-mid) ease;
+}
+.line:focus-within::after { left: 0; right: 0; opacity: 1; background: var(--wash-ink); }
+.line.dry::after { left: 0; right: 0; opacity: .9; background: var(--ink); }
+.line input, .line select {
+  flex: 1 1 auto; width: 100%; min-width: 0; border: 0; outline: 0; background: transparent;
+  padding: 8px 0; font-size: 16px; letter-spacing: .04em; caret-color: var(--wash-ink);
+  appearance: none;
+}
+.line input::placeholder { color: var(--ink-3); opacity: .7; }
+.line select { padding-right: 22px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1.5c2 1.6 3.4 3.4 5 5 1.7-1.8 3-3.3 5-5' fill='none' stroke='%233a2416' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E") right 4px center no-repeat; }
+.line .act { flex: none; font-size: 13px; letter-spacing: .2em; color: var(--ink-2); padding: 4px 0; transition: transform var(--t-fast) ease, color var(--t-fast) ease; }
+.line .act:hover { color: var(--wash-ink); transform: translateY(-1px); }
+.line .act:active { transform: translateY(1px); }
+
+/* 二选一：被选中的那项用手绘圈圈住 */
+.choice { display: flex; gap: 28px; margin: 4px 0 26px; }
+.choice button { position: relative; padding: 6px 4px; font-size: 16px; letter-spacing: .14em; color: var(--ink-3); transition: color var(--t-fast) ease; }
+.choice button:hover { color: var(--ink); }
+.choice button[aria-pressed="true"] { color: var(--ink); }
+.choice svg { position: absolute; left: -14px; top: -6px; width: calc(100% + 28px); height: calc(100% + 12px); overflow: visible; pointer-events: none; }
+.choice svg path { fill: none; stroke: var(--wash-ink); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; }
+.choice button[aria-pressed="true"] svg path { opacity: 1; }
+
+.row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 32px; }
+
+/* 开关：颜料点 */
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; }
+.toggle + .toggle { background: linear-gradient(90deg, transparent, var(--pencil) 12%, var(--pencil) 88%, transparent) 0 0 / 100% 1px no-repeat; }
+.toggle strong { display: block; font-weight: 500; letter-spacing: .1em; }
+.toggle small { display: block; color: var(--ink-3); font-size: 13px; }
+.toggle button { flex: none; width: 46px; height: 24px; position: relative; }
+.toggle button::before { content: ""; position: absolute; inset: 10px 4px; border-radius: 4px; background: var(--pencil); }
+.toggle button::after {
+  content: ""; position: absolute; top: 3px; left: 2px; width: 18px; height: 18px;
+  border-radius: 48% 52% 46% 54% / 52% 48% 52% 48%;
+  background: var(--ink-3);
+  transition: left var(--t-mid) var(--ease), background-color var(--t-mid) ease, transform var(--t-fast) ease;
+}
+.toggle button[aria-checked="true"]::after { left: 26px; background: var(--wash); box-shadow: 0 0 0 3px var(--wash-soft); }
+.toggle button:active::after { transform: scale(1.15, .85); }

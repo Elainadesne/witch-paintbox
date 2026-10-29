@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>魔女画匣 · 原型「颜料未干」</title>
+<link rel="stylesheet" href="paper.css">
+<link rel="stylesheet" href="motion.css">
+<link rel="stylesheet" href="phone.css">
+</head>
+<body class="opening">
+
+<!-- 水彩用的滤镜：毛边、渗色；笔刷遮罩 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="deckle" x="-2%" y="-2%" width="104%" height="104%">
+    <feTurbulence type="fractalNoise" baseFrequency=".035" numOctaves="3" seed="7" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="9" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <filter id="bleed" x="-20%" y="-20%" width="140%" height="140%">
+    <feTurbulence type="fractalNoise" baseFrequency=".022" numOctaves="2" seed="3" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="14" xChannelSelector="R" yChannelSelector="B" result="d"/>
+    <feGaussianBlur in="d" stdDeviation=".8"/>
+  </filter>
+</svg>
+
+<div class="bloom" aria-hidden="true"></div>
+
+<main class="sheet" aria-label="魔女画匣">
+  <header class="head">
+    <div>
+      <span class="eyebrow">缇娅的绘图工坊</span>
+      <h1>魔女画匣</h1>
+    </div>
+    <nav class="tabs" aria-label="接口" data-only="image-api">
+      <button type="button" aria-pressed="true">生图 API</button>
+      <button type="button" aria-pressed="false">模型 API</button>
+    </nav>
+    <button type="button" class="close" aria-label="合上画匣">×</button>
+  </header>
+
+  <nav class="nav" aria-label="板块">
+    <i class="wash-mark" aria-hidden="true"></i>
+    <button type="button" data-page="guide" style="--c:#EBA63A;--i:0"><i class="well"></i>开始使用</button>
+    <button type="button" data-page="image-api" style="--c:#E6872A;--i:1"><i class="well"></i>接口配置</button>
+    <button type="button" data-page="features" style="--c:#C8A04C;--i:2"><i class="well"></i>插件功能</button>
+    <button type="button" data-page="review" style="--c:#8C6649;--i:3"><i class="well"></i>生图回顾</button>
+    <button type="button" data-page="preferences" style="--c:#5C3D2A;--i:4"><i class="well"></i>使用偏好</button>
+    <i class="stroke" aria-hidden="true"></i>
+  </nav>
+
+  <section class="content" tabindex="-1">
+
+    <!-- 开始使用 -->
+    <article class="page" data-page="guide">
+      <h2 class="page-title">开始使用</h2>
+      <p class="page-lede">先接上画笔，再告诉缇娅画什么。</p>
+
+      <div class="tia-note" data-state="empty">
+        <div class="face"><img src="../../../pet/tia_base.webp" alt=""><img class="expr" src="../../../pet/tia_face_talk.webp" alt=""></div>
+        <div>
+          <p class="say">画匣已经支好了。还差一支能落笔的画笔——先去接上生图服务吧？</p>
+          <button type="button" class="next" data-go="image-api">去接口配置</button>
+        </div>
+      </div>
+
+      <section class="section" style="--i:0">
+        <h3><span class="no">一</span>接上画笔</h3>
+        <p class="hint">生图服务负责画，模型服务负责读正文、挑画面。</p>
+        <div class="toggle"><span><strong>生图 API</strong><small>NAI 或 OpenAI 兼容，必需</small></span><span class="dried">尚未连接</span></div>
+        <div class="toggle"><span><strong>模型 API</strong><small>为正文找画面、写提示词，可选</small></span><span class="dried">已就绪</span></div>
+      </section>
+      <section class="section" style="--i:1">
+        <h3><span class="no">二</span>让角色长相不走样</h3>
+        <p class="hint">在插件功能里给角色锚定外貌与服装，缇娅每次都会照着画。</p>
+      </section>
+      <section class="section" style="--i:2">
+        <h3><span class="no">三</span>按自己的习惯摆画匣</h3>
+        <p class="hint">自动生图、图片留存、缇娅的大小与台词，都在使用偏好里。</p>
+      </section>
+    </article>
+
+    <!-- 接口配置 -->
+    <article class="page" data-page="image-api" hidden>
+      <h2 class="page-title">生图 API</h2>
+      <p class="page-lede">管理用于生成图片的服务连接。</p>
+
+      <div class="choice" role="group" aria-label="服务">
+        <button type="button" aria-pressed="true">NAI<svg viewBox="0 0 100 40" preserveAspectRatio="none"><path pathLength="1" d="M8 22C6 9 40 3 66 5s30 10 28 19-30 13-56 12S4 30 10 18"/></svg></button>
+        <button type="button" aria-pressed="false">GPT（OpenAI 兼容）<svg viewBox="0 0 100 40" preserveAspectRatio="none"><path pathLength="1" d="M8 22C6 9 40 3 66 5s30 10 28 19-30 13-56 12S4 30 10 18"/></svg></button>
+      </div>
+
+      <div class="tia-note error" data-state="error" hidden>
+        <div class="face"><img src="../../../pet/tia_base.webp" alt=""><img class="expr" src="../../../pet/tia_face_dismay.webp" alt=""></div>
+        <div>
+          <p class="say">呜，远方的魔力回路好像断开了，颜料送不过来……稍微检查一下接口密钥吧？</p>
+          <p class="raw">401 Unauthorized · https://image.novelai.net/ai/generate-image</p>
+        </div>
+      </div>
+
+      <section class="section" style="--i:0">
+        <h3><span class="no">一</span>密钥</h3>
+        <p class="hint">保存后，密钥只留在这台设备的浏览器里。</p>
+        <label class="field"><span>渠道</span><span class="line"><select><option>官方</option><option>自定义地址</option></select></span></label>
+        <label class="field"><span>密钥</span><span class="line"><input type="password" placeholder="pst-……" data-check="key"><button type="button" class="act">显示</button><button type="button" class="act">保存</button></span></label>
+      </section>
+
+      <section class="section" style="--i:1">
+        <h3><span class="no">二</span>画法</h3>
+        <p class="hint">选模型，再定画幅与步数。</p>
+        <label class="field"><span>生图模型</span><span class="line"><select><option>NAI Diffusion V4.5 Full</option><option>NAI Diffusion V5 Full</option></select></span></label>
+        <div class="row">
+          <label class="field"><span>宽</span><span class="line"><input inputmode="numeric" value="832"></span></label>
+          <label class="field"><span>高</span><span class="line"><input inputmode="numeric" value="1216"></span></label>
+          <label class="field"><span>步数</span><span class="line"><input inputmode="numeric" value="28"></span></label>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="button" class="drop-btn" data-test><span class="drop" aria-hidden="true"></span><span>试画一张</span></button>
+        <span class="why" data-why></span>
+      </div>
+    </article>
+
+    <article class="page" data-page="features" hidden><h2 class="page-title">插件功能</h2><p class="page-lede">原型未展开此页。</p></article>
+    <article class="page" data-page="review" hidden>
+      <h2 class="page-title">生图回顾</h2><p class="page-lede">翻看保存在这台设备上的配图。</p>
+      <div class="tia-note">
+        <div class="face"><img src="../../../pet/tia_base.webp" alt=""><img class="expr" src="../../../pet/tia_face_focus.webp" alt=""></div>
+        <div><p class="say">画夹还是空的。等第一张画干透，我就把它夹进来。</p></div>
+      </div>
+    </article>
+    <article class="page" data-page="preferences" hidden><h2 class="page-title">使用偏好</h2><p class="page-lede">原型未展开此页。</p></article>
+  </section>
+</main>
+
+<!-- 原型控制条：不属于设计本身 -->
+<aside class="proto-bar">
+  <button type="button" data-proto="replay">重放开场</button>
+  <button type="button" data-proto="error">切换报错</button>
+  <button type="button" data-proto="palette">模拟出图换色</button>
+  <button type="button" data-proto="still">减少动态</button>
+</aside>
+
+<script src="app.js"></script>
+</body>
+</html>

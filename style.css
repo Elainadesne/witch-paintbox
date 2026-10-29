@@ -875,3 +875,305 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 }
 
 .anchor-aliases { display: block; margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+
+/* ==========================================================================
+   「颜料未干」：主面板换成缇娅正在画的一张水彩纸。
+   只作用于 #image-plugin-panel；指定插图窗、悬浮菜单维持原样。
+   动效时长与缓动借鉴四方世界（--ease、印章按压 700ms、墨迹 620ms、显影 0.9–1.4s）。
+   ========================================================================== */
+.paint-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+#image-plugin-panel {
+  --ink: #3a2416;
+  --heading: #3a2416;
+  --muted: #8a7563;
+  --pencil: #3a24163a;
+  --paper: #f7f0e3;
+  --paper-deep: #efe4d0;
+  --surface: #f3eadb;
+  --field-paper: #f5ede0;
+  --workspace-paper: transparent;
+  --border: #3a241626;
+  --wash: #E6872A;
+  --wash-soft: color-mix(in oklab, var(--wash) 20%, transparent);
+  --wash-ink: color-mix(in oklab, var(--wash) 62%, #3a2416);
+  --accent: var(--wash-ink);
+  --accent-hover: color-mix(in oklab, var(--wash) 45%, #3a2416);
+  --accent-soft: var(--wash-soft);
+  --section-accent: var(--wash-ink);
+  --kai: "AR PL UKai CN", KaiTi, STKaiti, "Kaiti SC", var(--serif);
+  --ease: cubic-bezier(.16, 1, .3, 1);
+  --t-fast: 160ms;
+  --t-mid: 320ms;
+  isolation: isolate;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+  font-family: var(--serif);
+}
+#image-plugin-panel::backdrop { background: #1e160fa6; }
+/* 纸：底色、颗粒、毛边都在伪元素上，内容不受位移滤镜影响 */
+#image-plugin-panel .shell { position: relative; isolation: isolate; }
+#image-plugin-panel .shell::before,
+#image-plugin-panel .shell::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; filter: url(#wp-deckle); }
+#image-plugin-panel .shell::before {
+  background:
+    radial-gradient(120% 90% at 18% 0%, #fbf6ec 0%, transparent 60%),
+    radial-gradient(90% 80% at 100% 100%, var(--paper-deep) 0%, transparent 70%),
+    var(--paper);
+  box-shadow: 0 30px 60px -20px #00000080;
+}
+#image-plugin-panel .shell::after {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 .23 0 0 0 0 .14 0 0 0 0 .09 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+}
+
+/* 题头 */
+#image-plugin-panel .window-header { padding: 26px 34px 12px 40px; border-bottom: 0; background: transparent; }
+#image-plugin-panel .window-brand .eyebrow { font: 13px/1 var(--kai); letter-spacing: .4em; color: var(--wash-ink); transition: color var(--t-mid) ease; }
+#image-plugin-panel h1 { margin-top: 8px; font: 500 28px/1.2 var(--serif); letter-spacing: .3em; }
+#image-plugin-panel .api-switch button {
+  border-bottom: 0; letter-spacing: .16em; color: var(--muted);
+  background: linear-gradient(var(--wash-ink), var(--wash-ink)) 0 calc(100% - 4px) / 0 2px no-repeat;
+  transition: background-size var(--t-mid) var(--ease), color var(--t-fast) ease;
+}
+#image-plugin-panel .api-switch button[aria-current="page"] { color: var(--ink); background-size: 100% 2px; }
+#image-plugin-panel .close-button { font-size: 22px; color: var(--muted); }
+#image-plugin-panel .close-button:hover { background: transparent; color: var(--ink); transform: rotate(90deg); transition: transform var(--t-mid) var(--ease); }
+
+/* 颜料导航 */
+#image-plugin-panel .workspace { grid-template-columns: 184px minmax(0, 1fr); }
+#image-plugin-panel .sidebar {
+  position: relative; gap: 6px; padding: 16px 18px 24px 22px; overflow: visible;
+  border-right: 0; background: transparent;
+}
+#image-plugin-panel .sidebar::after {   /* 一道渐淡的干刷，代替分隔边框 */
+  content: ""; position: absolute; top: 10px; bottom: 30px; right: 0; width: 2px; border-radius: 2px;
+  background: linear-gradient(#6e4730e6, #6e473080 55%, transparent);
+  opacity: .45; pointer-events: none;
+}
+#image-plugin-panel .wash-mark {
+  position: absolute; z-index: 0; top: 0; left: 0; width: 0; height: 44px; pointer-events: none;
+  background-color: var(--wash); opacity: .5;
+  border-radius: 46% 54% 40% 60% / 60% 50% 50% 40%;
+  filter: url(#wp-bleed);
+  transition: top 520ms var(--ease), background-color var(--t-mid) ease;
+}
+#image-plugin-panel .wash-trail {
+  position: absolute; z-index: 0; width: 6px; border-radius: 3px; pointer-events: none;
+  background-color: var(--wash); filter: url(#wp-bleed);
+  animation: wp-trail 900ms ease forwards;
+}
+@keyframes wp-trail { 0% { opacity: .45; } 100% { opacity: 0; } }
+#image-plugin-panel .nav-item {
+  position: relative; z-index: 1; gap: 12px; padding: 10px 12px;
+  border-left: 0; background: transparent; color: #6e4730; letter-spacing: .14em;
+  transition: transform var(--t-fast) ease, color var(--t-fast) ease;
+}
+#image-plugin-panel .nav-item:hover { background: transparent; color: var(--ink); transform: translateY(-1px); }
+#image-plugin-panel .nav-item:active { transform: translateY(1px); }
+#image-plugin-panel .nav-item[aria-current="page"] { background: transparent; color: var(--ink); }
+#image-plugin-panel .nav-number { display: none; }
+#image-plugin-panel .nav-well {
+  flex: none; width: 14px; height: 14px; border-radius: 46% 54% 50% 50% / 55% 45% 55% 45%;
+  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--c) 55%, #fff), var(--c) 60%, color-mix(in oklab, var(--c) 70%, #3a2416));
+  box-shadow: inset 0 0 0 1px #3a24162e;
+}
+
+/* 内容区：同一张纸，不再另起底色 */
+#image-plugin-panel .content { padding: 14px 46px 48px 38px; background: transparent; scrollbar-color: var(--pencil) transparent; }
+#image-plugin-panel .content:focus, #image-plugin-panel .content:focus-visible { outline: none; }
+#image-plugin-panel .page-heading .eyebrow { font: 13px/1 var(--kai); letter-spacing: .3em; color: var(--wash-ink); }
+#image-plugin-panel h2 { font: 500 26px/1.35 var(--serif); letter-spacing: .14em; }
+#image-plugin-panel .page-heading > p:last-child { letter-spacing: .04em; }
+
+/* 小节标题：编号用楷体，下边是铅笔虚线，起笔处一小段颜料 */
+#image-plugin-panel .section-heading { border-bottom: 0; background: repeating-linear-gradient(90deg, var(--pencil) 0 9px, transparent 9px 11px) 0 100% / 100% 1px no-repeat; }
+#image-plugin-panel .section-heading::after { height: 3px; bottom: -1px; width: 40px; border-radius: 2px; background: var(--wash); opacity: .7; filter: url(#wp-bleed); }
+#image-plugin-panel .section-index { font: 22px/1 var(--kai); color: var(--wash-ink); }
+#image-plugin-panel .section-title { font-weight: 500; letter-spacing: .14em; }
+
+/* 字段：铅笔虚线；聚焦时墨线沿线洇开，填好后写干 */
+#image-plugin-panel .image-settings :is(input:not([type="checkbox"]):not([type="range"]):not([type="file"]), select, textarea) {
+  border-bottom: 0;
+  background:
+    linear-gradient(var(--wash-ink), var(--wash-ink)) 50% 100% / 0 2px no-repeat,
+    repeating-linear-gradient(90deg, var(--pencil) 0 9px, transparent 9px 11px) 0 100% / 100% 1px no-repeat;
+  transition: background-size 520ms var(--ease);
+  caret-color: var(--wash-ink);
+}
+#image-plugin-panel .image-settings :is(input:not([type="checkbox"]):not([type="range"]):not([type="file"]), select, textarea):focus {
+  background-size: 100% 2px, 100% 1px;
+  animation: wp-inkin 620ms cubic-bezier(.3, .6, .3, 1);
+}
+@keyframes wp-inkin { 0% { filter: blur(.4px); } 100% { filter: none; } }
+#image-plugin-panel .image-settings .key-field input { background-image: none; }
+#image-plugin-panel .key-field, #image-plugin-panel .connection-box > summary, #image-plugin-panel .credential-line > .text-button { border-bottom: 0; background: repeating-linear-gradient(90deg, var(--pencil) 0 9px, transparent 9px 11px) 0 100% / 100% 1px no-repeat; }
+#image-plugin-panel .credential-line[data-saved="true"] { border-bottom-color: var(--ink); }
+#image-plugin-panel .image-settings .preset-detail :is(input:not([type="checkbox"]), select, textarea) { background: var(--field-paper); border-color: var(--border); }
+#image-plugin-panel select { appearance: none; padding-right: 22px; }
+#image-plugin-panel .image-settings select,
+#image-plugin-panel .preference-row select {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1.5c2 1.6 3.4 3.4 5 5 1.7-1.8 3-3.3 5-5' fill='none' stroke='%233a2416' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E"),
+    linear-gradient(var(--wash-ink), var(--wash-ink)),
+    repeating-linear-gradient(90deg, var(--pencil) 0 9px, transparent 9px 11px);
+  background-position: right 4px center, 50% 100%, 0 100%;
+  background-size: 12px 8px, 0 2px, 100% 1px;
+  background-repeat: no-repeat;
+}
+#image-plugin-panel .image-settings select:focus { background-size: 12px 8px, 100% 2px, 100% 1px; }
+#image-plugin-panel .preference-row select { border: 0; border-radius: 0; }
+
+/* 文字按钮：悬停上浮 1px，按下沉 1px */
+#image-plugin-panel .image-settings .text-button { letter-spacing: .14em; transition: transform var(--t-fast) ease, color var(--t-fast) ease; }
+#image-plugin-panel .image-settings .text-button:hover:not(:disabled) { background: transparent; color: var(--ink); transform: translateY(-1px); }
+#image-plugin-panel .image-settings .text-button:active:not(:disabled) { transform: translateY(1px); }
+
+/* 分段切换（NAI/GPT、标签锚定/世界书、范围）：无框，选中项用手绘圈 */
+#image-plugin-panel :is(.feature-tabs, .anchor-tabs) { gap: 22px; padding: 4px 10px; border: 0; background: transparent; overflow: visible; }
+#image-plugin-panel :is(.feature-tabs, .anchor-tabs) button {
+  position: relative; padding: 6px 4px; border: 0; background: transparent; box-shadow: none;
+  color: var(--muted); letter-spacing: .12em; font-weight: 500;
+  transition: color var(--t-fast) ease, transform var(--t-fast) ease;
+}
+#image-plugin-panel :is(.feature-tabs, .anchor-tabs) button + button { border-left: 0; }
+#image-plugin-panel :is(.feature-tabs, .anchor-tabs) button:hover { color: var(--ink); transform: translateY(-1px); }
+#image-plugin-panel :is(.feature-tabs, .anchor-tabs) button[aria-pressed="true"] { color: var(--ink); background: transparent; border-color: transparent; }
+#image-plugin-panel :is(.feature-tabs, .anchor-tabs) button::after {
+  content: ""; position: absolute; inset: -4px -12px; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'%3E%3Cpath d='M8 22C6 9 40 3 66 5s30 10 28 19-30 13-56 12S4 30 10 18' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  -webkit-mask: linear-gradient(90deg, #000 50%, transparent 50%) 100% 0 / 200% 100% no-repeat;
+  mask: linear-gradient(90deg, #000 50%, transparent 50%) 100% 0 / 200% 100% no-repeat;
+  opacity: 0;
+}
+#image-plugin-panel :is(.feature-tabs, .anchor-tabs) button[aria-pressed="true"]::after {
+  opacity: .85;
+  background: var(--wash-ink);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'%3E%3Cpath d='M8 22C6 9 40 3 66 5s30 10 28 19-30 13-56 12S4 30 10 18' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'%3E%3Cpath d='M8 22C6 9 40 3 66 5s30 10 28 19-30 13-56 12S4 30 10 18' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  animation: wp-circle 520ms var(--ease) both;
+}
+@keyframes wp-circle { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+/* 主按钮：一滴颜料 */
+#image-plugin-panel .primary, #image-plugin-panel .generation-trigger {
+  position: relative; border: 0; border-radius: 50% 46% 52% 48% / 58% 54% 46% 42%;
+  background:
+    radial-gradient(circle at 30% 26%, #ffffffa6 0 6%, transparent 18%),
+    radial-gradient(120% 140% at 50% 40%, var(--wash) 0 55%, color-mix(in oklab, var(--wash) 72%, #3a2416) 100%);
+  color: #fffaf0; font-weight: 500; letter-spacing: .2em;
+  text-shadow: 0 1px 1px #3a241659;
+  box-shadow: 0 5px 8px -3px #3a241659, inset 0 -3px 6px #3a241633;
+  transition: transform var(--t-mid) var(--ease), box-shadow var(--t-mid) ease, filter var(--t-mid) ease;
+}
+#image-plugin-panel .primary { padding: 10px 26px; }
+#image-plugin-panel .generation-trigger { border-radius: 48% 52% 50% 50% / 44% 40% 60% 56%; }
+#image-plugin-panel .generation-trigger strong { font-weight: 500; letter-spacing: .3em; }
+#image-plugin-panel :is(.primary, .generation-trigger):hover:not(:disabled) { background:
+    radial-gradient(circle at 30% 26%, #ffffffa6 0 6%, transparent 18%),
+    radial-gradient(120% 140% at 50% 40%, var(--wash) 0 55%, color-mix(in oklab, var(--wash) 72%, #3a2416) 100%);
+  transform: translateY(-1px) scale(1.02); }
+#image-plugin-panel :is(.primary, .generation-trigger):active:not(:disabled) { transform: translateY(1px) scale(1.06, .9); animation: wp-squash 700ms cubic-bezier(.3, 0, .25, 1); }
+@keyframes wp-squash {
+  0% { transform: translateY(-3px) scale(1.03); }
+  62% { transform: translateY(1px) scale(1.08, .88); }
+  82% { transform: scale(.985, 1.015); }
+  100% { transform: none; }
+}
+#image-plugin-panel :is(.primary, .generation-trigger):disabled { background: radial-gradient(circle at 50% 50%, #ddd1bd 0 55%, #c2b29a 100%); box-shadow: none; text-shadow: none; color: #6e5a48; opacity: 1; }
+#image-plugin-panel .secondary {
+  border: 0; border-radius: 0; background: transparent; letter-spacing: .14em; color: var(--ink);
+  background-image: linear-gradient(var(--wash-ink), var(--wash-ink)); background-position: 0 100%; background-size: 100% 1px; background-repeat: no-repeat;
+  padding-inline: 2px; transition: transform var(--t-fast) ease, color var(--t-fast) ease;
+}
+#image-plugin-panel .secondary:hover:not(:disabled) { color: var(--wash-ink); transform: translateY(-1px); }
+#image-plugin-panel .secondary:active:not(:disabled) { transform: translateY(1px); }
+
+/* 卡片类：去框，靠水色浅晕和留白分组 */
+#image-plugin-panel :is(.next-step, .guide-transfer, .empty-state, .preference-section, .map-node, .map-leaf, .review-card, .transfer-review) {
+  border: 0; border-radius: 0; box-shadow: none;
+  background: radial-gradient(90% 120% at 12% 30%, color-mix(in oklab, var(--wash) 11%, transparent) 0, transparent 72%);
+}
+#image-plugin-panel .map-node, #image-plugin-panel .map-leaf { background: radial-gradient(90% 120% at 18% 30%, #3a24160d 0, transparent 75%); }
+#image-plugin-panel button.map-node:hover { background: radial-gradient(90% 120% at 18% 30%, var(--wash-soft) 0, transparent 75%); transform: translateY(-1px); }
+#image-plugin-panel .map-node, #image-plugin-panel .map-tags button { transition: transform var(--t-fast) ease, color var(--t-fast) ease; }
+#image-plugin-panel .map-tags button { border: 0; border-radius: 0; background: repeating-linear-gradient(90deg, var(--pencil) 0 5px, transparent 5px 7px) 0 100% / 100% 1px no-repeat; }
+#image-plugin-panel .map-tags button:hover { background: linear-gradient(var(--wash-ink), var(--wash-ink)) 0 100% / 100% 1px no-repeat; color: var(--wash-ink); transform: translateY(-1px); }
+#image-plugin-panel .guide-step-number { font: 20px/1.4 var(--kai); color: var(--wash-ink); }
+#image-plugin-panel .guide-flow, #image-plugin-panel [data-config-transfer] { border-top: 0; background: repeating-linear-gradient(90deg, var(--pencil) 0 9px, transparent 9px 11px) 0 0 / 100% 1px no-repeat; }
+#image-plugin-panel .preference-row { border-bottom: 0; background: linear-gradient(90deg, transparent, var(--pencil) 12%, var(--pencil) 88%, transparent) 0 100% / 100% 1px no-repeat; }
+#image-plugin-panel .review-card img { background: transparent; }
+
+/* 复选框：颜料点开关 */
+#image-plugin-panel input[type="checkbox"] {
+  appearance: none; position: relative; width: 42px; height: 22px; margin: 0; cursor: pointer;
+  background: linear-gradient(var(--pencil), var(--pencil)) center / 34px 4px no-repeat;
+  border-radius: 4px;
+}
+#image-plugin-panel input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 2px; left: 1px; width: 18px; height: 18px;
+  border-radius: 48% 52% 46% 54% / 52% 48% 52% 48%;
+  background: #b3a291;
+  transition: left var(--t-mid) var(--ease), background-color var(--t-mid) ease, transform var(--t-fast) ease;
+}
+#image-plugin-panel input[type="checkbox"]:checked::after { left: 23px; background: var(--wash); box-shadow: 0 0 0 3px var(--wash-soft); }
+#image-plugin-panel input[type="checkbox"]:active::after { transform: scale(1.15, .85); }
+#image-plugin-panel input[type="checkbox"]:disabled { opacity: .45; cursor: not-allowed; }
+#image-plugin-panel .preset-row-actions input[type="checkbox"], #image-plugin-panel .parameter-toggles input[type="checkbox"], #image-plugin-panel .prompt-enable input[type="checkbox"] { transform: scale(.8); transform-origin: left center; }
+#image-plugin-panel input[type="range"] { accent-color: var(--wash-ink); }
+
+/* 报错：胭脂水渍 */
+#image-plugin-panel :is(.config-status.is-error, .status.is-error, p.is-error) {
+  position: relative; padding: 8px 12px; color: var(--danger);
+  background: radial-gradient(80% 140% at 10% 50%, #a3463e24 0, transparent 75%);
+}
+
+/* 开场：水色从缇娅一侧晕开，纸面随之显出 */
+#image-plugin-panel.is-opening .shell { animation: wp-wet-in 1100ms var(--ease) both; }
+@keyframes wp-wet-in {
+  0% { opacity: 0; clip-path: circle(0 at 92% 92%); filter: blur(6px) saturate(1.4); }
+  60% { opacity: 1; filter: blur(1px); }
+  100% { clip-path: circle(150% at 92% 92%); filter: none; }
+}
+#image-plugin-panel.is-opening h1 { animation: wp-sketch 900ms ease 420ms both; }
+@keyframes wp-sketch {
+  0% { opacity: 0; color: transparent; -webkit-text-stroke: .5px var(--pencil); }
+  50% { opacity: 1; color: transparent; -webkit-text-stroke: .5px var(--muted); }
+  100% { color: var(--ink); -webkit-text-stroke: 0 transparent; }
+}
+#image-plugin-panel.is-opening .nav-item { animation: wp-develop 700ms ease both; animation-delay: calc(600ms + var(--i, 0) * 70ms); }
+
+/* 切页：显影 */
+#image-plugin-panel .content.is-fresh .page-heading h2 { animation: wp-lay 900ms cubic-bezier(.2, .8, .2, 1) both; transform-origin: left center; }
+#image-plugin-panel .content.is-fresh .page-heading > p { animation: wp-develop 800ms ease 150ms both; }
+#image-plugin-panel .content.is-fresh > :not(.page-heading) { animation: wp-develop-wet 900ms ease 240ms both; }
+@keyframes wp-develop { from { opacity: 0; } }
+@keyframes wp-lay { from { opacity: 0; transform: scale(1.06); } }
+@keyframes wp-develop-wet { from { opacity: 0; filter: blur(3px); transform: translateY(5px); } }
+
+/* 手机：纸铺满，导航移到底部横滑 */
+@media (max-width: 640px), (pointer: coarse) and (max-width: 1100px) {
+  #image-plugin-panel .shell::before { box-shadow: 0 12px 30px -10px #00000080; }
+  #image-plugin-panel .window-header { padding: 14px 18px 6px; background: transparent; }
+}
+@media (max-width: 640px) {
+  #image-plugin-panel h1 { font-size: 22px; letter-spacing: .22em; }
+  #image-plugin-panel .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  #image-plugin-panel .sidebar {
+    grid-row: 2; flex-direction: row; gap: 0; padding: 4px 8px 8px; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; background: linear-gradient(180deg, transparent, var(--paper-deep) 45%);
+  }
+  #image-plugin-panel .sidebar::-webkit-scrollbar { display: none; }
+  #image-plugin-panel .sidebar::after { display: none; }
+  #image-plugin-panel .nav-item { flex: none; flex-direction: column; justify-content: center; gap: 3px; min-height: 54px; padding: 4px 14px; font-size: 12px; letter-spacing: .1em; }
+  #image-plugin-panel .nav-well { width: 16px; height: 16px; }
+  #image-plugin-panel .wash-trail { display: none; }
+  #image-plugin-panel .content { padding: 8px 18px 24px; }
+  #image-plugin-panel h2 { font-size: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #image-plugin-panel *, #image-plugin-panel *::before, #image-plugin-panel *::after, #image-plugin-panel .shell { animation: none !important; transition: none !important; }
+}

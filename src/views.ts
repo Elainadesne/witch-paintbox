@@ -51,11 +51,16 @@ function guideLeaf(link: GuideLink, title: string, description: string, tags: Gu
   </div>`;
 }
 
+// 每个板块一格画匣颜料（取自 box_paint 的 8 格）；选中板块的颜色即面板主色
+export const navigationPaints: Record<string, string> = {
+  guide: '#EBA63A', connections: '#E6872A', features: '#C8A04C', review: '#8C6649', preferences: '#5C3D2A',
+};
+
 export function navigationView(page: PageId): string {
-  return navigation.map((item, index) => `
-    <button type="button" class="nav-item" data-page="${item.page}"
+  return `<i class="wash-mark" aria-hidden="true"></i>` + navigation.map((item, index) => `
+    <button type="button" class="nav-item" data-page="${item.page}" style="--c:${navigationPaints[item.group]};--i:${index}"
       ${pages[page].group === item.group ? 'aria-current="page"' : ''}>
-      <span class="nav-number" aria-hidden="true">0${index + 1}</span><span>${item.title}</span>
+      <i class="nav-well" aria-hidden="true"></i><span class="nav-number" aria-hidden="true">0${index + 1}</span><span>${item.title}</span>
     </button>`).join('');
 }
 
