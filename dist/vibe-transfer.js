@@ -1,4 +1,5 @@
 import { ImageResponseError } from './image-response.js';
+import { getHostStore, HOST_NAMESPACE, readHostJson, withHostLock, writeHostJson } from './host-storage.js';
 /**
  * NAI Vibe Transfer: reference images kept on this device.
  * V4 / V4.5 need a model-bound encoding from /ai/encode-vibe (2 Anlas each); V3 takes the raw image.
@@ -105,34 +106,144 @@ function changed() { for (const listener of listeners) {
     }
     catch { /* View errors stay local. */ }
 } }
-export async function loadVibes() {
+async function localState() {
     const db = await database();
     const transaction = db.transaction(['items', 'meta'], 'readonly');
     const items = transaction.objectStore('items').getAll();
     const normalize = transaction.objectStore('meta').get('normalize');
     await done(transaction);
-    const list = items.result.sort((a, b) => a.createdAt - b.createdAt);
-    return { normalize: normalize.result === undefined ? true : Boolean(normalize.result), items: list };
+    return { normalize: normalize.result === undefined ? true : Boolean(normalize.result), items: items.result };
+}
+// ── TauriTavern extension data: manifest JSON + content-addressed picture blobs ──
+const hostTable = 'vibes';
+const hostLock = 'vibes';
+function pictureExtension(bytes) {
+    if ([137, 80, 78, 71].every((byte, index) => bytes[index] === byte))
+        return 'png';
+    if (bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255)
+        return 'jpg';
+    if ([82, 73, 70, 70].every((byte, index) => bytes[index] === byte) && [87, 69, 66, 80].every((byte, index) => bytes[index + 8] === byte))
+        return 'webp';
+    return null;
+}
+async function putPicture(blob, prefix) {
+    if (!blob)
+        return null;
+    const buffer = await blob.arrayBuffer();
+    const extension = pictureExtension(new Uint8Array(buffer, 0, Math.min(12, buffer.byteLength)));
+    if (!extension)
+        fail('氛围参考只支持 PNG、JPEG 或 WebP 图片。');
+    // Same picture, same key: metadata edits never duplicate blobs.
+    const key = `${prefix}-${await sha256(buffer)}.${extension}`;
+    await getHostStore().setBlob({ namespace: HOST_NAMESPACE, table: hostTable, key, data: blob });
+    return key;
+}
+async function getPicture(key, name) {
+    if (!key)
+        return null;
+    try {
+        const blob = await getHostStore().getBlob({ namespace: HOST_NAMESPACE, table: hostTable, key });
+        const type = key.endsWith('.jpg') ? 'image/jpeg' : key.endsWith('.webp') ? 'image/webp' : 'image/png';
+        return blob.slice(0, blob.size, type);
+    }
+    catch {
+        throw new Error(`氛围图“${name}”的同步图片暂不可读，请等待同步完成后重试。`);
+    }
+}
+async function toNative(item) {
+    const { image, thumbnail, ...fields } = item;
+    return { ...fields, strength: clampUnit(fields.strength), informationExtracted: clampUnit(fields.informationExtracted),
+        imageKey: await putPicture(image, 'vibe'), thumbnailKey: await putPicture(thumbnail, 'thumb') };
+}
+/** An existing native manifest (even empty) wins; otherwise this device's IndexedDB library is migrated once. */
+async function nativeManifest() {
+    const stored = await readHostJson('manifest', hostTable);
+    if (!stored.found) {
+        const old = await localState();
+        const manifest = { version: 1, normalize: old.normalize, items: [] };
+        for (const item of old.items)
+            manifest.items.push(await toNative(item));
+        await writeHostJson('manifest', manifest, hostTable);
+        return manifest;
+    }
+    const value = stored.value;
+    if (!value || value.version !== 1 || !Array.isArray(value.items))
+        fail('同步的氛围参考格式无效，未用本机记录覆盖，请检查同步状态。');
+    const keyPattern = /^(?:vibe|thumb)-[a-f0-9]{64}\.(?:png|jpg|webp)$/;
+    for (const item of value.items) {
+        if (!item || typeof item.id !== 'string' || typeof item.hash !== 'string'
+            || [item.imageKey, item.thumbnailKey].some(key => key !== null && (typeof key !== 'string' || !keyPattern.test(key)))) {
+            fail('同步的氛围参考记录无效，请检查同步状态。');
+        }
+    }
+    return { version: 1, normalize: value.normalize !== false, items: value.items };
+}
+function hostWrite(update) {
+    return withHostLock(hostLock, async () => {
+        const manifest = await nativeManifest();
+        await update(manifest);
+        // Pictures are written first; the manifest only references blobs that already exist.
+        await writeHostJson('manifest', manifest, hostTable);
+    });
+}
+export async function loadVibes() {
+    let state;
+    if (getHostStore()) {
+        state = await withHostLock(hostLock, async () => {
+            const manifest = await nativeManifest();
+            const items = [];
+            for (const { imageKey, thumbnailKey, ...fields } of manifest.items) {
+                items.push({ ...fields, image: await getPicture(imageKey, fields.name), thumbnail: await getPicture(thumbnailKey, fields.name) });
+            }
+            return { normalize: manifest.normalize, items };
+        });
+    }
+    else
+        state = await localState();
+    state.items.sort((a, b) => a.createdAt - b.createdAt);
+    return state;
 }
 export async function saveVibe(item) {
-    const db = await database();
-    const transaction = db.transaction('items', 'readwrite');
-    transaction.objectStore('items').put({ ...item, strength: clampUnit(item.strength), informationExtracted: clampUnit(item.informationExtracted) });
-    await done(transaction);
+    if (getHostStore()) {
+        await hostWrite(async (manifest) => {
+            const native = await toNative(item);
+            const index = manifest.items.findIndex(entry => entry.id === item.id);
+            if (index >= 0)
+                manifest.items[index] = native;
+            else
+                manifest.items.push(native);
+        });
+    }
+    else {
+        const db = await database();
+        const transaction = db.transaction('items', 'readwrite');
+        transaction.objectStore('items').put({ ...item, strength: clampUnit(item.strength), informationExtracted: clampUnit(item.informationExtracted) });
+        await done(transaction);
+    }
     changed();
 }
 export async function deleteVibe(id) {
-    const db = await database();
-    const transaction = db.transaction('items', 'readwrite');
-    transaction.objectStore('items').delete(id);
-    await done(transaction);
+    if (getHostStore()) {
+        // Blobs stay behind for in-flight sync readers, same as character portraits.
+        await hostWrite(manifest => { manifest.items = manifest.items.filter(entry => entry.id !== id); });
+    }
+    else {
+        const db = await database();
+        const transaction = db.transaction('items', 'readwrite');
+        transaction.objectStore('items').delete(id);
+        await done(transaction);
+    }
     changed();
 }
 export async function saveVibeNormalize(value) {
-    const db = await database();
-    const transaction = db.transaction('meta', 'readwrite');
-    transaction.objectStore('meta').put(value, 'normalize');
-    await done(transaction);
+    if (getHostStore())
+        await hostWrite(manifest => { manifest.normalize = value; });
+    else {
+        const db = await database();
+        const transaction = db.transaction('meta', 'readwrite');
+        transaction.objectStore('meta').put(value, 'normalize');
+        await done(transaction);
+    }
     changed();
 }
 // ── Adding pictures and .naiv4vibe files ──

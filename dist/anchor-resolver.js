@@ -89,14 +89,14 @@ function mapTags(source, visit, depth = 0, active = true) {
             closing.push(')]}>'[bracket]);
         else if (character === closing.at(-1))
             closing.pop();
-        else if (!closing.length && /[,，\r\n]/.test(character)) {
+        else if (!closing.length && /[,，|~\r\n]/.test(character)) {
             result += part(source.slice(start, index)) + character;
             start = index + 1;
         }
     }
     return result + part(source.slice(start));
 }
-/** Expand saved content once. Explicit @/# calls never silently fall through to NAI. */
+/** Expand saved content once. Unknown @names pass through as plain text; unknown #outfits still fail. */
 export function resolveAnchorPrompt(prompt, anchors, sharedOutfits = []) {
     return resolveAnchorPromptFields(prompt, anchors, sharedOutfits).positive;
 }
@@ -145,9 +145,8 @@ export function resolveAnchorPromptFields(prompt, anchors, sharedOutfits = []) {
         const match = prefixed ? reference(token, true) ?? (!nested ? reference(token, false) : null)
             : !nested ? reference(token, false) : null;
         if (!match) {
-            if (prefixed)
-                throw withFault(new Error(`角色调用“${token}”未匹配到已保存的角色或别名，请检查标签。`), 'reference');
-            return token;
+            // Unsaved characters (e.g. canon anime names) pass through without the @ marker instead of failing the draw.
+            return prefixed ? token.slice(1).trim() : token;
         }
         const { anchor, outfit: outfitName } = match;
         let outfit;
