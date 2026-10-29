@@ -1181,3 +1181,143 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 @media (prefers-reduced-motion: reduce) {
   #image-plugin-panel *, #image-plugin-panel *::before, #image-plugin-panel *::after, #image-plugin-panel .shell { animation: none !important; transition: none !important; }
 }
+
+/* ==========================================================================
+   快捷菜单：从画匣里抽出的一张水彩便签。
+   酒馆背景深浅不一，靠三层把它托出来：深棕外描边 + 厚投影、暖纸底、每项一块浓颜料。
+   ========================================================================== */
+#witch-launcher-menu {
+  --ink: #3a2416;
+  --muted: #8a7563;
+  --paper: #f8efdd;
+  --kai: "AR PL UKai CN", KaiTi, STKaiti, "Kaiti SC", var(--serif);
+  width: min(248px, calc(100vw - 16px));
+  padding: 18px 12px 12px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font-family: var(--serif);
+  isolation: isolate;
+  transform-origin: var(--from-x, 0) var(--from-y, 50%);
+}
+/* 纸：毛边 + 墨线描边 + 外投影，全部在伪元素上 */
+#witch-launcher-menu::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 15% 0%, #fffaf0 0%, transparent 60%),
+    radial-gradient(100% 80% at 100% 100%, #efdfc2 0%, transparent 70%),
+    var(--paper);
+  filter: url(#wp-deckle) drop-shadow(1.2px 0 0 #3a2416) drop-shadow(-1.2px 0 0 #3a2416) drop-shadow(0 1.2px 0 #3a2416) drop-shadow(0 -1.2px 0 #3a2416) drop-shadow(0 0 10px #f0b46a40) drop-shadow(0 12px 18px #120a05b3);
+}
+/* 小尾巴：指向画匣开口 */
+#witch-launcher-menu .menu-tail {
+  position: absolute; z-index: -1; width: 18px; height: 18px; pointer-events: none;
+  background: var(--paper);
+  box-shadow: -1px 1px 0 #3a2416;
+  transform: translate(-50%, -50%) rotate(45deg);
+  filter: drop-shadow(-2px 2px 3px #120a0566);
+}
+#witch-launcher-menu[data-side="right"] .menu-tail { left: 0; }
+#witch-launcher-menu[data-side="left"] .menu-tail { left: 100%; box-shadow: 1px -1px 0 #3a2416; }
+#witch-launcher-menu[data-side="top"] .menu-tail { top: 100%; box-shadow: 1px 1px 0 #3a2416; }
+#witch-launcher-menu[data-side="bottom"] .menu-tail { top: 0; box-shadow: -1px -1px 0 #3a2416; }
+
+/* 一条胶带把便签贴住：在任何酒馆背景上都是一眼能认出的记号 */
+#witch-launcher-menu::after {
+  content: ""; position: absolute; top: -9px; left: 50%; width: 78px; height: 20px; pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, #ffffff2e 0 5px, transparent 5px 11px),
+    #e6872ad9;
+  clip-path: polygon(3% 8%, 97% 0, 100% 50%, 96% 100%, 2% 92%, 0 45%);
+  transform: translateX(-50%) rotate(-4deg);
+  box-shadow: 0 2px 4px #120a0540;
+}
+#witch-launcher-menu .menu-eyebrow {
+  margin: 0 6px 8px; color: #9a6a44; font: 13px/1.2 var(--kai); letter-spacing: .24em;
+}
+#witch-launcher-menu button:not([data-cancel]) {
+  position: relative; display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 58px; margin: 2px 0; padding: 6px 10px 6px 6px;
+  border: 0; border-radius: 0; background: transparent; color: var(--ink);
+  font: inherit; text-align: left; isolation: isolate;
+  transition: transform 160ms ease;
+}
+/* 每项背后一块颜料：平时淡淡一抹，悬停时浓起来并铺满 */
+#witch-launcher-menu button:not([data-cancel])::before {
+  content: ""; position: absolute; inset: 4px 2px; z-index: -1; pointer-events: none;
+  background: var(--paint);
+  border-radius: 46% 54% 40% 60% / 60% 46% 54% 40%;
+  filter: url(#wp-bleed);
+  opacity: .16;
+  transform: scaleX(.42); transform-origin: 24px 50%;
+  transition: opacity 220ms ease, transform 320ms cubic-bezier(.16, 1, .3, 1);
+}
+#witch-launcher-menu button:not([data-cancel]):is(:hover, :focus-visible):not(:disabled)::before { opacity: .55; transform: none; }
+#witch-launcher-menu button:not([data-cancel]):is(:hover, :focus-visible):not(:disabled) { background: transparent; transform: translateX(2px) translateY(-1px); }
+#witch-launcher-menu button:not([data-cancel]):active:not(:disabled) { transform: translateY(1px) scale(.985); }
+#witch-launcher-menu button:not([data-cancel]):active:not(:disabled)::before { opacity: .75; }
+#witch-launcher-menu button:focus-visible { outline: none; }
+#witch-launcher-menu button:not([data-cancel]):focus-visible .menu-label strong { text-decoration: underline wavy #3a2416 1.5px; text-underline-offset: 5px; }
+#witch-launcher-menu [data-cancel]:focus-visible { outline: 2px solid #a3463e; outline-offset: 2px; }
+#witch-launcher-menu button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 物件图标：手绘棕墨线 + 水彩填色 */
+#witch-launcher-menu .menu-object {
+  flex: 0 0 44px; width: 44px; height: 44px; display: grid; place-items: center;
+  transition: transform 320ms cubic-bezier(.16, 1, .3, 1);
+}
+#witch-launcher-menu button:is(:hover, :focus-visible):not(:disabled) .menu-object { transform: rotate(-8deg) scale(1.08); }
+#witch-launcher-menu .menu-object svg { width: 40px; height: 40px; overflow: visible; fill: none; stroke: #3a2416; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+#witch-launcher-menu .menu-object .wash { fill: var(--paint); stroke: none; opacity: .5; filter: url(#wp-bleed); }
+#witch-launcher-menu .menu-object .ink { stroke-width: 2.6; stroke: #6e4730; }
+#witch-launcher-menu .menu-object .metal { fill: #e9d18a; }
+#witch-launcher-menu .menu-object .tip { fill: #7d4a26; }
+#witch-launcher-menu .menu-object .line { stroke: #f5ecdd; stroke-width: 1; opacity: .8; }
+#witch-launcher-menu .menu-object .paper { fill: #fffaf0; }
+#witch-launcher-menu .menu-object .hill { fill: #8c6649; stroke: none; opacity: .75; }
+#witch-launcher-menu .menu-object .sun { fill: #e6872a; stroke: none; }
+#witch-launcher-menu .menu-object .pin { fill: #c49a3e; }
+#witch-launcher-menu .menu-object .blade { fill: #d9d2c4; }
+#witch-launcher-menu .menu-object .neck { fill: #c49a3e; }
+#witch-launcher-menu .menu-object .handle { fill: #9a6a44; }
+
+#witch-launcher-menu .menu-label { display: grid; gap: 1px; min-width: 0; }
+#witch-launcher-menu .menu-label strong { font: 500 16px/1.3 var(--serif); letter-spacing: .16em; color: var(--ink); }
+#witch-launcher-menu .menu-label small { font-size: 12px; line-height: 1.4; color: var(--muted); letter-spacing: .04em; }
+
+/* 处理中：状态写在纸上；报错垫一块胭脂水渍；取消是一行下划线字 */
+#witch-launcher-menu p[role="status"] {
+  margin: 8px 6px 2px; padding: 6px 8px; color: #6e4730;
+  font: 13px/1.6 var(--kai); letter-spacing: .04em; overflow-wrap: anywhere;
+  background: radial-gradient(90% 140% at 10% 50%, #e6872a24 0, transparent 75%);
+}
+#witch-launcher-menu p[role="status"]:empty { display: none; }
+#witch-launcher-menu p.is-error { color: #a3463e; background: radial-gradient(90% 140% at 10% 50%, #a3463e2e 0, transparent 75%); }
+#witch-launcher-menu [data-cancel] {
+  display: block; width: auto; min-height: 36px; margin: 2px 6px 0 auto; padding: 4px 2px;
+  border: 0; border-radius: 0; color: #a3463e; letter-spacing: .2em; font-size: 13px;
+  background: linear-gradient(currentColor, currentColor) 0 calc(100% - 6px) / 100% 1px no-repeat;
+}
+#witch-launcher-menu [data-cancel][hidden] { display: none; }
+#witch-launcher-menu.is-busy [data-process] .menu-object { animation: wp-brush-busy 1.6s ease-in-out infinite; }
+@keyframes wp-brush-busy { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(10deg) translateY(-2px); } }
+
+/* 弹出：从画匣开口快速晕开，约 0.3s */
+#witch-launcher-menu.is-opening { animation: wp-menu-in 300ms cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes wp-menu-in {
+  0% { opacity: 0; transform: scale(.6); clip-path: circle(8% at var(--from-x, 0) var(--from-y, 50%)); }
+  100% { opacity: 1; transform: none; clip-path: circle(150% at var(--from-x, 0) var(--from-y, 50%)); }
+}
+#witch-launcher-menu.is-opening button:not([data-cancel]) { animation: wp-develop 220ms ease both; }
+#witch-launcher-menu.is-opening button:nth-of-type(2) { animation-delay: 40ms; }
+#witch-launcher-menu.is-opening button:nth-of-type(3) { animation-delay: 80ms; }
+
+@media (pointer: coarse) {
+  #witch-launcher-menu button:not([data-cancel]) { min-height: 60px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #witch-launcher-menu, #witch-launcher-menu * { animation: none !important; transition: none !important; }
+}

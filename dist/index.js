@@ -176,6 +176,7 @@ async function mount() {
         paintNavigation(); }, { signal });
     const launcherMenu = bindLauncherMenu(launcher, root, signal, from => openPanel(settings.rememberPage ? settings.lastPage : 'guide', launcher, from), {
         anchor: () => pet?.anchor() ?? launcher.getBoundingClientRect(),
+        box: () => pet?.box() ?? launcher.getBoundingClientRect(),
     });
     function openPanel(target, opener = launcher, from) {
         if (panel.open)

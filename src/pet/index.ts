@@ -22,6 +22,7 @@ interface Core {
   getPosition(): Position;
   setPlacement(placement: PetPlacement | null): void;
   anchor(): DOMRect;
+  box(): DOMRect;
   dismiss(): void;
 }
 
@@ -45,6 +46,7 @@ export function bindPet(options: PetOptions): PetHandle | null {
     getPosition: () => (core ? core.getPosition() : ball.getPosition()),
     setPlacement: next => { placement = next; core?.setPlacement(next); },
     anchor: () => (core ? core.anchor() : launcher.getBoundingClientRect()),
+    box: () => (core ? core.box() : launcher.getBoundingClientRect()),
     dismiss: () => { if (core) core.dismiss(); else launcher.hidden = true; },
   };
 }
@@ -220,6 +222,7 @@ async function start(options: PetOptions, placement: () => PetPlacement | null, 
       }
       return new DOMRect(x0, r.y, x1 - x0, r.h);
     },
+    box: () => { const r = m.boxRect(); return new DOMRect(r.x, r.y, r.w, r.h); },
     dismiss: () => { void acts!.dismiss(); },
   };
 

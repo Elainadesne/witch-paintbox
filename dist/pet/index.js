@@ -34,6 +34,7 @@ export function bindPet(options) {
         getPosition: () => (core ? core.getPosition() : ball.getPosition()),
         setPlacement: next => { placement = next; core?.setPlacement(next); },
         anchor: () => (core ? core.anchor() : launcher.getBoundingClientRect()),
+        box: () => (core ? core.box() : launcher.getBoundingClientRect()),
         dismiss: () => { if (core)
             core.dismiss();
         else
@@ -227,6 +228,7 @@ async function start(options, placement, interim) {
             }
             return new DOMRect(x0, r.y, x1 - x0, r.h);
         },
+        box: () => { const r = m.boxRect(); return new DOMRect(r.x, r.y, r.w, r.h); },
         dismiss: () => { void acts.dismiss(); },
     };
     // (moved while she rests in the paintbox: the small box goes with her spot)

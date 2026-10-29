@@ -47,6 +47,8 @@ export interface PetHandle {
   setPlacement(placement: PetPlacement | null): void;
   /** The paintbox's rect: the menu opens beside it. */
   anchor(): DOMRect;
+  /** The paintbox alone (without her): the menu is drawn out of it. */
+  box(): DOMRect;
   /** 关闭悬浮球: she climbs into the paintbox. */
   dismiss(): void;
 }
