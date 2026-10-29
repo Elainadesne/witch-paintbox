@@ -20,7 +20,12 @@ export interface Settings {
   petScale: number;
   petAway: boolean;
   petPlacement: PetPlacement | null;
+  /** 画匣色调：跟随酒馆主题、日间或夜间 */
+  paintboxTheme: PaintboxTheme;
 }
+
+export type PaintboxTheme = 'auto' | 'day' | 'night';
+export const isPaintboxTheme = (value: unknown): value is PaintboxTheme => value === 'auto' || value === 'day' || value === 'night';
 
 export interface TavernContext {
   extensionSettings: Record<string, unknown>;
@@ -29,7 +34,7 @@ export interface TavernContext {
 
 export function defaultSettings(): Settings {
   return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-    imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null };
+    imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto' };
 }
 
 export function readPetScale(value: unknown): number {
@@ -71,6 +76,7 @@ export function readSettings(context: TavernContext): Settings {
   settings.petScale = readPetScale(saved.petScale);
   if (typeof saved.petAway === 'boolean') settings.petAway = saved.petAway;
   settings.petPlacement = readPetPlacement(saved.petPlacement);
+  if (isPaintboxTheme(saved.paintboxTheme)) settings.paintboxTheme = saved.paintboxTheme;
   if (isPageId(saved.lastPage)) settings.lastPage = saved.lastPage;
   if (saved.position && Number.isFinite(saved.position.x) && Number.isFinite(saved.position.y)) {
     settings.position = { x: saved.position.x, y: saved.position.y };

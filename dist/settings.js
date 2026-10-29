@@ -1,8 +1,9 @@
 import { isPageId } from './pages.js';
 export const extensionId = 'tavern-image-plugin';
+export const isPaintboxTheme = (value) => value === 'auto' || value === 'day' || value === 'night';
 export function defaultSettings() {
     return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-        imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null };
+        imageRetentionDays: 0, autoGenerateImages: false, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto' };
 }
 export function readPetScale(value) {
     return typeof value === 'number' && Number.isFinite(value)
@@ -51,6 +52,8 @@ export function readSettings(context) {
     if (typeof saved.petAway === 'boolean')
         settings.petAway = saved.petAway;
     settings.petPlacement = readPetPlacement(saved.petPlacement);
+    if (isPaintboxTheme(saved.paintboxTheme))
+        settings.paintboxTheme = saved.paintboxTheme;
     if (isPageId(saved.lastPage))
         settings.lastPage = saved.lastPage;
     if (saved.position && Number.isFinite(saved.position.x) && Number.isFinite(saved.position.y)) {

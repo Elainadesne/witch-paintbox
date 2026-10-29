@@ -8,7 +8,8 @@ import { ConfigTransfer } from './config-transfer.js';
 import { registerBuiltinLayers } from './builtin-layers.js';
 import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName } from './pages.js';
-import { defaultSettings, extensionId, readPetScale, readSettings, saveSettings } from './settings.js';
+import { defaultSettings, extensionId, isPaintboxTheme, readPetScale, readSettings, saveSettings } from './settings.js';
+import { bindPaintboxTheme } from './paintbox-theme.js';
 import { guideDestination, navigationView, pageView } from './views.js';
 import { getHostStore, initializeHostStorage } from './host-storage.js';
 import { getSyncApiKeys, initializeSettingsStorage, setSyncApiKeys } from './host-settings.js';
@@ -70,6 +71,9 @@ async function mount() {
             const retention = content.querySelector('[name="imageRetentionDays"]');
             if (retention)
                 retention.value = String(settings.imageRetentionDays);
+            const theme = content.querySelector('[name="paintboxTheme"]');
+            if (theme)
+                theme.value = settings.paintboxTheme;
             syncPetScale();
             // applyArchive emits before this callback reloads the live preferences.
             window.dispatchEvent(new Event('witch-paintbox:preferences-changed'));
@@ -143,6 +147,7 @@ async function mount() {
     const apiSwitch = root.querySelector('.api-switch');
     const updateNotice = bindUpdateNotice(root, signal);
     const persist = () => saveSettings(context, settings);
+    const refreshTheme = bindPaintboxTheme(host, () => settings.paintboxTheme, signal);
     function syncPetScale() {
         const percent = Math.round(settings.petScale * 100);
         const input = content.querySelector('[name="petScale"]');
@@ -393,6 +398,7 @@ async function mount() {
                 settings = defaultSettings();
                 floating.reset();
                 persist();
+                refreshTheme();
                 navigate('preferences', false);
                 content.querySelector('[data-feedback]').textContent = '已恢复默认偏好。';
                 content.querySelector('[data-action="reset-preferences"]').focus();
@@ -435,6 +441,16 @@ async function mount() {
                     input.checked = getSyncApiKeys();
                     input.disabled = false;
                 });
+                return;
+            }
+            if (input instanceof HTMLSelectElement && input.name === 'paintboxTheme') {
+                if (transfer.isApplying || !isPaintboxTheme(input.value)) {
+                    input.value = settings.paintboxTheme;
+                    return;
+                }
+                settings.paintboxTheme = input.value;
+                persist();
+                refreshTheme();
                 return;
             }
             if (input instanceof HTMLSelectElement && input.name === 'imageRetentionDays') {

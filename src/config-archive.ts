@@ -3,7 +3,7 @@ import { defaultModelSettings, loadModelSettings, saveModelSettings, validateMod
 import { loadAnchors, replaceAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT, type CharacterAnchor } from './anchor-store.js';
 import { loadSharedOutfits, replaceSharedOutfits, validateSharedOutfits, type SharedOutfit } from './shared-outfit-store.js';
 import { loadWorldbookArchive, replaceWorldbookArchive, validateWorldbookArchive, type StoredWorldbook } from './worldbook-source.js';
-import { defaultSettings, readPetPlacement, readPetScale, readSettings, saveSettings, type Settings, type TavernContext } from './settings.js';
+import { defaultSettings, readPetPlacement, readPetScale, readSettings, saveSettings, type Settings, type TavernContext, isPaintboxTheme } from './settings.js';
 import { isPageId } from './pages.js';
 
 export const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
@@ -74,6 +74,10 @@ function preferences(value: unknown): Settings {
     if (value === undefined) continue;
     if (typeof value !== 'boolean') throw new Error('使用偏好格式无效。');
     optional[name] = value;
+  }
+  if (source.paintboxTheme !== undefined) {
+    if (!isPaintboxTheme(source.paintboxTheme)) throw new Error('画匣色调格式无效。');
+    optional.paintboxTheme = source.paintboxTheme;
   }
   if (source.petPlacement !== undefined) optional.petPlacement = readPetPlacement(source.petPlacement);
   if (source.petScale !== undefined) {

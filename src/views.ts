@@ -169,6 +169,10 @@ function preferencesView(settings: Settings): string {
       <label class="preference-row"><span><strong>缇娅的动作</strong><span>关闭后仅保留呼吸和眨眼，取消走动、摆动及图片飞入楼层的动画。系统开启“减少动态效果”时同样生效。</span></span><input type="checkbox" name="petMotion" ${settings.petMotion ? 'checked' : ''}></label>
     </section>
     <label class="preference-row">
+      <span><strong>画匣色调</strong><span>夜间换成胡桃木色的纸。跟随酒馆时，按酒馆主题的明暗自动切换。</span></span>
+      <select name="paintboxTheme" aria-label="画匣色调">${[['auto', '跟随酒馆'], ['day', '日间'], ['night', '夜间']].map(([value, label]) => `<option value="${value}"${settings.paintboxTheme === value ? ' selected' : ''}>${label}</option>`).join('')}</select>
+    </label>
+    <label class="preference-row">
       <span><strong>回到上次页面</strong><span>再次打开时继续上次的位置；关闭后每次进入“开始使用”。</span></span>
       <input type="checkbox" name="rememberPage" ${settings.rememberPage ? 'checked' : ''}>
     </label>
