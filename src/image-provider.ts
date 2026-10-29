@@ -5,13 +5,14 @@ import { generateImage, type ImageParameters } from './novelai.js';
 import { generateOpenAIImage, type OpenAIImageParameters } from './openai-image.js';
 import type { ImageGenerationProgress } from './image-queue.js';
 import { withFault } from './pet-events.js';
-import { loadModelSettings } from './model-settings.js';
+import { isImageSizeModeSaving, loadModelSettings } from './model-settings.js';
 import { imageSizeMode } from './image-size-mode.js';
 import { imageSizeDimensions } from './image-size.js';
 import type { ImageMarker } from './image-markers.js';
 
 /** Resolve one marker before queuing; never overwrite the user's fallback dimensions. */
 export function imageSettingsForMarker(settings: ImageSettings, marker: Pick<ImageMarker, 'size'>): ImageSettings {
+  if (isImageSizeModeSaving()) throw withFault(new Error('画幅模式正在同步，请完成后再生成图片。'), 'setup');
   if (!marker.size || imageSizeMode(loadModelSettings(settings.provider)) !== 'ai') return settings;
   const dimensions = imageSizeDimensions(marker.size);
   return settings.provider === 'openai'

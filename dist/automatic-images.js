@@ -1,6 +1,7 @@
 import { imageChatContext, isChatReadyForImages } from './chat-host.js';
 import { currentPreferences } from './settings.js';
 import { emitPetEvent } from './pet-events.js';
+import { isImageSizeModeSaving } from './model-settings.js';
 /** Observe new source markers, never synthetic button clicks or historical DOM remounts. */
 export function automaticImages(handlers) {
     const seen = new Set();
@@ -50,6 +51,8 @@ export function automaticImages(handlers) {
                 return;
             if (controller.signal.aborted || waiting.get(pending.entry.key) !== pending || pending.readyAt > Date.now())
                 return;
+            if (isImageSizeModeSaving())
+                return; // Keep this unpaid job queued until both controls finish synchronizing.
             waiting.delete(pending.entry.key);
             notifyPet();
             await handlers.generate(pending, controller.signal);

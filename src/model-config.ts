@@ -1,6 +1,6 @@
 import { fetchModelList } from './model-api.js';
 import { featureLayerMessages, listFeatureLayers, onFeatureLayersChanged } from './feature-layers.js';
-import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, isImageSizeModeSaving, loadModelSettings, saveModelSettings, modelPresetSettings, modelSharedSettings, type ModelPresetSettings, type ModelSettings, type PromptEntry } from './model-settings.js';
+import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, isImageSizeModeSaving, loadModelSettings, saveImageSizeMode, saveModelSettings, modelPresetSettings, modelSharedSettings, type ModelPresetSettings, type ModelSettings, type PromptEntry } from './model-settings.js';
 import { modelSettingsView, presetIndexView, presetWorkspaceView, worldbookSettingsView, PRESET_PAGE_SIZE, type ModelViewState } from './model-view.js';
 import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './preset-import.js';
 import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook } from './worldbook-source.js';
@@ -10,7 +10,7 @@ import { getContextFilterStatus, onContextFilterStatusChanged } from './context-
 import { assertChatSnapshot, captureLatestAssistant } from './chat-host.js';
 import { getHostStore } from './host-storage.js';
 import { loadImageSettings, type ImageProvider } from './image-settings.js';
-import { applyImageSizeMode, imageSizeEntryMode, normalizeSizeProtocolEntries, type ImageSizeMode } from './image-size-mode.js';
+import { applyImageSizeMode, imageSizeEntryMode, imageSizeSelection, normalizeSizeProtocolEntries, type ImageSizeMode, type ImageSizeSelection } from './image-size-mode.js';
 
 function escape(value: string): string {
   return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
@@ -21,6 +21,7 @@ export class ModelConfig {
   private loadError = '';
   private saved = '';
   private saving = false;
+  private sizeModeErrors = new Map<ImageProvider, string>();
   private presetDrafts = new Map<ImageProvider, { preset: ModelPresetSettings; selectedKey: string; page: number; notice: string; error: boolean }>();
   private container: HTMLElement | null = null;
   private page: 'model' | 'features' | 'worldbook' = 'model';
@@ -49,8 +50,8 @@ export class ModelConfig {
     const providerChanged = () => this.switchPresetProvider();
     const sizeModeSaving = () => this.syncSave();
     const sizeModeChanged = (event: Event) => {
-      const detail = (event as CustomEvent<{ provider: ImageProvider; mode: ImageSizeMode }>).detail;
-      if (!detail || !['novelai', 'openai'].includes(detail.provider) || !['fixed', 'ai'].includes(detail.mode)) return;
+      const detail = (event as CustomEvent<{ provider: ImageProvider; mode: ImageSizeSelection }>).detail;
+      if (!detail || !['novelai', 'openai'].includes(detail.provider) || (detail.mode !== null && !['fixed', 'ai'].includes(detail.mode))) return;
       this.applySavedSizeMode(detail.provider, detail.mode);
     };
     window.addEventListener('witch-paintbox:image-provider-changed', providerChanged);
@@ -73,6 +74,8 @@ export class ModelConfig {
   }
 
   reloadSaved(scope: 'all' | 'presets' | 'worldbooks' = 'all', provider: ImageProvider = loadImageSettings().provider): void {
+    if (scope === 'all') this.sizeModeErrors.clear();
+    else if (scope === 'presets') this.sizeModeErrors.delete(provider);
     if (scope === 'all') this.presetDrafts.clear();
     else {
       const draft = this.presetDrafts.get(provider);
@@ -181,7 +184,8 @@ export class ModelConfig {
   destroy(): void { this.unmount(); this.unsubscribe.forEach(stop => stop()); }
   private isSaved(): boolean { return this.saved === JSON.stringify(this.settings); }
 
-  private applySavedSizeMode(provider: ImageProvider, mode: ImageSizeMode): void {
+  private applySavedSizeMode(provider: ImageProvider, mode: ImageSizeSelection): void {
+    this.sizeModeErrors.delete(provider);
     const draft = this.presetDrafts.get(provider);
     if (draft) draft.preset = applyImageSizeMode(draft.preset, mode);
     if (this.settings?.presetProvider !== provider) return;
@@ -194,14 +198,42 @@ export class ModelConfig {
 
   private syncProtocolCheckboxes(): void {
     if (!this.settings) return;
-    const entries = new Map([...this.settings.head, ...this.settings.tail]
-      .filter(entry => imageSizeEntryMode(entry)).map(entry => [`prompt:${entry.id}`, entry]));
+    const entries = new Map([...this.settings.head, ...this.settings.tail].map(entry => [`prompt:${entry.id}`, entry]));
     for (const checkbox of Array.from(this.container?.querySelectorAll<HTMLInputElement>('[data-preset-enabled]') ?? [])) {
       const entry = entries.get(checkbox.dataset.presetEnabled!);
       if (!entry) continue;
+      const protocol = imageSizeEntryMode(entry);
       checkbox.checked = entry.enabled;
+      checkbox.disabled = !!entry.marker || (!!protocol && this.savingSettings);
       const label = checkbox.closest('label');
-      if (label) label.title = `${entry.enabled ? '关闭' : '启用'}${entry.name}`;
+      if (label) label.title = `${entry.enabled ? '关闭' : '启用'}${entry.name}${protocol ? '；立即同步画幅模式并保存' : ''}`;
+    }
+  }
+
+  private async changeSizeProtocol(mode: ImageSizeMode, enabled: boolean): Promise<void> {
+    if (!this.settings || this.savingSettings) { this.syncProtocolCheckboxes(); return; }
+    const previous = this.settings;
+    const provider = previous.presetProvider;
+    const flags = new Map([...previous.head, ...previous.tail]
+      .filter(entry => imageSizeEntryMode(entry)).map(entry => [entry.id, entry.enabled]));
+    const disable = (entries: PromptEntry[]) => entries.map(entry => imageSizeEntryMode(entry) === mode ? { ...entry, enabled: false } : entry);
+    const selection = enabled ? mode : imageSizeSelection({ head: disable(previous.head), tail: disable(previous.tail) });
+    this.settings = applyImageSizeMode(previous, selection);
+    this.sizeModeErrors.delete(provider);
+    this.draftRevision++; this.syncSave();
+    try {
+      // Only protocol flags are committed. New/edited protocol text still needs an explicit save.
+      await saveImageSizeMode(provider, selection, { head: previous.head, tail: previous.tail });
+    } catch (error) {
+      const restore = <T extends Pick<ModelSettings, 'head' | 'tail'>>(draft: T): T => {
+        const update = (entries: PromptEntry[]) => entries.map(entry => flags.has(entry.id) ? { ...entry, enabled: flags.get(entry.id)! } : entry);
+        return { ...draft, head: update(draft.head), tail: update(draft.tail) };
+      };
+      const draft = this.presetDrafts.get(provider);
+      if (draft) draft.preset = restore(draft.preset);
+      if (this.settings?.presetProvider === provider) { this.settings = restore(this.settings); this.draftRevision++; }
+      this.sizeModeErrors.set(provider, error instanceof Error ? error.message : '画幅模式未能保存，已恢复之前的选择。');
+      this.syncSave();
     }
   }
 
@@ -228,7 +260,7 @@ export class ModelConfig {
   private render(): void {
     if (!this.container) return;
     if (!this.settings || this.loadError) { this.container.innerHTML = `<p role="alert">${escape(this.loadError)}</p>`; return; }
-    if (this.page === 'model') { this.container.innerHTML = modelSettingsView(this.settings, this.state()); return; }
+    if (this.page === 'model') { this.container.innerHTML = modelSettingsView(this.settings, this.state()); this.syncSave(); return; }
     if (this.page === 'worldbook') {
       this.container.innerHTML = `<div class="image-settings model-settings worldbook-library">
         <section class="config-section">
@@ -324,12 +356,14 @@ export class ModelConfig {
   }
 
   private syncSave(): void {
+    this.syncProtocolCheckboxes();
     const saved = this.isSaved();
     const line = this.container?.querySelector<HTMLElement>('.model-save-line');
     if (line) line.dataset.saved = String(saved);
     const button = this.container?.querySelector<HTMLButtonElement>('[data-model-action="save-model"]');
     if (button) button.disabled = saved || this.savingSettings;
-    this.message(isImageSizeModeSaving() ? '正在保存画幅模式…' : this.saving ? '正在保存…' : saved ? '已保存。' : '当前更改尚未保存。');
+    const error = this.settings ? this.sizeModeErrors.get(this.settings.presetProvider) : '';
+    this.message(isImageSizeModeSaving() ? '正在保存画幅模式…' : this.saving ? '正在保存…' : error || (saved ? '已保存。' : '当前更改尚未保存。'), !this.savingSettings && Boolean(error));
   }
 
   private syncFilterStatus(): void {
@@ -390,10 +424,9 @@ export class ModelConfig {
       } else {
         const entry = [...settings.head, ...settings.tail].find(item => `prompt:${item.id}` === key);
         if (!entry || entry.marker) return;
-        entry.enabled = input.checked;
         const sizeMode = imageSizeEntryMode(entry);
-        if (sizeMode && input.checked) this.settings = applyImageSizeMode(settings, sizeMode);
-        this.syncProtocolCheckboxes();
+        if (sizeMode) { void this.changeSizeProtocol(sizeMode, input.checked); return; }
+        entry.enabled = input.checked;
       }
     } else return;
     this.draftRevision++; this.syncSave();
@@ -430,6 +463,7 @@ export class ModelConfig {
         this.saving = true; this.syncSave();
         try {
           await saveModelSettings(snapshot);
+          this.sizeModeErrors.delete(snapshot.presetProvider);
           if (this.settings?.presetProvider === snapshot.presetProvider) this.saved = JSON.stringify(snapshot);
           else if (this.saved) this.saved = JSON.stringify({ ...JSON.parse(this.saved), ...modelSharedSettings(snapshot) });
           this.maskKey();
@@ -658,6 +692,7 @@ export class ModelConfig {
   private async importPresetFile(input: HTMLInputElement): Promise<void> {
     const file = input.files?.[0]; input.value = '';
     if (!file || !this.settings) return;
+    if (this.savingSettings) { this.presetMessage('配置正在保存，请完成后再导入预设。'); return; }
     const request = ++this.importRequest, revision = this.draftRevision, settings = this.settings, signal = this.listeners?.signal;
     this.presetMessage('正在读取预设…');
     try {

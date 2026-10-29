@@ -21,10 +21,22 @@ export function imageSizeEntryMode(entry) {
         return 'ai';
     return null;
 }
-export function imageSizeMode(settings) {
+export function imageSizeSelection(settings) {
     const enabled = [...settings.head, ...settings.tail].filter(entry => entry.enabled);
-    return enabled.some(entry => imageSizeEntryMode(entry) === 'ai')
-        && !enabled.some(entry => imageSizeEntryMode(entry) === 'fixed') ? 'ai' : 'fixed';
+    if (enabled.some(entry => imageSizeEntryMode(entry) === 'fixed'))
+        return 'fixed';
+    return enabled.some(entry => imageSizeEntryMode(entry) === 'ai') ? 'ai' : null;
+}
+export function imageSizeMode(settings) {
+    return imageSizeSelection(settings) ?? 'fixed';
+}
+/** Enablement can change independently; unsaved protocol definitions cannot. */
+export function sameSizeProtocolEntries(left, right) {
+    const definitions = (settings) => [...settings.head, ...settings.tail]
+        .filter(entry => imageSizeEntryMode(entry))
+        .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+        .map(({ id, name, role, content, marker }) => ({ id, name, role, content, marker: !!marker }));
+    return JSON.stringify(definitions(left)) === JSON.stringify(definitions(right));
 }
 /** Change only the two named protocol groups; other draft fields remain untouched. */
 export function applyImageSizeMode(settings, mode) {

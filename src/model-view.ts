@@ -2,6 +2,7 @@ import type { ModelSettings, PromptEntry } from './model-settings.js';
 import { listFeatureLayers } from './feature-layers.js';
 import type { WorldbookSourceEntry } from './worldbook-source.js';
 import { getHostStore } from './host-storage.js';
+import { imageSizeEntryMode } from './image-size-mode.js';
 
 export const PRESET_PAGE_SIZE = 100;
 
@@ -129,12 +130,13 @@ export function presetIndexView(settings: ModelSettings, state: ModelViewState):
     <ol class="preset-entry-list" data-preset-list aria-label="预设发送顺序" start="${start + 1}">${settings.promptOrder.slice(start, start + PRESET_PAGE_SIZE).map((key, offset) => {
       const index = start + offset;
       const entry = entries.get(key);
+      const sizeProtocol = entry && imageSizeEntryMode(entry);
       const enabled = entry ? entry.enabled : key === 'input' || settings.enabledLayers.includes(key.slice(6));
       const title = entry ? entry.name || '未命名条目' : key === 'input' ? '最新正文' : layers.get(key) ?? '功能层暂不可用';
       return `<li class="preset-row${selected === key ? ' is-selected' : ''}" data-preset-key="${escape(key)}">
         <button type="button" class="preset-select" data-model-action="select-preset" data-preset-key="${escape(key)}" aria-pressed="${selected === key}" title="${escape(title)}"><span class="preset-number">${String(index + 1).padStart(2, '0')}</span><span class="preset-entry-name"><span data-preset-title="${escape(key)}">${escape(title)}</span>${entry ? '' : `<small>${key === 'input' ? '自动读取' : '功能层'}</small>`}</span></button>
         <div class="preset-row-actions">
-          <label title="${enabled ? '关闭' : '启用'}${escape(title)}"><input type="checkbox" data-preset-enabled="${escape(key)}" aria-label="启用${escape(title)}"${enabled ? ' checked' : ''}${entry?.marker || key === 'input' ? ' disabled' : ''}></label>
+          <label title="${enabled ? '关闭' : '启用'}${escape(title)}${sizeProtocol ? '；立即同步画幅模式并保存' : ''}"><input type="checkbox" data-preset-enabled="${escape(key)}" aria-label="启用${escape(title)}"${enabled ? ' checked' : ''}${entry?.marker || key === 'input' || (sizeProtocol && state.saving) ? ' disabled' : ''}></label>
           <button type="button" data-model-action="move-up" data-preset-key="${escape(key)}" aria-label="上移${escape(title)}"${index === 0 ? ' disabled' : ''}>↑</button>
           <button type="button" data-model-action="move-down" data-preset-key="${escape(key)}" aria-label="下移${escape(title)}"${index === settings.promptOrder.length - 1 ? ' disabled' : ''}>↓</button>
           ${entry ? `<button type="button" data-model-action="remove-entry" data-preset-key="${escape(key)}" aria-label="删除${escape(title)}">×</button>` : '<span class="preset-action-spacer" aria-hidden="true"></span>'}

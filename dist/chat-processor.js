@@ -2,11 +2,13 @@ import { assertChatSnapshot, captureLatestAssistant, replaceAssistantMessage } f
 import { applyImageInsertions, createImageInsertionPlan, createSelectedImageInsertionPlan, selectImageInsertionPoints } from './image-insertion.js';
 import { normalizeIllustrationItems } from './illustration-selection.js';
 import { MAX_IMAGE_MARKERS, parseImageMarkers } from './image-markers.js';
-import { loadModelSettings } from './model-settings.js';
+import { isImageSizeModeSaving, loadModelSettings } from './model-settings.js';
 import { runConfiguredModel } from './model-service.js';
 import { emitPetEvent, petFault, petTaskId, withFault } from './pet-events.js';
 import { imageSizeMode } from './image-size-mode.js';
 function processingSettings() {
+    if (isImageSizeModeSaving())
+        throw withFault(new Error('画幅模式正在同步，请完成后再开始 AI 生图。'), 'setup');
     const settings = loadModelSettings();
     if (!settings.parseImageMarkers)
         throw withFault(new Error('请先在模型 API 预设区开启“解析配图标记”。'), 'setup');

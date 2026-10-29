@@ -7,7 +7,7 @@ import { imageFileExtension } from './raster-image.js';
 import { imageChatContext } from './chat-host.js';
 import { saveImageHistory, onImageHistoryChanged, type ImageHistoryEntry } from './image-history.js';
 import { emitPetEvent, petEnd, petFault, petTaskId } from './pet-events.js';
-import { loadModelSettings, saveImageSizeMode } from './model-settings.js';
+import { isImageSizeModeSaving, loadModelSettings, saveImageSizeMode } from './model-settings.js';
 import { imageSizeMode } from './image-size-mode.js';
 
 function newId(): string {
@@ -92,6 +92,7 @@ export class ImageConfig {
     container.addEventListener('change', event => { void this.select(event); }, { signal });
     container.addEventListener('click', event => { void this.click(event); }, { signal });
     window.addEventListener('witch-paintbox:model-settings-changed', () => this.syncImageSizeMode(), { signal });
+    window.addEventListener('witch-paintbox:image-size-mode-saving', () => this.syncImageSizeMode(), { signal });
     this.render();
   }
 
@@ -298,11 +299,11 @@ export class ImageConfig {
     catch (failure) { error = (failure as Error).message; }
     for (const button of Array.from(this.container.querySelectorAll<HTMLButtonElement>('[data-size-mode]'))) {
       button.setAttribute('aria-pressed', String(button.dataset.sizeMode === mode));
-      button.disabled = this.writing || Boolean(error);
+      button.disabled = this.writing || isImageSizeModeSaving() || Boolean(error);
     }
     const label = this.container.querySelector<HTMLElement>('[data-size-selection-label]');
     if (label) label.textContent = mode === 'ai' ? '兜底尺寸' : '预设尺寸';
-    this.message('size-mode', error || (mode === 'ai'
+    this.message('size-mode', error || (isImageSizeModeSaving() ? '正在同步画幅模式…' : mode === 'ai'
       ? '按每张配图返回的 size 选择画幅；缺少或不支持的尺寸使用下方兜底尺寸。'
       : '所有配图使用下方画幅。切换模式会互斥启用当前模型 API 预设中的同名格式条目。'), Boolean(error));
   }
@@ -387,6 +388,7 @@ export class ImageConfig {
         }
         case 'refresh-models': void this.refreshModels(); break;
         case 'select-size-mode': {
+          if (isImageSizeModeSaving()) return;
           const mode = target.closest<HTMLButtonElement>('button')?.dataset.sizeMode;
           if (mode === 'fixed' || mode === 'ai') {
             await this.write(() => saveImageSizeMode(this.settings!.provider, mode));

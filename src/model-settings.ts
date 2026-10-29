@@ -1,7 +1,7 @@
 import { createSettingsStorage } from './host-settings.js';
 import { loadImageSettings, type ImageProvider } from './image-settings.js';
 import type { ModelApiSettings, ModelMessage } from './model-types.js';
-import { normalizeSizeProtocolEntries, selectImageSizeMode, type ImageSizeMode } from './image-size-mode.js';
+import { applyImageSizeMode, normalizeSizeProtocolEntries, sameSizeProtocolEntries, selectImageSizeMode, type ImageSizeSelection } from './image-size-mode.js';
 
 export const MAX_PRESET_ENTRIES = 10_000;
 
@@ -221,14 +221,21 @@ let pendingImageSizeModeSaves = 0;
 export function isImageSizeModeSaving(): boolean { return pendingImageSizeModeSaves > 0; }
 
 /** Persist only protocol enablement, so changing image size mode never saves unrelated drafts. */
-export async function saveImageSizeMode(provider: ImageProvider, mode: ImageSizeMode): Promise<void> {
+export async function saveImageSizeMode(provider: ImageProvider, mode: ImageSizeSelection, expected?: Pick<ModelSettings, 'head' | 'tail'>): Promise<void> {
+  const snapshot = expected ? structuredClone(expected) : undefined;
   pendingImageSizeModeSaves++;
   window.dispatchEvent(new Event('witch-paintbox:image-size-mode-saving'));
   try {
-    await settingsStorage.update(current => ({
-      ...current,
-      presets: { ...current.presets, [provider]: selectImageSizeMode(current.presets[provider], mode) },
-    }));
+    await settingsStorage.update(current => {
+      const preset = current.presets[provider];
+      if (snapshot && !sameSizeProtocolEntries(preset, snapshot)) {
+        throw new Error('画幅协议有未保存或已变更的内容，请先保存预设配置。');
+      }
+      return {
+        ...current,
+        presets: { ...current.presets, [provider]: mode === null ? applyImageSizeMode(preset, null) : selectImageSizeMode(preset, mode) },
+      };
+    });
     window.dispatchEvent(new CustomEvent('witch-paintbox:image-size-mode-changed', { detail: { provider, mode } }));
   } finally {
     pendingImageSizeModeSaves--;

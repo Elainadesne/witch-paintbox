@@ -1,6 +1,7 @@
 import type { ModelSettings, PromptEntry } from './model-settings.js';
 
 export type ImageSizeMode = 'fixed' | 'ai';
+export type ImageSizeSelection = ImageSizeMode | null;
 type SizeProtocolSettings = Pick<ModelSettings, 'head' | 'tail'>;
 
 export const SIZE_PROTOCOL_NAMES: Record<ImageSizeMode, string> = {
@@ -24,14 +25,27 @@ export function imageSizeEntryMode(entry: Pick<PromptEntry, 'name' | 'marker'> &
   return null;
 }
 
-export function imageSizeMode(settings: SizeProtocolSettings): ImageSizeMode {
+export function imageSizeSelection(settings: SizeProtocolSettings): ImageSizeSelection {
   const enabled = [...settings.head, ...settings.tail].filter(entry => entry.enabled);
-  return enabled.some(entry => imageSizeEntryMode(entry) === 'ai')
-    && !enabled.some(entry => imageSizeEntryMode(entry) === 'fixed') ? 'ai' : 'fixed';
+  if (enabled.some(entry => imageSizeEntryMode(entry) === 'fixed')) return 'fixed';
+  return enabled.some(entry => imageSizeEntryMode(entry) === 'ai') ? 'ai' : null;
+}
+
+export function imageSizeMode(settings: SizeProtocolSettings): ImageSizeMode {
+  return imageSizeSelection(settings) ?? 'fixed';
+}
+
+/** Enablement can change independently; unsaved protocol definitions cannot. */
+export function sameSizeProtocolEntries(left: SizeProtocolSettings, right: SizeProtocolSettings): boolean {
+  const definitions = (settings: SizeProtocolSettings) => [...settings.head, ...settings.tail]
+    .filter(entry => imageSizeEntryMode(entry))
+    .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    .map(({ id, name, role, content, marker }) => ({ id, name, role, content, marker: !!marker }));
+  return JSON.stringify(definitions(left)) === JSON.stringify(definitions(right));
 }
 
 /** Change only the two named protocol groups; other draft fields remain untouched. */
-export function applyImageSizeMode<T extends SizeProtocolSettings>(settings: T, mode: ImageSizeMode): T {
+export function applyImageSizeMode<T extends SizeProtocolSettings>(settings: T, mode: ImageSizeSelection): T {
   const update = (entries: PromptEntry[]) => entries.map(entry => {
     const entryMode = imageSizeEntryMode(entry);
     return entryMode ? { ...entry, enabled: entryMode === mode } : entry;

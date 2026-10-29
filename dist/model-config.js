@@ -1,6 +1,6 @@
 import { fetchModelList } from './model-api.js';
 import { featureLayerMessages, listFeatureLayers, onFeatureLayersChanged } from './feature-layers.js';
-import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, isImageSizeModeSaving, loadModelSettings, saveModelSettings, modelPresetSettings, modelSharedSettings } from './model-settings.js';
+import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, isImageSizeModeSaving, loadModelSettings, saveImageSizeMode, saveModelSettings, modelPresetSettings, modelSharedSettings } from './model-settings.js';
 import { modelSettingsView, presetIndexView, presetWorkspaceView, worldbookSettingsView, PRESET_PAGE_SIZE } from './model-view.js';
 import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './preset-import.js';
 import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook } from './worldbook-source.js';
@@ -10,7 +10,7 @@ import { getContextFilterStatus, onContextFilterStatusChanged } from './context-
 import { assertChatSnapshot, captureLatestAssistant } from './chat-host.js';
 import { getHostStore } from './host-storage.js';
 import { loadImageSettings } from './image-settings.js';
-import { applyImageSizeMode, imageSizeEntryMode, normalizeSizeProtocolEntries } from './image-size-mode.js';
+import { applyImageSizeMode, imageSizeEntryMode, imageSizeSelection, normalizeSizeProtocolEntries } from './image-size-mode.js';
 function escape(value) {
     return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 }
@@ -19,6 +19,7 @@ export class ModelConfig {
     loadError = '';
     saved = '';
     saving = false;
+    sizeModeErrors = new Map();
     presetDrafts = new Map();
     container = null;
     page = 'model';
@@ -46,7 +47,7 @@ export class ModelConfig {
         const sizeModeSaving = () => this.syncSave();
         const sizeModeChanged = (event) => {
             const detail = event.detail;
-            if (!detail || !['novelai', 'openai'].includes(detail.provider) || !['fixed', 'ai'].includes(detail.mode))
+            if (!detail || !['novelai', 'openai'].includes(detail.provider) || (detail.mode !== null && !['fixed', 'ai'].includes(detail.mode)))
                 return;
             this.applySavedSizeMode(detail.provider, detail.mode);
         };
@@ -73,6 +74,10 @@ export class ModelConfig {
         ];
     }
     reloadSaved(scope = 'all', provider = loadImageSettings().provider) {
+        if (scope === 'all')
+            this.sizeModeErrors.clear();
+        else if (scope === 'presets')
+            this.sizeModeErrors.delete(provider);
         if (scope === 'all')
             this.presetDrafts.clear();
         else {
@@ -217,6 +222,7 @@ export class ModelConfig {
     destroy() { this.unmount(); this.unsubscribe.forEach(stop => stop()); }
     isSaved() { return this.saved === JSON.stringify(this.settings); }
     applySavedSizeMode(provider, mode) {
+        this.sizeModeErrors.delete(provider);
         const draft = this.presetDrafts.get(provider);
         if (draft)
             draft.preset = applyImageSizeMode(draft.preset, mode);
@@ -232,16 +238,52 @@ export class ModelConfig {
     syncProtocolCheckboxes() {
         if (!this.settings)
             return;
-        const entries = new Map([...this.settings.head, ...this.settings.tail]
-            .filter(entry => imageSizeEntryMode(entry)).map(entry => [`prompt:${entry.id}`, entry]));
+        const entries = new Map([...this.settings.head, ...this.settings.tail].map(entry => [`prompt:${entry.id}`, entry]));
         for (const checkbox of Array.from(this.container?.querySelectorAll('[data-preset-enabled]') ?? [])) {
             const entry = entries.get(checkbox.dataset.presetEnabled);
             if (!entry)
                 continue;
+            const protocol = imageSizeEntryMode(entry);
             checkbox.checked = entry.enabled;
+            checkbox.disabled = !!entry.marker || (!!protocol && this.savingSettings);
             const label = checkbox.closest('label');
             if (label)
-                label.title = `${entry.enabled ? '关闭' : '启用'}${entry.name}`;
+                label.title = `${entry.enabled ? '关闭' : '启用'}${entry.name}${protocol ? '；立即同步画幅模式并保存' : ''}`;
+        }
+    }
+    async changeSizeProtocol(mode, enabled) {
+        if (!this.settings || this.savingSettings) {
+            this.syncProtocolCheckboxes();
+            return;
+        }
+        const previous = this.settings;
+        const provider = previous.presetProvider;
+        const flags = new Map([...previous.head, ...previous.tail]
+            .filter(entry => imageSizeEntryMode(entry)).map(entry => [entry.id, entry.enabled]));
+        const disable = (entries) => entries.map(entry => imageSizeEntryMode(entry) === mode ? { ...entry, enabled: false } : entry);
+        const selection = enabled ? mode : imageSizeSelection({ head: disable(previous.head), tail: disable(previous.tail) });
+        this.settings = applyImageSizeMode(previous, selection);
+        this.sizeModeErrors.delete(provider);
+        this.draftRevision++;
+        this.syncSave();
+        try {
+            // Only protocol flags are committed. New/edited protocol text still needs an explicit save.
+            await saveImageSizeMode(provider, selection, { head: previous.head, tail: previous.tail });
+        }
+        catch (error) {
+            const restore = (draft) => {
+                const update = (entries) => entries.map(entry => flags.has(entry.id) ? { ...entry, enabled: flags.get(entry.id) } : entry);
+                return { ...draft, head: update(draft.head), tail: update(draft.tail) };
+            };
+            const draft = this.presetDrafts.get(provider);
+            if (draft)
+                draft.preset = restore(draft.preset);
+            if (this.settings?.presetProvider === provider) {
+                this.settings = restore(this.settings);
+                this.draftRevision++;
+            }
+            this.sizeModeErrors.set(provider, error instanceof Error ? error.message : '画幅模式未能保存，已恢复之前的选择。');
+            this.syncSave();
         }
     }
     ensureLayerSlots() {
@@ -273,6 +315,7 @@ export class ModelConfig {
         }
         if (this.page === 'model') {
             this.container.innerHTML = modelSettingsView(this.settings, this.state());
+            this.syncSave();
             return;
         }
         if (this.page === 'worldbook') {
@@ -380,6 +423,7 @@ export class ModelConfig {
         }
     }
     syncSave() {
+        this.syncProtocolCheckboxes();
         const saved = this.isSaved();
         const line = this.container?.querySelector('.model-save-line');
         if (line)
@@ -387,7 +431,8 @@ export class ModelConfig {
         const button = this.container?.querySelector('[data-model-action="save-model"]');
         if (button)
             button.disabled = saved || this.savingSettings;
-        this.message(isImageSizeModeSaving() ? '正在保存画幅模式…' : this.saving ? '正在保存…' : saved ? '已保存。' : '当前更改尚未保存。');
+        const error = this.settings ? this.sizeModeErrors.get(this.settings.presetProvider) : '';
+        this.message(isImageSizeModeSaving() ? '正在保存画幅模式…' : this.saving ? '正在保存…' : error || (saved ? '已保存。' : '当前更改尚未保存。'), !this.savingSettings && Boolean(error));
     }
     syncFilterStatus() {
         const node = this.container?.querySelector('[data-context-filter-status]');
@@ -481,11 +526,12 @@ export class ModelConfig {
                 const entry = [...settings.head, ...settings.tail].find(item => `prompt:${item.id}` === key);
                 if (!entry || entry.marker)
                     return;
-                entry.enabled = input.checked;
                 const sizeMode = imageSizeEntryMode(entry);
-                if (sizeMode && input.checked)
-                    this.settings = applyImageSizeMode(settings, sizeMode);
-                this.syncProtocolCheckboxes();
+                if (sizeMode) {
+                    void this.changeSizeProtocol(sizeMode, input.checked);
+                    return;
+                }
+                entry.enabled = input.checked;
             }
         }
         else
@@ -542,6 +588,7 @@ export class ModelConfig {
                 this.syncSave();
                 try {
                     await saveModelSettings(snapshot);
+                    this.sizeModeErrors.delete(snapshot.presetProvider);
                     if (this.settings?.presetProvider === snapshot.presetProvider)
                         this.saved = JSON.stringify(snapshot);
                     else if (this.saved)
@@ -871,6 +918,10 @@ export class ModelConfig {
         input.value = '';
         if (!file || !this.settings)
             return;
+        if (this.savingSettings) {
+            this.presetMessage('配置正在保存，请完成后再导入预设。');
+            return;
+        }
         const request = ++this.importRequest, revision = this.draftRevision, settings = this.settings, signal = this.listeners?.signal;
         this.presetMessage('正在读取预设…');
         try {
