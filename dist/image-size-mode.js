@@ -2,12 +2,22 @@ export const SIZE_PROTOCOL_NAMES = {
     fixed: '📐 格式｜默认画幅·三字段输出协议',
     ai: '📐 格式｜AI动态画幅·四字段输出协议',
 };
+function protocolName(name) {
+    // The icon and typography are presentation; still match the entire protocol name.
+    return name.normalize('NFKC').replace(/^\s*📐\uFE0F?/u, '').replace(/\s+/gu, '');
+}
 export function imageSizeEntryMode(entry) {
     if (entry.marker)
         return null;
-    if (entry.name === SIZE_PROTOCOL_NAMES.fixed)
+    const name = protocolName(entry.name);
+    if (name === protocolName(SIZE_PROTOCOL_NAMES.fixed))
         return 'fixed';
-    if (entry.name === SIZE_PROTOCOL_NAMES.ai)
+    if (name === protocolName(SIZE_PROTOCOL_NAMES.ai))
+        return 'ai';
+    // Imported identifier values are already mapped to id; a recognized name takes precedence.
+    if (entry.id === 'output-format-fixed-size')
+        return 'fixed';
+    if (entry.id === 'output-format-ai-size')
         return 'ai';
     return null;
 }

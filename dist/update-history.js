@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-10-29', title: '预设画幅协议联动修复',
+        changes: [
+            '画幅协议条目兼容有无 📐 图标、空白及全半角竖线差异，并支持约定的条目 ID，修复无图标条目启用后仍使用固定画幅的问题。',
+            '预设中启用一种画幅协议会互斥关闭另一种；保存配置后，生图画幅选项与实际尺寸读取保持一致。',
+        ],
+    },
+    {
         date: '2026-10-28', title: '锚定角色负面提示词',
         changes: [
             '角色编辑新增“添加负面提示词”按钮，点击后展开输入；支持保存、编辑与移除，随完整配置迁移和 TT 同步。',

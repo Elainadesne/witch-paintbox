@@ -8,10 +8,19 @@ export const SIZE_PROTOCOL_NAMES: Record<ImageSizeMode, string> = {
   ai: '📐 格式｜AI动态画幅·四字段输出协议',
 };
 
-export function imageSizeEntryMode(entry: Pick<PromptEntry, 'name' | 'marker'>): ImageSizeMode | null {
+function protocolName(name: string): string {
+  // The icon and typography are presentation; still match the entire protocol name.
+  return name.normalize('NFKC').replace(/^\s*📐\uFE0F?/u, '').replace(/\s+/gu, '');
+}
+
+export function imageSizeEntryMode(entry: Pick<PromptEntry, 'name' | 'marker'> & Partial<Pick<PromptEntry, 'id'>>): ImageSizeMode | null {
   if (entry.marker) return null;
-  if (entry.name === SIZE_PROTOCOL_NAMES.fixed) return 'fixed';
-  if (entry.name === SIZE_PROTOCOL_NAMES.ai) return 'ai';
+  const name = protocolName(entry.name);
+  if (name === protocolName(SIZE_PROTOCOL_NAMES.fixed)) return 'fixed';
+  if (name === protocolName(SIZE_PROTOCOL_NAMES.ai)) return 'ai';
+  // Imported identifier values are already mapped to id; a recognized name takes precedence.
+  if (entry.id === 'output-format-fixed-size') return 'fixed';
+  if (entry.id === 'output-format-ai-size') return 'ai';
   return null;
 }
 
