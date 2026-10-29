@@ -2,6 +2,7 @@ import { navigation, pages, pluginName } from './pages.js';
 import { updateHistoryView } from './update-history.js';
 import { getHostStore, isTauriHost } from './host-storage.js';
 import { getSyncApiKeys } from './host-settings.js';
+import { loadImageSettings } from './image-settings.js';
 const guideLinks = {
     imageConnection: { label: '密钥配置', page: 'image-api', selector: '[aria-labelledby="connection-heading"]' },
     imageParameters: { label: '生图配置', page: 'image-api', selector: '[aria-labelledby="parameters-heading"]' },
@@ -49,12 +50,31 @@ function node(page) {
     <strong>${pages[page].title}</strong><span>${pages[page].description}</span>
   </button>`;
 }
+// 引导页由缇娅出面：按生图接口是否已有密钥换一句话和下一步。
+function tiaGuide() {
+    let ready = false;
+    try {
+        const { connection } = loadImageSettings();
+        ready = Boolean(connection.key.trim()) || (connection.channel === 'custom' && Boolean(connection.url.trim()));
+    }
+    catch {
+        ready = false;
+    }
+    return ready
+        ? `<div class="tia-note" data-face="happy">
+      <i class="tia-face" aria-hidden="true"></i>
+      <div><p class="tia-say">画笔已经接上啦。点我身边的画匣选「AI生图」，我就替最新一楼挑画面。想让角色不走样，先去给她们锁定外貌吧。</p>
+      <button type="button" class="tia-next" data-page="features">去标签锚定</button></div>
+    </div>`
+        : `<div class="tia-note" data-face="talk">
+      <i class="tia-face" aria-hidden="true"></i>
+      <div><p class="tia-say">画匣已经支好了。还差一支能落笔的画笔——先去接上生图服务吧？</p>
+      <button type="button" class="tia-next" data-page="image-api">去接口配置</button></div>
+    </div>`;
+}
 function guideView() {
     return `
-    <div class="next-step">
-      <div><strong>先逛逛${pluginName}</strong><p>连接服务、找到功能，再按你的习惯布置画匣。点击板块进入，标签可直达具体设置。</p></div>
-      <button type="button" class="primary" data-page="image-api">查看接口配置</button>
-    </div>
+    ${tiaGuide()}
     <section class="map" aria-label="插件功能系谱图，从上向下展示各板块">
       <div class="map-root"><div class="map-node"><strong>${pluginName}</strong><span>每一张图，都是一次小魔法</span></div></div>
       <div class="map-branches">

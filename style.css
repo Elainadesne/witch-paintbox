@@ -1321,3 +1321,104 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 @media (prefers-reduced-motion: reduce) {
   #witch-launcher-menu, #witch-launcher-menu * { animation: none !important; transition: none !important; }
 }
+
+/* ==========================================================================
+   设置面板与快捷菜单同一质感：墨线描边、暖光、胶带；按钮改成一笔颜料，不再是光面胶囊。
+   ========================================================================== */
+#image-plugin-panel .shell::before {
+  filter: url(#wp-deckle) drop-shadow(1.4px 0 0 #3a2416) drop-shadow(-1.4px 0 0 #3a2416) drop-shadow(0 1.4px 0 #3a2416) drop-shadow(0 -1.4px 0 #3a2416) drop-shadow(0 0 16px #f0b46a33);
+}
+#image-plugin-panel .window-header { position: relative; }
+#image-plugin-panel .window-header::before {
+  content: ""; position: absolute; top: -10px; left: 50%; width: 120px; height: 24px; pointer-events: none; z-index: 2;
+  background: repeating-linear-gradient(90deg, #ffffff2e 0 6px, transparent 6px 13px), #e6872ad9;
+  clip-path: polygon(3% 8%, 97% 0, 100% 50%, 96% 100%, 2% 92%, 0 45%);
+  transform: translateX(-50%) rotate(-2.5deg);
+  box-shadow: 0 2px 4px #120a0540;
+}
+
+/* 主按钮：一笔颜料。哑光、边缘洇开，悬停时颜料加浓并微微铺开 */
+#image-plugin-panel .primary, #image-plugin-panel .generation-trigger {
+  isolation: isolate; background: transparent; box-shadow: none; text-shadow: none; border-radius: 0;
+  color: #fffaf0; font-weight: 500;
+}
+#image-plugin-panel :is(.primary, .generation-trigger)::before {
+  content: ""; position: absolute; inset: -2px -6px; z-index: -1; pointer-events: none;
+  background: var(--wash);
+  border-radius: 46% 54% 40% 60% / 60% 46% 54% 40%;
+  filter: url(#wp-bleed);
+  box-shadow: inset 0 -6px 10px color-mix(in oklab, var(--wash) 60%, #3a2416);
+  transition: transform var(--t-mid) var(--ease), filter var(--t-mid) ease;
+}
+#image-plugin-panel :is(.primary, .generation-trigger):hover:not(:disabled) { background: transparent; transform: translateY(-1px); }
+#image-plugin-panel :is(.primary, .generation-trigger):hover:not(:disabled)::before { transform: scale(1.06, 1.1); filter: url(#wp-bleed) saturate(1.15); }
+#image-plugin-panel :is(.primary, .generation-trigger):disabled { background: transparent; color: #6e5a48; }
+#image-plugin-panel :is(.primary, .generation-trigger):disabled::before { background: #d6c8b1; box-shadow: none; }
+#image-plugin-panel .primary:focus-visible, #image-plugin-panel .generation-trigger:focus-visible { outline: 2px dashed #3a2416; outline-offset: 4px; }
+
+/* 缇娅出面：从原图裁出头部，叠表情贴片；水渍底 */
+#image-plugin-panel .tia-note {
+  position: relative; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 20px; align-items: center;
+  margin: 4px 0 30px; padding: 16px 0; isolation: isolate;
+}
+#image-plugin-panel .tia-note::before {
+  content: ""; position: absolute; inset: -4px -18px; z-index: -1; pointer-events: none;
+  background: radial-gradient(70% 95% at 18% 50%, var(--wash-soft) 0, transparent 72%);
+  filter: url(#wp-bleed);
+}
+#image-plugin-panel .tia-face {
+  --expr: url("pet/tia_face_talk.webp");
+  position: relative; display: block; width: 112px; height: 112px;
+  background: var(--expr) 17.4px 43.1px / 76.7px auto no-repeat, url("pet/tia_base.webp") -110px -116px / 330px auto no-repeat;
+  -webkit-mask: radial-gradient(closest-side, #000 76%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 76%, transparent 100%);
+}
+#image-plugin-panel .tia-note[data-face="happy"] .tia-face { --expr: url("pet/tia_face_happy.webp"); }
+#image-plugin-panel .tia-say { margin: 0; color: var(--ink); font: 16px/1.8 var(--kai); letter-spacing: .06em; }
+#image-plugin-panel .tia-next {
+  margin-top: 10px; padding: 2px 2px; border: 0; border-radius: 0; color: var(--wash-ink);
+  font: inherit; font-size: 14px; letter-spacing: .2em; cursor: pointer;
+  background: linear-gradient(currentColor, currentColor) 0 100% / 100% 1px no-repeat;
+  transition: transform var(--t-fast) ease, color var(--t-fast) ease;
+}
+#image-plugin-panel .tia-next::after { content: " →"; }
+#image-plugin-panel .tia-next:hover { color: var(--ink); transform: translateX(3px); }
+#image-plugin-panel .content.is-fresh .tia-face { animation: wp-lay 700ms cubic-bezier(.2, .8, .2, 1) both; }
+
+/* 空态（生图回顾）：缇娅说一句，不再是一行灰字 */
+#image-plugin-panel .config-status.tia-empty {
+  display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 16px; align-items: center;
+  margin: 18px 0; padding: 10px 0; color: var(--ink); font: 15px/1.8 var(--kai); letter-spacing: .06em;
+  background: radial-gradient(60% 95% at 14% 50%, var(--wash-soft) 0, transparent 72%);
+}
+#image-plugin-panel .config-status.tia-empty::before {
+  content: ""; width: 84px; height: 84px;
+  background: url("pet/tia_face_talk.webp") 13px 32.3px / 57.5px auto no-repeat, url("pet/tia_base.webp") -82.5px -87px / 247.5px auto no-repeat;
+  -webkit-mask: radial-gradient(closest-side, #000 76%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 76%, transparent 100%);
+}
+
+/* 报错：胭脂水渍旁边加缇娅的苦脸，原始错误保持原样可读 */
+#image-plugin-panel .content :is(.config-status, .status).is-error:not(:empty) {
+  display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 8px 12px 8px 4px;
+}
+#image-plugin-panel .content :is(.config-status, .status).is-error:not(:empty)::before {
+  content: ""; width: 52px; height: 52px;
+  background: url("pet/tia_face_dismay.webp") 8px 20px / 35.6px auto no-repeat, url("pet/tia_base.webp") -51px -54px / 153.2px auto no-repeat;
+  -webkit-mask: radial-gradient(closest-side, #000 76%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 76%, transparent 100%);
+}
+
+@media (max-width: 640px) {
+  #image-plugin-panel .tia-note { grid-template-columns: 76px minmax(0, 1fr); gap: 14px; }
+  #image-plugin-panel .tia-face { width: 76px; height: 76px; background-position: 11.8px 29.2px, -74.6px -78.7px; background-size: 52px auto, 224px auto; }
+  #image-plugin-panel .tia-say { font-size: 15px; }
+  #image-plugin-panel .window-header::before { width: 80px; height: 18px; top: -8px; left: 62%; }
+}
+/* 散落在各页的文字按钮（刷新等）：不要默认方框，用下划线字 */
+#image-plugin-panel .content .text-button {
+  border: 0; border-radius: 0; background: linear-gradient(currentColor, currentColor) 0 100% / 100% 1px no-repeat;
+  padding: 4px 2px; color: var(--wash-ink); letter-spacing: .14em; transition: transform var(--t-fast) ease, color var(--t-fast) ease;
+}
+#image-plugin-panel .content .text-button:hover:not(:disabled) { color: var(--ink); transform: translateY(-1px); }

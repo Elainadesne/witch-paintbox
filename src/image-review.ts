@@ -112,9 +112,9 @@ export class ImageReview {
     this.items = [];
   }
 
-  private message(text: string, error = false): void {
+  private message(text: string, error = false, empty = false): void {
     const status = this.container?.querySelector<HTMLElement>('[data-review-status]');
-    if (status) { status.textContent = text; status.classList.toggle('is-error', error); }
+    if (status) { status.textContent = text; status.classList.toggle('is-error', error); status.classList.toggle('tia-empty', empty); }
   }
 
   private async load(refreshCategories = false): Promise<void> {
@@ -147,7 +147,8 @@ export class ImageReview {
       this.items = result.entries.map(entry => ({ entry, url: URL.createObjectURL(entry.blob) }));
       this.next = result.next;
       this.more = result.more;
-      this.message(this.items.length ? '点击图片可全屏查看、下载、删除或查看生成属性。' : '这里还没有保存的图片。');
+      if (this.items.length) this.message('点击图片可全屏查看、下载、删除或查看生成属性。');
+      else this.message('画夹还是空的。等第一张画干透，我就把它夹进来。', false, true);
     } catch (error) {
       if (version === this.version) this.message(error instanceof Error ? error.message : '图片读取失败，请刷新重试。', true);
     } finally {

@@ -124,11 +124,12 @@ export class ImageReview {
         this.items.forEach(item => URL.revokeObjectURL(item.url));
         this.items = [];
     }
-    message(text, error = false) {
+    message(text, error = false, empty = false) {
         const status = this.container?.querySelector('[data-review-status]');
         if (status) {
             status.textContent = text;
             status.classList.toggle('is-error', error);
+            status.classList.toggle('tia-empty', empty);
         }
     }
     async load(refreshCategories = false) {
@@ -164,7 +165,10 @@ export class ImageReview {
             this.items = result.entries.map(entry => ({ entry, url: URL.createObjectURL(entry.blob) }));
             this.next = result.next;
             this.more = result.more;
-            this.message(this.items.length ? '点击图片可全屏查看、下载、删除或查看生成属性。' : '这里还没有保存的图片。');
+            if (this.items.length)
+                this.message('点击图片可全屏查看、下载、删除或查看生成属性。');
+            else
+                this.message('画夹还是空的。等第一张画干透，我就把它夹进来。', false, true);
         }
         catch (error) {
             if (version === this.version)
