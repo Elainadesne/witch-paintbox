@@ -165,13 +165,28 @@ async function mount() {
     panel.classList.remove('is-opening');
     void panel.offsetWidth;
     panel.classList.add('is-opening');
-    window.setTimeout(() => panel.classList.remove('is-opening'), 1600);
+    window.setTimeout(() => panel.classList.remove('is-opening'), 900);
     panel.showModal();
     panelViewport.refresh();
+    placeBloomOrigin();
     paintNavigation();
     emitPetEvent({ type: 'ui', action: 'panel-open' });
     updateNotice.check();
     content.focus({ preventScroll: true });
+  }
+
+  // 开场晕染从缇娅（或悬浮球）所在一侧的面板边缘开始：取她的中心点，夹在面板范围内，
+  // 缇娅再大、离得再远，起点也只会落在面板最近的边上。
+  function placeBloomOrigin() {
+    const box = panel.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const from = pet?.anchor() ?? launcher.getBoundingClientRect();
+    const cx = from.width ? from.x + from.width / 2 : box.right;
+    const cy = from.height ? from.y + from.height / 2 : box.bottom;
+    const x = Math.min(1, Math.max(0, (cx - box.left) / box.width));
+    const y = Math.min(1, Math.max(0, (cy - box.top) / box.height));
+    panel.style.setProperty('--bloom-x', `${(x * 100).toFixed(1)}%`);
+    panel.style.setProperty('--bloom-y', `${(y * 100).toFixed(1)}%`);
   }
 
   function revealSection(selector: string) {

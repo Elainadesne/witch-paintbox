@@ -1130,20 +1130,20 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
   background: radial-gradient(80% 140% at 10% 50%, #a3463e24 0, transparent 75%);
 }
 
-/* 开场：水色从缇娅一侧晕开，纸面随之显出 */
-#image-plugin-panel.is-opening .shell { animation: wp-wet-in 1100ms var(--ease) both; }
+/* 开场：水色从缇娅一侧晕开，纸面随之显出。起点由 index.ts 按缇娅位置写入 --bloom-x/y。
+   缩短到 ~0.5s、去掉大幅模糊和饱和度跳变，避免看着发晕。 */
+#image-plugin-panel.is-opening .shell { animation: wp-wet-in 520ms cubic-bezier(.2, .7, .2, 1) both; }
 @keyframes wp-wet-in {
-  0% { opacity: 0; clip-path: circle(0 at 92% 92%); filter: blur(6px) saturate(1.4); }
-  60% { opacity: 1; filter: blur(1px); }
-  100% { clip-path: circle(150% at 92% 92%); filter: none; }
+  0% { opacity: .4; clip-path: circle(12% at var(--bloom-x, 92%) var(--bloom-y, 92%)); }
+  100% { opacity: 1; clip-path: circle(150% at var(--bloom-x, 92%) var(--bloom-y, 92%)); }
 }
-#image-plugin-panel.is-opening h1 { animation: wp-sketch 900ms ease 420ms both; }
+#image-plugin-panel.is-opening h1 { animation: wp-sketch 420ms ease 180ms both; }
 @keyframes wp-sketch {
   0% { opacity: 0; color: transparent; -webkit-text-stroke: .5px var(--pencil); }
   50% { opacity: 1; color: transparent; -webkit-text-stroke: .5px var(--muted); }
   100% { color: var(--ink); -webkit-text-stroke: 0 transparent; }
 }
-#image-plugin-panel.is-opening .nav-item { animation: wp-develop 700ms ease both; animation-delay: calc(600ms + var(--i, 0) * 70ms); }
+#image-plugin-panel.is-opening .nav-item { animation: wp-develop 360ms ease both; animation-delay: calc(220ms + var(--i, 0) * 40ms); }
 
 /* 切页：显影 */
 #image-plugin-panel .content.is-fresh .page-heading h2 { animation: wp-lay 900ms cubic-bezier(.2, .8, .2, 1) both; transform-origin: left center; }
