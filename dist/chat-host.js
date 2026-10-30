@@ -1,6 +1,6 @@
 import { captureEmbeddedWrite, readEmbeddedTurn } from './embedded-chat.js';
 import { isSifangEnvironment } from './sifang-host.js';
-import { assertSifangSnapshot, captureSifangAssistant, isSifangChatReady, readSifangAssistantMessages, replaceSifangAssistant, sifangImageChatContext, watchSifangChat } from './sifang-chat.js';
+import { assertSifangSnapshot, captureSifangAssistant, isSifangChatReady, readSifangAssistantMessages, readSifangFloors, replaceSifangAssistant, sifangImageChatContext, watchSifangChat } from './sifang-chat.js';
 class ChatHostError extends Error {
     fault = 'host';
 }
@@ -369,42 +369,152 @@ export function formatChatText(text, messageId) {
     const formattingId = messageId === 0 && text === message.mes ? -1 : messageId;
     return context.messageFormatting(text, message.name ?? '', Boolean(message.is_system), Boolean(message.is_user), formattingId);
 }
-/**
- * 'reply' marks a reply the user asked for (send, swipe, regenerate, continue). Quiet and impersonate generations,
- * dry runs, renders and edits only count as activity, so follow-up calls such as variable updates delay the caller.
- */
-export function watchReplyGeneration(callback) {
+/** Read only the current final floor for stability polling; this is not a write-authorizing snapshot. */
+export function readLatestAssistantReply() {
     if (isSifangEnvironment()) {
-        return watchSifangChat((_messageId, event) => callback(event === 'GENERATION_ENDED' ? 'reply' : event === 'CHAT_CHANGED' ? 'reset' : 'activity'));
+        const context = sifangImageChatContext();
+        const floor = readSifangFloors().at(-1);
+        return context && floor?.role === 'assistant'
+            ? { chatId: context.chatId, messageId: floor.floor, swipeId: Math.max(0, floor.version - 1), text: floor.raw } : null;
+    }
+    const context = host(), messageId = context.chat.length - 1, message = context.chat[messageId];
+    return message && !message.is_user && !message.is_system && typeof message.mes === 'string'
+        ? { chatId: chatId(context), messageId, swipeId: message.swipe_id ?? null, text: message.mes } : null;
+}
+function replyTarget(messageId) {
+    if (isSifangEnvironment()) {
+        const context = sifangImageChatContext();
+        const floor = readSifangFloors().at(-1);
+        if (!context || !floor || floor.role !== 'assistant' || messageId !== undefined && floor.floor !== messageId)
+            return null;
+        return {
+            key: JSON.stringify([context.chatId, floor.node]),
+            matches: snapshot => snapshot.chatId === context.chatId && snapshot.messageId === floor.floor
+                && sifangImageChatContext()?.chatId === context.chatId && readSifangFloors().at(-1)?.node === floor.node,
+        };
     }
     const context = host();
-    const handlers = {
-        GENERATION_STARTED: (type, _options, dryRun) => dryRun ? null : type === 'quiet' || type === 'impersonate' ? 'activity' : 'reply',
-        GENERATION_STOPPED: () => 'stopped',
-        CHAT_CHANGED: () => 'reset',
-        MESSAGE_DELETED: () => 'reset',
+    const id = messageId ?? context.chat.length - 1;
+    const message = context.chat[id];
+    if (id !== context.chat.length - 1 || !message || message.is_user || message.is_system || !message.mes?.trim())
+        return null;
+    const chat = context.chat, chatIdentity = chatId(context), swipe = message.swipe_id ?? 0;
+    const { characterId, groupId } = context;
+    return {
+        key: JSON.stringify([chatIdentity, characterId, groupId, id, swipe]),
+        matches(snapshot) {
+            const current = host();
+            return snapshot.chatId === chatIdentity && snapshot.messageId === id && (snapshot.swipeId ?? 0) === swipe
+                && chatId(current) === chatIdentity && current.chat === chat && current.chat[id] === message
+                && current.characterId === characterId && current.groupId === groupId && current.chat.length - 1 === id
+                && (message.swipe_id ?? 0) === swipe;
+        },
     };
-    for (const name of ['GENERATION_ENDED', 'MESSAGE_RECEIVED', 'CHARACTER_MESSAGE_RENDERED', 'MESSAGE_UPDATED', 'MESSAGE_EDITED', 'MESSAGE_SWIPED']) {
-        handlers[name] = () => 'activity';
+}
+/** Follow completed native replies and Tavern Helper jobs; never arm from a generation start alone. */
+export function watchReplyGeneration(callback) {
+    if (isSifangEnvironment()) {
+        let previous = '';
+        return watchSifangChat((messageId, event) => {
+            const latest = readSifangFloors().at(-1);
+            const fingerprint = JSON.stringify([sifangImageChatContext()?.chatId, latest?.node, latest?.version, latest?.raw]);
+            // Snapshot reads refresh this cache too; unchanged reads are not new floor activity.
+            if (event === 'MESSAGE_UPDATED' && fingerprint === previous)
+                return;
+            previous = fingerprint;
+            if (event === 'CHAT_CHANGED' || event === 'MESSAGE_DELETED')
+                callback({ kind: 'reset' });
+            else if (event === 'GENERATION_ENDED') {
+                const target = replyTarget(messageId);
+                if (target)
+                    callback({ kind: 'reply', target });
+            }
+            else
+                callback({ kind: 'activity' });
+        });
+    }
+    const context = host();
+    const source = context.eventSource;
+    if (!source?.on || !source.removeListener || !context.eventTypes?.MESSAGE_RECEIVED || !context.eventTypes.GENERATION_STARTED) {
+        throw new ChatHostError('当前宿主未提供回复完成事件。');
     }
     const subscriptions = [];
-    for (const [name, classify] of Object.entries(handlers)) {
-        const event = context.eventTypes?.[name];
+    const reorder = () => {
+        for (const { event, handler, last } of subscriptions)
+            if (last)
+                source.makeLast?.(event, handler);
+    };
+    function listen(event, action, last = true) {
         if (!event)
-            continue;
-        const handler = (...args) => {
-            try {
-                const kind = classify(...args);
-                if (kind)
-                    callback(kind);
-            }
-            catch { /* Do not interrupt host generation. */ }
-        };
-        context.eventSource.on(event, handler);
-        subscriptions.push({ event, handler });
+            return;
+        const handler = (...args) => { try {
+            action(...args);
+        }
+        catch { /* Never interrupt host generation. */ } };
+        const ordered = last ? source.makeLast : source.makeFirst;
+        (ordered ?? source.on).call(source, event, handler);
+        subscriptions.push({ event, handler, last });
     }
+    let expecting = false;
+    const replyTypes = new Set(['normal', 'swipe', 'regenerate', 'continue', 'append', 'appendFinal']);
+    listen(context.eventTypes.GENERATION_STARTED, (type, _options, dryRun) => {
+        if (dryRun)
+            return;
+        reorder(); // Include card scripts that subscribed after this extension loaded.
+        if (type === 'quiet') {
+            callback({ kind: 'activity' });
+            return;
+        }
+        expecting = typeof type === 'string' && replyTypes.has(type);
+        callback({ kind: 'reset' });
+    }, false);
+    listen(context.eventTypes.MESSAGE_RECEIVED, (messageId, type) => {
+        const eligible = expecting && (type === undefined || typeof type === 'string' && replyTypes.has(type));
+        if (eligible) {
+            expecting = false;
+            const target = typeof messageId === 'number' ? replyTarget(messageId) : null;
+            if (target) {
+                callback({ kind: 'reply', target });
+                return;
+            }
+        }
+        callback({ kind: 'activity' });
+    });
+    listen(context.eventTypes.GENERATION_STOPPED, id => {
+        // Tavern Helper uses this same native event, with a string generation ID.
+        if (typeof id === 'string' && id)
+            callback({ kind: 'helper-end', id });
+        else {
+            expecting = false;
+            callback({ kind: 'stopped' });
+        }
+    });
+    for (const name of ['CHAT_CHANGED', 'CHAT_LOADED']) {
+        listen(context.eventTypes[name], () => { expecting = false; callback({ kind: 'reset' }); }, false);
+    }
+    // Regeneration can delete the old reply after GENERATION_STARTED. Cancel its
+    // pending work without forgetting the replacement reply we are waiting for.
+    listen(context.eventTypes.MESSAGE_DELETED, () => callback({ kind: 'reset' }), false);
+    listen(context.eventTypes.MESSAGE_SENT, () => callback({ kind: 'reset' }), false);
+    for (const name of ['GENERATION_ENDED', 'CHARACTER_MESSAGE_RENDERED', 'MESSAGE_UPDATED', 'MESSAGE_EDITED', 'MESSAGE_SWIPED']) {
+        listen(context.eventTypes[name], () => callback({ kind: 'activity' }));
+    }
+    // Root extensions share Tavern Helper's emitter. Its eventMakeLast API is iframe-only;
+    // eventSource.makeLast is the native equivalent, without wrapping generate/fetch/XHR.
+    const helperStart = (id) => {
+        if (typeof id === 'string' && id) {
+            reorder();
+            callback({ kind: 'helper-start', id });
+        }
+    };
+    listen('js_generation_requested', helperStart, false);
+    listen('js_generation_started', helperStart, false);
+    listen('js_generation_ended', (_text, id) => { if (typeof id === 'string' && id)
+        callback({ kind: 'helper-end', id }); });
+    listen('js_stream_token_received_fully', (_text, id) => { if (typeof id === 'string' && id)
+        callback({ kind: 'helper-progress', id }); }, false);
     return () => { for (const { event, handler } of subscriptions)
-        context.eventSource.removeListener(event, handler); };
+        source.removeListener(event, handler); };
 }
 export function watchChatRendering(callback) {
     if (isSifangEnvironment())

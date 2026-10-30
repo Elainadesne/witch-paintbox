@@ -18,8 +18,8 @@ function processingSettings() {
     }
     return settings;
 }
-async function captureSelection(targeted = false) {
-    const snapshot = await captureLatestAssistant();
+async function captureSelection(targeted = false, expected) {
+    const snapshot = expected ?? await captureLatestAssistant();
     const { excludedTags } = currentPreferences();
     const plan = targeted ? createSelectedImageInsertionPlan(snapshot.text, excludedTags) : createImageInsertionPlan(snapshot.text, excludedTags);
     if (!plan.points.length)
@@ -48,10 +48,15 @@ export class ChatProcessor {
             throw new Error('请先完成或取消当前 AI 处理。');
         return selection;
     }
-    async process(selection) {
+    async process(selection, options = {}) {
         if (this.request)
             return false;
         const controller = new AbortController();
+        const cancel = () => { if (!this.committing)
+            controller.abort(); };
+        options.signal?.addEventListener('abort', cancel, { once: true });
+        if (options.signal?.aborted)
+            cancel();
         this.request = controller;
         const pet = petTaskId();
         let floor;
@@ -59,14 +64,15 @@ export class ChatProcessor {
         emitPetEvent({ type: 'process', id: pet, phase: 'reading', cancellable: true });
         try {
             const settings = processingSettings();
-            const prepared = selection ?? await captureSelection();
+            controller.signal.throwIfAborted();
+            const prepared = selection ?? await captureSelection(false, options.snapshot);
             const { snapshot } = prepared;
             if (prepared.plan.original !== snapshot.text) {
                 throw withFault(new Error('所选正文已变化，请重新打开指定插图。'), 'format');
             }
             const items = selection ? normalizeIllustrationItems(prepared.plan, selection.items) : undefined;
             const plan = items ? selectImageInsertionPoints(prepared.plan, items.flatMap(item => [...item.pointIds])) : prepared.plan;
-            if (selection)
+            if (selection || options.snapshot)
                 await assertChatSnapshot(snapshot);
             controller.signal.throwIfAborted();
             this.report(`正在处理第 ${snapshot.messageId + 1} 楼…`, true);
@@ -108,6 +114,7 @@ export class ChatProcessor {
             return false;
         }
         finally {
+            options.signal?.removeEventListener('abort', cancel);
             this.committing = false;
             if (this.request === controller)
                 this.request = null;

@@ -50,7 +50,7 @@ export function bindLauncherMenu(launcher, root, signal, configure, options = {}
     const cancelButton = menu.querySelector('[data-cancel]');
     const tail = menu.querySelector('.menu-tail');
     const status = menu.querySelector('p[role="status"]');
-    const processor = new ChatProcessor((message, busy, error, cancellable = true) => {
+    const report = (message, busy, error = false, cancellable = true) => {
         status.textContent = message;
         status.classList.toggle('is-error', !!error);
         menu.classList.toggle('is-busy', busy);
@@ -62,9 +62,11 @@ export function bindLauncherMenu(launcher, root, signal, configure, options = {}
         picker.report(message, busy, !!error, cancellable);
         if (!menu.hidden)
             place();
-    });
+    };
+    const processor = new ChatProcessor(report);
     const picker = bindIllustrationPicker(root, signal, processor);
-    autoProcessReplies(processor, signal);
+    autoProcessReplies(processor, signal, message => { if (!processor.busy)
+        report(message, false, true); });
     // 贴着画匣弹出：优先放在画匣远离缇娅的一侧；放不下就放到画匣上方或下方；都不行再退回整体旁边。
     function place() {
         const box = options.box?.() ?? launcher.getBoundingClientRect();
