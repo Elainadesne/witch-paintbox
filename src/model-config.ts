@@ -3,7 +3,7 @@ import { featureLayerMessages, listFeatureLayers, onFeatureLayersChanged } from 
 import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, isImageSizeModeSaving, loadModelSettings, saveImageSizeMode, saveModelSettings, modelPresetSettings, modelSharedSettings, type ModelPresetSettings, type ModelSettings, type PromptEntry } from './model-settings.js';
 import { modelSettingsView, presetIndexView, presetWorkspaceView, worldbookSettingsView, PRESET_PAGE_SIZE, type ModelViewState } from './model-view.js';
 import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './preset-import.js';
-import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook } from './worldbook-source.js';
+import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook, updateWorldbookEntryContent } from './worldbook-source.js';
 import { onAnchorsChanged } from './anchor-store.js';
 import { onSharedOutfitsChanged } from './shared-outfit-store.js';
 import { getContextFilterStatus, onContextFilterStatusChanged } from './context-filter.js';
@@ -14,6 +14,11 @@ import { applyImageSizeMode, imageSizeEntryMode, imageSizeSelection, normalizeSi
 
 function escape(value: string): string {
   return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
+}
+
+interface WorldbookContentDraft {
+  book: string; id: string; content: string; savedContent: string;
+  status: string; error: boolean; saving: boolean; queued: boolean;
 }
 
 export class ModelConfig {
@@ -41,9 +46,12 @@ export class ModelConfig {
   private booksLoaded = false;
   private worldbookNotice = '';
   private worldbookError = false;
+  private worldbookDrafts = new Map<string, WorldbookContentDraft>();
+  private restoringWorldbookFocus = false;
 
   private get savingSettings(): boolean { return this.saving || isImageSizeModeSaving(); }
-  get hasPendingWrites(): boolean { return this.savingSettings || Boolean(this.worldbook.busy); }
+  private get savingWorldbookContent(): boolean { return [...this.worldbookDrafts.values()].some(draft => draft.saving); }
+  get hasPendingWrites(): boolean { return this.savingSettings || Boolean(this.worldbook.busy) || this.savingWorldbookContent; }
 
   constructor() {
     this.reloadSaved();
@@ -66,7 +74,7 @@ export class ModelConfig {
       onSharedOutfitsChanged(() => { if (this.selectedKey === 'layer:anchors') void this.refreshPreview(); }),
       onWorldbooksChanged(() => {
         this.booksLoaded = false;
-        if (this.worldbook.busy) return;
+        if (this.worldbook.busy || this.savingWorldbookContent) return;
         if (this.page === 'worldbook' || this.selectedKey === 'layer:worldbook') this.loadSelectedSource();
       }),
       onContextFilterStatusChanged(() => this.syncFilterStatus()),
@@ -156,6 +164,11 @@ export class ModelConfig {
     this.listeners = new AbortController();
     const { signal } = this.listeners;
     container.addEventListener('input', event => this.edit(event), { signal });
+    container.addEventListener('focusout', event => {
+      if (this.restoringWorldbookFocus || !(event.target instanceof HTMLTextAreaElement)) return;
+      const draft = this.worldbookDrafts.get(JSON.stringify([event.target.dataset.worldbookName, event.target.dataset.worldbookContent]));
+      if (draft) void this.saveWorldbookContent(draft);
+    }, { signal });
     container.addEventListener('change', event => {
       if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-preset-file')) void this.importPresetFile(event.target);
       if (event.target instanceof HTMLInputElement && event.target.hasAttribute('data-worldbook-file')) void this.importWorldbookFiles(event.target);
@@ -173,6 +186,7 @@ export class ModelConfig {
   }
 
   unmount(): void {
+    this.flushWorldbookEdits();
     this.importRequest++;
     this.maskKey();
     this.refresh?.abort(); this.bookRequest?.abort(); this.previewRequest?.abort();
@@ -246,6 +260,84 @@ export class ModelConfig {
     }
   }
 
+  private worldbookState(): NonNullable<ModelViewState['worldbook']> {
+    const draft = this.worldbookDrafts.get(JSON.stringify([this.worldbook.book, this.worldbook.previewId]));
+    return { ...this.worldbook, editor: draft };
+  }
+
+  private editWorldbookContent(input: HTMLTextAreaElement): void {
+    const book = input.dataset.worldbookName!, id = input.dataset.worldbookContent!;
+    if (this.worldbook.busy || book !== this.worldbook.book) return;
+    const entry = this.worldbook.entries.find(entry => entry.id === id);
+    if (!entry) return;
+    const key = JSON.stringify([book, id]);
+    const draft = this.worldbookDrafts.get(key) ?? { book, id, content: entry.content, savedContent: entry.content,
+      status: '', error: false, saving: false, queued: false };
+    draft.content = input.value;
+    draft.error = false;
+    draft.status = draft.saving ? '正在保存…新输入将在离开输入框后保存。'
+      : draft.content === draft.savedContent ? '内容未改动。' : '尚未保存，离开输入框后自动保存。';
+    this.worldbookDrafts.set(key, draft);
+    this.syncWorldbookContentStatus(draft);
+  }
+
+  private syncWorldbookContentStatus(draft: WorldbookContentDraft): void {
+    const editor = this.container?.querySelector<HTMLTextAreaElement>('[data-worldbook-content]');
+    if (editor?.dataset.worldbookName !== draft.book || editor.dataset.worldbookContent !== draft.id) return;
+    const status = this.container?.querySelector<HTMLElement>('[data-worldbook-content-status]');
+    if (status) { status.textContent = draft.status; status.classList.toggle('is-error', draft.error); }
+  }
+
+  /** Navigation and closing a dialog may remove focus without dispatching focusout. */
+  flushWorldbookEdits(): void {
+    for (const draft of this.worldbookDrafts.values()) void this.saveWorldbookContent(draft);
+  }
+
+  private async saveWorldbookContent(draft: WorldbookContentDraft): Promise<void> {
+    if (draft.saving) { draft.queued = true; return; }
+    if (draft.content === draft.savedContent) return;
+    const content = draft.content;
+    draft.saving = true; draft.queued = false; draft.error = false; draft.status = '正在自动保存…';
+    // Do not redraw here: focusout precedes the click that may be switching to another entry.
+    this.syncWorldbookContentStatus(draft);
+    try {
+      const saved = await updateWorldbookEntryContent(draft.book, draft.id, content, draft.savedContent);
+      draft.savedContent = content;
+      draft.status = draft.content === content ? '内容已自动保存。' : '尚有新修改，离开输入框后自动保存。';
+      if (this.worldbook.book === draft.book) {
+        const entry = this.worldbook.entries.find(entry => entry.id === draft.id);
+        if (entry) entry.content = saved.content;
+        this.syncWorldbookEntryAvailability();
+      }
+      if (this.page === 'model' && this.selectedKey === 'layer:worldbook') void this.refreshPreview();
+    } catch (error) {
+      draft.error = true;
+      draft.status = `保存失败，输入内容已保留：${error instanceof Error ? error.message : '请检查存储后再次离开输入框重试。'}`;
+    } finally {
+      draft.saving = false;
+      this.syncWorldbookContentStatus(draft);
+      if (draft.queued && !draft.error) void this.saveWorldbookContent(draft);
+    }
+  }
+
+  private syncWorldbookEntryAvailability(): void {
+    const inputs = this.container?.querySelectorAll<HTMLInputElement>('[data-worldbook-entry]');
+    for (const input of Array.from(inputs ?? [])) {
+      if (input.dataset.worldbookName !== this.worldbook.book) continue;
+      const entry = this.worldbook.entries.find(entry => entry.id === input.dataset.worldbookEntry);
+      if (!entry) continue;
+      input.disabled = Boolean(this.worldbook.loading || this.worldbook.busy || ((!entry.enabled || !entry.activation || !entry.content.trim()) && !input.checked));
+      const status = input.closest('.worldbook-entry')?.querySelector<HTMLElement>('[data-worldbook-entry-status]');
+      if (status) {
+        status.textContent = !entry.enabled ? '已禁用，不会发送' : !entry.content.trim() ? '内容为空，不会发送' : '';
+        status.hidden = !status.textContent;
+      }
+    }
+    const select = this.container?.querySelector<HTMLButtonElement>('[data-model-action="select-worldbook"]');
+    if (select) select.disabled = Boolean(this.worldbook.loading || this.worldbook.busy
+      || !this.worldbook.entries.some(entry => entry.enabled && entry.activation && entry.content.trim()));
+  }
+
   private state(): ModelViewState {
     if (!this.settings?.promptOrder.includes(this.selectedKey)) {
       this.selectedKey = this.settings?.promptOrder[0] ?? ''; this.presetPage = 0;
@@ -253,11 +345,15 @@ export class ModelConfig {
     const lastPage = Math.max(0, Math.ceil((this.settings?.promptOrder.length ?? 0) / PRESET_PAGE_SIZE) - 1);
     this.presetPage = Math.max(0, Math.min(this.presetPage, lastPage));
     return { saved: this.isSaved(), saving: this.savingSettings, refreshing: this.refresh !== null, selectedKey: this.selectedKey, presetPage: this.presetPage,
-      layerPreview: this.preview, worldbook: this.worldbook, filterStatus: getContextFilterStatus(),
+      layerPreview: this.preview, worldbook: this.worldbookState(), filterStatus: getContextFilterStatus(),
       importNotice: this.importNotice || undefined, importError: this.importError };
   }
 
   private render(): void {
+    this.preserveWorldbookFocus(() => this.renderContent());
+  }
+
+  private renderContent(): void {
     if (!this.container) return;
     if (!this.settings || this.loadError) { this.container.innerHTML = `<p role="alert">${escape(this.loadError)}</p>`; return; }
     if (this.page === 'model') { this.container.innerHTML = modelSettingsView(this.settings, this.state()); this.syncSave(); return; }
@@ -268,7 +364,7 @@ export class ModelConfig {
           <p class="config-status">可一次选择多个世界书 JSON，支持 character_book 条目，每个文件最大 20 MiB。上传后保存在${getHostStore() ? 'TT 扩展数据中' : '当前浏览器'}，同名书另存一份。</p>
           <p class="config-status${this.worldbookError ? ' is-error' : ''}" data-worldbook-status role="status">${escape(this.worldbookNotice)}</p>
         </section>
-        <section class="config-section" data-worldbook-mount>${worldbookSettingsView(this.settings, this.worldbook, true)}</section>
+        <section class="config-section" data-worldbook-mount>${worldbookSettingsView(this.settings, this.worldbookState(), true)}</section>
         <label class="prompt-enable"><input type="checkbox" data-layer-id="worldbook"${this.settings.enabledLayers.includes('worldbook') ? ' checked' : ''}>在预设中启用世界书层</label>
         <button type="button" class="text-button model-feature-link" data-page="model-api">前往模型 API 预设 →</button>
         <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() || this.savingSettings ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status">${this.savingSettings ? '正在保存…' : this.isSaved() ? '已保存。' : '选择条目后，点击保存配置生效。'}</p></div>
@@ -324,7 +420,7 @@ export class ModelConfig {
     if (!this.settings || !this.container) return;
     if (this.page === 'worldbook') {
       const node = this.container.querySelector('[data-worldbook-settings]');
-      if (node) this.preserveWorldbookFocus(() => { node.outerHTML = worldbookSettingsView(this.settings!, this.worldbook, true); });
+      if (node) this.preserveWorldbookFocus(() => { node.outerHTML = worldbookSettingsView(this.settings!, this.worldbookState(), true); });
     } else if (this.page === 'model' && this.selectedKey.startsWith('layer:')) this.renderPreset();
   }
 
@@ -332,14 +428,29 @@ export class ModelConfig {
     const root = this.container?.getRootNode() as Document | ShadowRoot | undefined;
     const active = root?.activeElement;
     const input = active instanceof HTMLInputElement && active.hasAttribute('data-worldbook-entry') ? active : null;
+    const editor = active instanceof HTMLTextAreaElement && active.hasAttribute('data-worldbook-content') ? active : null;
+    const selection = editor ? [editor.selectionStart, editor.selectionEnd] : null;
+    const editorScroll = editor?.scrollTop ?? 0;
     const button = active instanceof HTMLButtonElement && active.closest('[data-worldbook-settings]') ? active : null;
     const scroll = this.container?.querySelector('.worldbook-entry-list')?.scrollTop ?? 0;
     const pickerScroll = this.container?.querySelector('.worldbook-picker-list')?.scrollTop ?? 0;
-    render();
+    const restoring = this.restoringWorldbookFocus;
+    this.restoringWorldbookFocus = true;
+    try { render(); } finally { this.restoringWorldbookFocus = restoring; }
     const list = this.container?.querySelector('.worldbook-entry-list');
     if (list) list.scrollTop = scroll;
     const picker = this.container?.querySelector('.worldbook-picker-list');
     if (picker) picker.scrollTop = pickerScroll;
+    if (editor && selection) {
+      const replacement = this.container?.querySelector<HTMLTextAreaElement>('[data-worldbook-content]');
+      if (replacement && replacement.dataset.worldbookName === editor.dataset.worldbookName
+        && replacement.dataset.worldbookContent === editor.dataset.worldbookContent && !replacement.disabled) {
+        replacement.focus({ preventScroll: true });
+        replacement.setSelectionRange(selection[0], selection[1]);
+        replacement.scrollTop = editorScroll;
+      }
+      return;
+    }
     if (!input && !button) return;
     const controls = this.container?.querySelectorAll<HTMLInputElement | HTMLButtonElement>('[data-worldbook-entry], [data-model-action]');
     const replacement = Array.from(controls ?? []).find(node => input
@@ -378,7 +489,11 @@ export class ModelConfig {
     const input = event.target;
     if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement || input instanceof HTMLSelectElement) || !this.settings) return;
     const settings = this.settings;
+    if (input instanceof HTMLTextAreaElement && input.hasAttribute('data-worldbook-content')) {
+      this.editWorldbookContent(input); return;
+    }
     if (input instanceof HTMLInputElement && input.hasAttribute('data-worldbook-entry')) {
+      this.flushWorldbookEdits();
       const name = input.dataset.worldbookName ?? this.worldbook.book;
       const id = input.dataset.worldbookEntry!;
       if (this.worldbook.busy || name !== this.worldbook.book || (input.checked && !this.worldbook.entries.some(entry => entry.id === id && entry.enabled && entry.activation && entry.content.trim()))) return;
@@ -437,6 +552,7 @@ export class ModelConfig {
     const button = event.target.closest<HTMLButtonElement>('[data-model-action]');
     if (!button || button.disabled) return;
     const action = button.dataset.modelAction;
+    if (action?.includes('worldbook') || action === 'save-model') this.flushWorldbookEdits();
     try {
       if (action === 'toggle-key') {
         const key = this.container!.querySelector<HTMLInputElement>('[data-model-field="key"]')!;
@@ -562,6 +678,10 @@ export class ModelConfig {
       controller.signal.throwIfAborted();
       if (this.bookRequest !== controller || this.settings !== settings || this.worldbook.book !== name) return;
       this.worldbook.entries = entries;
+      for (const entry of entries) {
+        const key = JSON.stringify([name, entry.id]), draft = this.worldbookDrafts.get(key);
+        if (draft && !draft.saving && draft.content === draft.savedContent) this.worldbookDrafts.delete(key);
+      }
       if (attach && !settings.worldbooks.some(book => book.name === name && book.entries.length)) {
         const ids = entries.filter(entry => entry.enabled && entry.activation && entry.content.trim()).map(entry => entry.id);
         if (!ids.length) throw new Error(entries.some(entry => !entry.activation)

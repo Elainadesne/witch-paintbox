@@ -21,6 +21,7 @@ export const NAI_SAMPLERS = [
   { value: 'k_euler_ancestral', label: 'Euler Ancestral' },
   { value: 'k_euler', label: 'Euler' },
   { value: 'k_dpmpp_2m', label: 'DPM++ 2M' },
+  { value: 'k_dpmpp_2m_sde', label: 'DPM++ 2M SDE' },
   { value: 'k_dpmpp_sde', label: 'DPM++ SDE' },
   { value: 'k_dpmpp_2s_ancestral', label: 'DPM++ 2S Ancestral' },
   { value: 'k_dpm_fast', label: 'DPM Fast' },

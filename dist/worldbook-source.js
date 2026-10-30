@@ -373,6 +373,55 @@ export async function readWorldbook(name, signal) {
         throw new Error('已保存的世界书标识无效，原记录未修改。');
     return parseEntries(book.entries);
 }
+/** Update only one entry's text against the latest stored book, retaining its identity and activation rules. */
+export async function updateWorldbookEntryContent(name, id, content, previous) {
+    const key = bookName(name), target = entryId(id);
+    const update = (book) => {
+        const entry = book.entries.find(entry => entry.id === target);
+        if (!entry)
+            throw new Error('该世界书条目已被删除，未保存修改。');
+        if (entry.content !== previous && entry.content !== content) {
+            throw new Error('条目已在其他位置修改，请复制当前草稿，刷新酒馆页面后再编辑保存。');
+        }
+        entry.content = content;
+        return entry;
+    };
+    let entry;
+    if (getHostStore()) {
+        entry = await withHostLock(hostLock, async () => {
+            const manifest = await nativeManifest();
+            const index = manifest.books.findIndex(book => book.name === key);
+            if (index < 0)
+                throw new Error(`世界书“${key}”已被删除，未保存修改。`);
+            const book = await readNativeBook(manifest.books[index]);
+            const saved = update(book);
+            manifest.books[index] = await writeNativeBook(book);
+            await writeHostJson('manifest', manifest, hostTable);
+            return saved;
+        });
+    }
+    else {
+        entry = await transact('readwrite', '内容保存', (store, result, fail) => {
+            const request = store.get(key);
+            request.onsuccess = () => {
+                try {
+                    if (!request.result)
+                        throw new Error(`世界书“${key}”已被删除，未保存修改。`);
+                    const [book] = validateWorldbookArchive([request.result]);
+                    if (book.name !== key)
+                        throw new Error('已保存的世界书标识无效，未保存修改。');
+                    const saved = update(book);
+                    store.put(book).onsuccess = () => result(saved);
+                }
+                catch (error) {
+                    fail(error instanceof Error ? error : operationError('内容保存'));
+                }
+            };
+        });
+    }
+    notify();
+    return entry;
+}
 /** Add and choose a unique name in one transaction, including simultaneous imports from other tabs. */
 export async function importWorldbook(value, filename) {
     const book = parseBook(value, filename);

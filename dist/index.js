@@ -511,6 +511,7 @@ async function mount() {
         }, { signal });
     }, { once: true, signal });
     panel.addEventListener('close', () => {
+        modelConfig.flushWorldbookEdits();
         imageReview.unmount();
         imageConfig.maskKey();
         modelConfig.maskKey();

@@ -56,38 +56,107 @@ function notifyChanged(change, broadcast = true) {
         catch { /* View failures must not undo committed image history. */ }
     }
 }
+function databaseErrorName(error) {
+    return error && typeof error === 'object' && 'name' in error && typeof error.name === 'string' ? error.name : 'UnknownError';
+}
+function migrationRecordError(error) {
+    return ['DataError', 'DataCloneError', 'ConstraintError'].includes(databaseErrorName(error));
+}
+function databaseError(action, error) {
+    const name = databaseErrorName(error);
+    if (name === 'QuotaExceededError')
+        return `图片历史${action}失败，浏览器存储空间不足。`;
+    if (name === 'VersionError')
+        return '图片历史版本较新，请更新插件后重试。';
+    return `图片历史${action}失败（${name}），原有图片记录已保留。`;
+}
+/** Scope is metadata, never a reason to change a stored image's primary key. */
+function migrateHistoryRecord(store, row) {
+    const value = row.value;
+    if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.markerKey !== 'string')
+        return null;
+    // The cursor is authoritative, including when a legacy value has lost its inline id property.
+    if (store.keyPath === 'id')
+        value.id = row.primaryKey;
+    value.scope = historyScope(value.markerKey);
+    if (store.keyPath !== null) {
+        const readKey = (path) => {
+            let key = value;
+            for (const field of path ? path.split('.') : []) {
+                if (key === null || key === undefined)
+                    return undefined;
+                key = key[field];
+            }
+            return key;
+        };
+        const key = Array.isArray(store.keyPath) ? store.keyPath.map(readKey) : readKey(store.keyPath);
+        // An unfamiliar old key path may include scope itself; leave that record untouched.
+        if (window.indexedDB.cmp(key, row.primaryKey) !== 0)
+            return null;
+    }
+    return row.update(value);
+}
 function database() {
     if (connection)
         return connection;
     const pending = new Promise((resolve, reject) => {
         let settled = false;
-        const timer = setTimeout(() => fail('打开图片历史超时，请关闭其他酒馆页面后重试。'), 15_000);
+        let upgrade = null;
+        let skipped = 0;
+        let timer;
+        const waiting = () => {
+            clearTimeout(timer);
+            // During migration, measure inactivity rather than the size of the complete archive.
+            timer = setTimeout(() => {
+                if (upgrade) {
+                    try {
+                        upgrade.abort();
+                    }
+                    catch {
+                        waiting();
+                        return;
+                    } // A commit may already be finishing; wait for its result.
+                    fail('图片历史升级长时间无响应，已停止本次升级，原有图片记录已保留。');
+                }
+                else
+                    fail('打开图片历史超时，请关闭其他酒馆页面后重试。');
+            }, upgrade ? 60_000 : 15_000);
+        };
         function fail(message) {
             if (settled)
                 return;
             settled = true;
             clearTimeout(timer);
+            try {
+                upgrade?.abort();
+            }
+            catch { /* A failed or completed transaction is already settled. */ }
             reject(new Error(message));
         }
+        waiting();
         let request;
         try {
             request = window.indexedDB.open(databaseName, 2);
         }
-        catch {
-            fail('浏览器无法打开图片历史，请检查站点存储权限。');
+        catch (error) {
+            fail(databaseError('打开', error));
             return;
         }
         request.onblocked = () => fail('图片历史被其他页面占用，请关闭其他酒馆页面后重试。');
-        request.onerror = () => fail('浏览器未能打开图片历史，请检查存储权限或剩余空间。');
+        request.onerror = () => fail(databaseError('打开', request.error));
         request.onupgradeneeded = () => {
             if (settled) {
                 request.transaction?.abort();
                 return;
             }
+            upgrade = request.transaction;
+            waiting();
+            upgrade.onabort = () => fail(databaseError('升级', upgrade?.error));
+            upgrade.oncomplete = () => { upgrade = null; waiting(); };
             try {
                 const db = request.result;
                 const store = db.objectStoreNames.contains(storeName)
-                    ? request.transaction.objectStore(storeName)
+                    ? upgrade.objectStore(storeName)
                     : db.createObjectStore(storeName, { keyPath: 'id' });
                 if (!store.indexNames.contains('markerKey'))
                     store.createIndex('markerKey', 'markerKey', { unique: false });
@@ -97,17 +166,57 @@ function database() {
                     store.createIndex('scopeCreatedAt', ['scope', 'createdAt', 'id']);
                 // Backfill ownership from existing keys, without loading the full archive into memory.
                 const cursor = store.openCursor();
+                const next = (row) => {
+                    if (settled)
+                        return;
+                    try {
+                        waiting();
+                        row.continue();
+                    }
+                    catch (error) {
+                        fail(databaseError('升级', error));
+                    }
+                };
+                cursor.onerror = () => fail(databaseError('升级读取', cursor.error));
                 cursor.onsuccess = () => {
+                    if (settled)
+                        return;
+                    waiting();
                     const row = cursor.result;
                     if (!row)
                         return;
-                    row.update({ ...row.value, scope: historyScope(row.value.markerKey) });
-                    row.continue();
+                    try {
+                        const update = migrateHistoryRecord(store, row);
+                        if (!update) {
+                            skipped++;
+                            next(row);
+                            return;
+                        }
+                        update.onsuccess = () => next(row);
+                        update.onerror = event => {
+                            if (!migrationRecordError(update.error)) {
+                                fail(databaseError('升级写入', update.error));
+                                return;
+                            }
+                            // An incompatible row stays byte-for-byte in the store; do not abort other rows' backfill.
+                            event.preventDefault();
+                            event.stopPropagation();
+                            skipped++;
+                            next(row);
+                        };
+                    }
+                    catch (error) {
+                        if (migrationRecordError(error)) {
+                            skipped++;
+                            next(row);
+                        }
+                        else
+                            fail(databaseError('升级', error));
+                    }
                 };
             }
-            catch {
-                request.transaction?.abort();
-                fail('图片历史存储初始化失败。');
+            catch (error) {
+                fail(databaseError('初始化', error));
             }
         };
         request.onsuccess = () => {
@@ -118,6 +227,8 @@ function database() {
             }
             settled = true;
             clearTimeout(timer);
+            if (skipped)
+                console.warn(`[魔女画匣] ${skipped} 条旧图片未更新分类，原始记录已保留。`);
             const invalidate = () => { if (connection === pending)
                 connection = null; };
             db.onversionchange = () => { invalidate(); db.close(); };

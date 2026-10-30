@@ -25,6 +25,7 @@ export interface ModelViewState {
     previewId?: string;
     busy?: boolean;
     pickerOpen?: boolean;
+    editor?: { id: string; content: string; status: string; error: boolean };
   };
   filterStatus?: { enabled: boolean; active: boolean; error: string };
 }
@@ -85,6 +86,7 @@ export function worldbookSettingsView(settings: ModelSettings, state: ModelViewS
   const count = settings.worldbooks.reduce((total, item) => total + item.entries.length, 0);
   const unavailable = state?.loading || state?.busy;
   const preview = entries.find(entry => entry.id === state?.previewId);
+  const editor = state?.editor?.id === preview?.id ? state?.editor : undefined;
   return `<div class="worldbook-settings" data-worldbook-settings>
     <div class="worldbook-picker">
       <div class="worldbook-picker-heading"><button type="button" class="worldbook-picker-toggle" data-model-action="toggle-worldbook-picker" aria-expanded="${Boolean(state?.pickerOpen)}"><span>世界书挂载</span><small>${state?.pickerOpen ? '收起列表' : '展开选择'}</small><span aria-hidden="true">${state?.pickerOpen ? '⌃' : '⌄'}</span></button>
@@ -109,12 +111,12 @@ export function worldbookSettingsView(settings: ModelSettings, state: ModelViewS
       ${entries.map(entry => {
         const checked = selected.includes(entry.id);
         const status = !entry.enabled ? '已禁用，不会发送' : !entry.content.trim() ? '内容为空，不会发送' : '';
-        return `<div class="worldbook-entry-row"><label class="worldbook-entry"><input type="checkbox" data-worldbook-entry="${escape(entry.id)}" data-worldbook-name="${escape(book)}"${checked ? ' checked' : ''}${unavailable || ((!entry.enabled || !entry.activation || !entry.content.trim()) && !checked) ? ' disabled' : ''}><span>${escape(entry.name || '未命名条目')}${worldbookActivationView(entry)}${status ? `<small>${status}</small>` : ''}</span></label>${manage ? `<button type="button" class="text-button" data-model-action="preview-worldbook-entry" data-entry-id="${escape(entry.id)}" aria-label="查看${escape(entry.name)}内容" aria-pressed="${preview?.id === entry.id}"${unavailable ? ' disabled' : ''}>查看</button>` : ''}</div>`;
+        return `<div class="worldbook-entry-row"><label class="worldbook-entry"><input type="checkbox" data-worldbook-entry="${escape(entry.id)}" data-worldbook-name="${escape(book)}"${checked ? ' checked' : ''}${unavailable || ((!entry.enabled || !entry.activation || !entry.content.trim()) && !checked) ? ' disabled' : ''}><span>${escape(entry.name || '未命名条目')}${worldbookActivationView(entry)}<small data-worldbook-entry-status${status ? '' : ' hidden'}>${status}</small></span></label>${manage ? `<button type="button" class="text-button" data-model-action="preview-worldbook-entry" data-entry-id="${escape(entry.id)}" aria-label="查看${escape(entry.name)}内容" aria-pressed="${preview?.id === entry.id}"${unavailable ? ' disabled' : ''}>查看</button>` : ''}</div>`;
       }).join('')}
       ${stale.map(id => `<label class="worldbook-entry is-unavailable"><input type="checkbox" data-worldbook-entry="${escape(id)}" data-worldbook-name="${escape(book)}" checked${state?.busy ? ' disabled' : ''}><span>条目 ${escape(id)}<small>已失效，可取消挂载</small></span></label>`).join('')}
       ${entries.length || stale.length ? '' : `<p class="config-status">${state?.loading ? '正在读取条目…' : state?.error ? '读取成功后显示条目。' : '这本世界书暂无可用条目。'}</p>`}
     </div>` : ''}
-    ${manage && preview ? `<div class="worldbook-preview"><h3 class="subsection-title">${escape(preview.name)}</h3><textarea class="preset-layer-preview" rows="9" readonly aria-label="世界书条目原文" spellcheck="false">${escape(preview.content)}</textarea></div>` : ''}
+    ${manage && preview ? `<div class="worldbook-preview"><h3 class="subsection-title">${escape(preview.name)}</h3><textarea class="preset-layer-preview" rows="9" data-worldbook-content="${escape(preview.id)}" data-worldbook-name="${escape(book)}" aria-label="世界书条目内容" aria-describedby="worldbook-content-status" spellcheck="false"${state?.busy ? ' disabled' : ''}>${escape(editor?.content ?? preview.content)}</textarea><p id="worldbook-content-status" class="config-status${editor?.error ? ' is-error' : ''}" data-worldbook-content-status role="status">${escape(editor?.status ?? '点击内容即可编辑，离开输入框后自动保存。')}</p></div>` : ''}
     <p class="config-status">挂载与条目选择的更改，点击“保存配置”后生效。</p>
   </div>`;
 }
