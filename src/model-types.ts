@@ -1,4 +1,4 @@
-export type ModelTransport = 'nonstream' | 'stream' | 'compatible';
+export type ModelTransport = 'nonstream' | 'stream' | 'compatible' | 'toolcall';
 
 export interface ModelApiSettings {
   mode: 'tavern' | 'custom';

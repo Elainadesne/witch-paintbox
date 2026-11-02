@@ -1,3 +1,4 @@
+import { isSifangEnvironment } from './sifang-host.js';
 class ModelApiError extends Error {
     fault;
     constructor(message, fault = 'format') {
@@ -141,6 +142,166 @@ function contentText(value) {
         return typeof item.text === 'string' && !item.thought && item.type !== 'thinking' ? item.text : '';
     }).join('');
 }
+const TOOL_NAME = 'emit_witch_paintbox_plan';
+const MAX_DESC_BYTES = 28_000;
+/** Split UTF-8 text into chunks each <= maxBytes without breaking multi-byte characters. */
+function splitUtf8Chunks(input, maxBytes = MAX_DESC_BYTES) {
+    const encoder = new TextEncoder();
+    if (encoder.encode(input).byteLength <= maxBytes)
+        return [input];
+    const chunks = [];
+    let current = '';
+    let currentBytes = 0;
+    for (const ch of input) {
+        const chBytes = encoder.encode(ch).byteLength;
+        if (currentBytes + chBytes > maxBytes && current) {
+            chunks.push(current);
+            current = ch;
+            currentBytes = chBytes;
+        }
+        else {
+            current += ch;
+            currentBytes += chBytes;
+        }
+    }
+    if (current)
+        chunks.push(current);
+    return chunks;
+}
+/**
+ * Packs the preset/feature-layer messages into the tool schema so static context sits at the
+ * head of the request (implicit prefix caching). Descriptions over 28KB are split across
+ * optional `context_vol_N` properties for gateways with a 32KB per-field limit.
+ */
+function buildToolCallEnvelope(messages) {
+    const serialized = messages
+        .map((msg, idx) => `<segment index="${idx + 1}" role="${msg.role}">\n${msg.content}\n</segment>`)
+        .join('\n\n');
+    const header = [
+        'Run the visual storyboard extraction workflow according to the specification segments below.',
+        'Invoke `emit_witch_paintbox_plan` and pass the resulting JSON array string (`[...]`) in `plan_json`.',
+        '',
+    ].join('\n');
+    const chunks = splitUtf8Chunks(`${header}${serialized}`);
+    const properties = {
+        plan_json: {
+            type: 'string',
+            description: 'Serialized JSON array string starting with `[` and ending with `]`, conforming to the active output format specification.',
+        },
+    };
+    for (let i = 1; i < chunks.length; i++) {
+        properties[`context_vol_${i}`] = {
+            type: 'string',
+            description: `[Specification Segment Volume ${i}/${chunks.length - 1}]\n${chunks[i]}`,
+        };
+    }
+    const tools = [{
+            type: 'function',
+            function: {
+                name: TOOL_NAME,
+                description: chunks[0] ?? header,
+                parameters: { type: 'object', properties, required: ['plan_json'] },
+            },
+        }];
+    const reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    return {
+        tools,
+        messages: [
+            { role: 'system', content: `You are a structured storyboard extraction worker. Invoke \`${TOOL_NAME}\` and return the serialized JSON array in \`plan_json\`.` },
+            { role: 'user', content: `Initialize \`${TOOL_NAME}\` task context.` },
+            { role: 'assistant', content: `Task context initialized. Ready to read the specification segments from \`${TOOL_NAME}\` and populate \`plan_json\`.` },
+            { role: 'user', content: `Execute \`${TOOL_NAME}\` now and populate \`plan_json\`. [Request-ID: ${reqId}]` },
+        ],
+    };
+}
+const JSON_ESCAPES = { '"': '"', '\\': '\\', '/': '/', n: '\n', r: '\r', t: '\t', b: '\b', f: '\f' };
+/** Extracts `plan_json` from complete or still-streaming tool arguments, e.g. `{"plan_json": "[{\"at\":...`. */
+function extractPlanJsonFromArgs(rawArgs) {
+    const trimmed = rawArgs.trim();
+    if (!trimmed)
+        return '';
+    try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === 'string')
+            return parsed;
+        if (Array.isArray(parsed))
+            return JSON.stringify(parsed);
+        const obj = record(parsed);
+        if (typeof obj.plan_json === 'string')
+            return obj.plan_json;
+        if (Array.isArray(obj.plan_json))
+            return JSON.stringify(obj.plan_json);
+    }
+    catch {
+        // Incremental stream buffer: fall through to the partial string literal reader.
+    }
+    const keyMatch = /"plan_json"\s*:\s*"/.exec(trimmed);
+    if (!keyMatch) {
+        const arrMatch = /"plan_json"\s*:\s*(\[[\s\S]*)/.exec(trimmed);
+        return arrMatch ? arrMatch[1].replace(/\}\s*$/, '').trim() : '';
+    }
+    let out = '';
+    let i = keyMatch.index + keyMatch[0].length;
+    while (i < trimmed.length) {
+        const ch = trimmed[i];
+        if (ch === '"')
+            break;
+        if (ch !== '\\') {
+            out += ch;
+            i++;
+            continue;
+        }
+        if (i + 1 >= trimmed.length)
+            break;
+        const next = trimmed[i + 1];
+        if (next === 'u') {
+            if (i + 6 > trimmed.length)
+                break;
+            const hex = trimmed.slice(i + 2, i + 6);
+            if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+                out += String.fromCharCode(parseInt(hex, 16));
+                i += 6;
+                continue;
+            }
+        }
+        out += JSON_ESCAPES[next] ?? next;
+        i += 2;
+    }
+    return out;
+}
+/** Tool arguments from a complete (non-streaming) OpenAI or Gemini response. */
+function toolCallSnapshot(payload) {
+    const message = record(first(payload.choices).message);
+    const fn = Array.isArray(message.tool_calls) && message.tool_calls.length
+        ? record(record(message.tool_calls[0]).function) : record(message.function_call);
+    if (typeof fn.arguments === 'string' && fn.arguments.trim()) {
+        return extractPlanJsonFromArgs(fn.arguments) || fn.arguments;
+    }
+    const parts = record(first(payload.candidates).content).parts;
+    if (Array.isArray(parts)) {
+        for (const part of parts) {
+            const call = record(record(part).functionCall);
+            const args = record(call.args);
+            if (typeof args.plan_json === 'string' && args.plan_json.trim())
+                return args.plan_json;
+            if (Array.isArray(args.plan_json))
+                return JSON.stringify(args.plan_json);
+            if (typeof call.partialArgs === 'string' && call.partialArgs.trim())
+                return extractPlanJsonFromArgs(call.partialArgs);
+        }
+    }
+    return '';
+}
+/** Incremental tool argument fragment from one streaming SSE event. */
+function toolCallDelta(payload) {
+    const delta = record(first(payload.choices).delta);
+    const call = Array.isArray(delta.tool_calls) ? record(delta.tool_calls[0]) : {};
+    // Only the first tool call carries the plan; fragments of any parallel call are ignored.
+    if (typeof call.index === 'number' && call.index > 0)
+        return '';
+    const fn = Array.isArray(delta.tool_calls) && delta.tool_calls.length ? record(call.function) : record(delta.function_call);
+    return typeof fn.arguments === 'string' ? fn.arguments : '';
+}
 /** Compatible mode tolerates JSON bodies and SSE events containing a complete message. */
 async function readCompletion(response, mode, options) {
     if (!response.ok)
@@ -152,6 +313,8 @@ async function readCompletion(response, mode, options) {
     let protocol = null;
     let buffer = '';
     let text = '';
+    let toolArgsRaw = '';
+    let hasToolData = false;
     let bytes = 0;
     let finished = false;
     let eventName = '';
@@ -160,13 +323,33 @@ async function readCompletion(response, mode, options) {
         if (next === text)
             return;
         text = next;
-        if (mode === 'stream')
+        if (mode === 'stream' || mode === 'toolcall')
             options.onText?.(text);
     };
     const consumePayload = (payload) => {
         const choice = first(payload.choices);
         if (typeof choice.index === 'number' && choice.index > 0)
             return;
+        if (mode === 'toolcall') {
+            const toolSnapshot = toolCallSnapshot(payload);
+            if (toolSnapshot.trim()) {
+                hasToolData = true;
+                update(toolSnapshot);
+                return;
+            }
+            const toolDelta = toolCallDelta(payload);
+            if (toolDelta) {
+                hasToolData = true;
+                toolArgsRaw += toolDelta;
+                const extracted = extractPlanJsonFromArgs(toolArgsRaw);
+                if (extracted)
+                    update(extracted);
+                return;
+            }
+            // Once the plan arrives through tool arguments, ignore any narration in content.
+            if (hasToolData)
+                return;
+        }
         const snapshot = contentText(record(choice.message).content)
             || contentText(payload.content) || contentText(record(payload.message).content)
             || contentText(record(payload.responseContent).parts) || contentText(payload.text);
@@ -235,7 +418,7 @@ async function readCompletion(response, mode, options) {
             return;
         while (!finished) {
             // Some relays send SSE heartbeats before an ordinary JSON completion.
-            if (mode === 'compatible' && !eventData.length && !text && /^[{\[]/.test(buffer.trimStart())) {
+            if ((mode === 'compatible' || mode === 'toolcall') && !eventData.length && !text && !toolArgsRaw && /^[{\[]/.test(buffer.trimStart())) {
                 protocol = 'json';
                 return;
             }
@@ -271,9 +454,11 @@ async function readCompletion(response, mode, options) {
         options.signal?.throwIfAborted();
         if (protocol === 'json')
             consumePayloads(buffer);
+        if (!text.trim() && toolArgsRaw.trim())
+            update(extractPlanJsonFromArgs(toolArgsRaw) || toolArgsRaw.trim());
         if (!text.trim())
             throw new ModelApiError('模型接口没有返回文本正文。');
-        if (mode !== 'stream')
+        if (mode !== 'stream' && mode !== 'toolcall')
             options.onText?.(text);
         return text;
     }
@@ -289,10 +474,12 @@ function tavernHost() {
         throw new ModelApiError('跟随酒馆主 API 目前支持“聊天补全”；请切换主 API 类型或使用自定义接口。', 'setup');
     }
     const service = host.ChatCompletionService;
-    if (typeof service?.presetToGeneratePayload !== 'function'
+    if ((!isSifangEnvironment() && typeof service?.presetToGeneratePayload !== 'function')
         || typeof host.getRequestHeaders !== 'function' || typeof host.getChatCompletionModel !== 'function'
         || !host.chatCompletionSettings) {
-        throw new ModelApiError('当前酒馆版本未提供独立模型请求接口，请升级酒馆或使用自定义接口。', 'setup');
+        throw new ModelApiError(isSifangEnvironment()
+            ? '独立前端未提供完整的模型连接，请更新前端或使用自定义接口。'
+            : '当前酒馆版本未提供独立模型请求接口，请升级酒馆或使用自定义接口。', 'setup');
     }
     return host;
 }
@@ -301,7 +488,7 @@ export async function requestModel(settings, messages, options = {}) {
     if (!Number.isInteger(settings.maxTokens) || settings.maxTokens < 1 || settings.maxTokens > 65536
         || !Number.isFinite(settings.temperature) || settings.temperature < 0 || settings.temperature > 2
         || !['tavern', 'custom'].includes(settings.mode)
-        || !['nonstream', 'stream', 'compatible'].includes(settings.transport)) {
+        || !['nonstream', 'stream', 'compatible', 'toolcall'].includes(settings.transport)) {
         throw new ModelApiError('请检查模型参数。', 'setup');
     }
     if (!messages.length
@@ -310,7 +497,8 @@ export async function requestModel(settings, messages, options = {}) {
         throw new ModelApiError('没有可发送的有效预设或功能层内容。', 'setup');
     }
     const stream = settings.transport !== 'nonstream';
-    const copiedMessages = messages.map(({ role, content }) => ({ role, content }));
+    const toolEnvelope = settings.transport === 'toolcall' ? buildToolCallEnvelope(messages) : null;
+    const copiedMessages = toolEnvelope?.messages ?? messages.map(({ role, content }) => ({ role, content }));
     return withRequest(options.signal, 300_000, async (signal) => {
         const endpoint = '/api/backends/chat-completions/generate';
         let headers;
@@ -331,9 +519,13 @@ export async function requestModel(settings, messages, options = {}) {
             if (!model)
                 throw new ModelApiError('请先在酒馆主 API 中选择模型。', 'setup');
             headers = host.getRequestHeaders();
-            payload = await host.ChatCompletionService.presetToGeneratePayload({}, {
+            // Sifang's backend bridge already selects the background seat and its protocol.
+            // Send only this extension's messages and sampling; the ST payload builder is not exposed there.
+            payload = isSifangEnvironment() ? {
+                model, messages: copiedMessages, stream, max_tokens: settings.maxTokens, temperature: settings.temperature,
+            } : await host.ChatCompletionService.presetToGeneratePayload({}, {
                 openai_max_tokens: settings.maxTokens, temperature: settings.temperature,
-                function_calling: false, enable_web_search: false, request_images: false,
+                function_calling: toolEnvelope !== null, enable_web_search: false, request_images: false,
             }, { model, messages: copiedMessages, stream });
             // Keep text and its ordering controlled by this extension's preset and feature layers.
             for (const key of ['tools', 'tool_choice', 'custom_include_body', 'custom_exclude_body', 'assistant_prefill']) {
@@ -341,12 +533,24 @@ export async function requestModel(settings, messages, options = {}) {
             }
             payload.custom_prompt_post_processing = 'none';
         }
-        signal.throwIfAborted();
-        const response = await fetch(endpoint, {
-            method: 'POST', headers, body: JSON.stringify(payload), signal,
-            credentials: 'same-origin',
-            redirect: 'error', referrerPolicy: 'no-referrer',
-        });
+        if (toolEnvelope) {
+            payload.tools = toolEnvelope.tools;
+            payload.tool_choice = 'required';
+        }
+        const send = (body) => {
+            signal.throwIfAborted();
+            return fetch(endpoint, {
+                method: 'POST', headers, body: JSON.stringify(body), signal,
+                credentials: 'same-origin',
+                redirect: 'error', referrerPolicy: 'no-referrer',
+            });
+        };
+        let response = await send(payload);
+        // Some compatible gateways reject tool_choice "required" with HTTP 400; retry once with "auto".
+        if (toolEnvelope && response.status === 400) {
+            void response.body?.cancel().catch(() => { });
+            response = await send({ ...payload, tool_choice: 'auto' });
+        }
         return readCompletion(response, settings.transport, { ...options, signal });
     });
 }

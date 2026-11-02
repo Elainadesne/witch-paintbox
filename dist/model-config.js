@@ -1,7 +1,7 @@
 import { fetchModelList } from './model-api.js';
 import { featureLayerMessages, listFeatureLayers, onFeatureLayersChanged } from './feature-layers.js';
 import { createPromptOrder, detachStoredWorldbook, hasSavedModelSettings, isImageSizeModeSaving, loadModelSettings, saveImageSizeMode, saveModelSettings, modelPresetSettings, modelSharedSettings } from './model-settings.js';
-import { modelSettingsView, presetIndexView, presetWorkspaceView, worldbookSettingsView, PRESET_PAGE_SIZE } from './model-view.js';
+import { modelChoicesView, modelPickerView, modelSettingsView, presetIndexView, presetWorkspaceView, worldbookSettingsView, PRESET_PAGE_SIZE } from './model-view.js';
 import { importModelPreset, MAX_PRESET_BYTES, MAX_PRESET_ENTRIES } from './preset-import.js';
 import { deleteWorldbook, importWorldbook, listWorldbooks, onWorldbooksChanged, readWorldbook, updateWorldbookEntryContent } from './worldbook-source.js';
 import { onAnchorsChanged } from './anchor-store.js';
@@ -192,6 +192,25 @@ export class ModelConfig {
         this.listeners = new AbortController();
         const { signal } = this.listeners;
         container.addEventListener('input', event => this.edit(event), { signal });
+        container.addEventListener('toggle', event => {
+            const picker = event.target;
+            if (!(picker instanceof HTMLDetailsElement) || !picker.hasAttribute('data-model-picker') || !picker.open)
+                return;
+            const search = picker.querySelector('[data-model-search]');
+            if (search)
+                search.value = '';
+            this.renderModelChoices();
+        }, { signal, capture: true });
+        container.addEventListener('keydown', event => {
+            if (event.key !== 'Escape' || !(event.target instanceof Element))
+                return;
+            const picker = event.target.closest('[data-model-picker]');
+            if (!picker?.open)
+                return;
+            event.preventDefault();
+            picker.open = false;
+            picker.querySelector('summary')?.focus();
+        }, { signal });
         container.addEventListener('focusout', event => {
             if (this.restoringWorldbookFocus || !(event.target instanceof HTMLTextAreaElement))
                 return;
@@ -575,6 +594,10 @@ export class ModelConfig {
         if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement || input instanceof HTMLSelectElement) || !this.settings)
             return;
         const settings = this.settings;
+        if (input.hasAttribute('data-model-search')) {
+            this.renderModelChoices();
+            return;
+        }
         if (input instanceof HTMLTextAreaElement && input.hasAttribute('data-worldbook-content')) {
             this.editWorldbookContent(input);
             return;
@@ -617,7 +640,7 @@ export class ModelConfig {
                     settings[field] = input.value === '' ? NaN : Number(input.value);
                     break;
                 case 'transport':
-                    if (['nonstream', 'stream', 'compatible'].includes(input.value))
+                    if (['nonstream', 'stream', 'compatible', 'toolcall'].includes(input.value))
                         settings.transport = input.value;
                     break;
             }
@@ -627,9 +650,11 @@ export class ModelConfig {
                 this.syncRefresh();
                 if (field !== 'mode') {
                     settings.models = [];
-                    this.container?.querySelector('datalist')?.replaceChildren();
+                    this.renderModelPicker();
                 }
             }
+            if (field === 'model')
+                this.renderModelChoices();
         }
         else if (input.dataset.promptField) {
             const id = input.closest('[data-entry-id]')?.dataset.entryId;
@@ -687,6 +712,22 @@ export class ModelConfig {
                 key.type = key.type === 'password' ? 'text' : 'password';
                 button.textContent = key.type === 'password' ? '显示' : '隐藏';
                 button.setAttribute('aria-pressed', String(key.type === 'text'));
+            }
+            else if (action === 'choose-model') {
+                const model = button.dataset.modelName;
+                if (!model || !this.settings.models.includes(model))
+                    return;
+                this.settings.model = model;
+                const input = this.container?.querySelector('[data-model-field="model"]');
+                if (input)
+                    input.value = model;
+                const picker = button.closest('[data-model-picker]');
+                if (picker)
+                    picker.open = false;
+                this.draftRevision++;
+                this.syncSave();
+                this.renderModelChoices();
+                input?.focus();
             }
             else if (action === 'refresh-models')
                 void this.refreshModels();
@@ -1094,6 +1135,23 @@ export class ModelConfig {
                 this.presetMessage(`导入失败，原配置已保留：${error instanceof Error ? error.message : '无法读取文件。'}`, true);
         }
     }
+    renderModelChoices() {
+        if (!this.settings)
+            return;
+        const choices = this.container?.querySelector('[data-model-choices]');
+        const search = this.container?.querySelector('[data-model-search]');
+        if (choices)
+            choices.innerHTML = modelChoicesView(this.settings, search?.value);
+    }
+    renderModelPicker() {
+        if (!this.settings)
+            return;
+        const host = this.container?.querySelector('[data-model-picker-host]');
+        if (host) {
+            host.hidden = !this.settings.models.length;
+            host.innerHTML = modelPickerView(this.settings);
+        }
+    }
     syncRefresh() {
         const button = this.container?.querySelector('[data-model-action="refresh-models"]');
         if (button) {
@@ -1113,9 +1171,7 @@ export class ModelConfig {
             if (controller.signal.aborted || this.refresh !== controller)
                 return;
             this.settings.models = models;
-            const list = this.container?.querySelector('datalist');
-            if (list)
-                list.innerHTML = models.map(model => `<option value="${escape(model)}"></option>`).join('');
+            this.renderModelPicker();
             this.syncSave();
             this.message(models.length ? `已读取 ${models.length} 个模型，可选择或手动填写；点击保存保留配置。` : '接口未返回模型，可手动填写模型名称。');
         }

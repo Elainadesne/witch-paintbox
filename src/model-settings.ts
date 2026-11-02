@@ -99,7 +99,7 @@ export function validateModelSettings(value: unknown): ModelSettings {
   const source = record(value);
   if (source.presetProvider !== undefined && !IMAGE_PROVIDERS.includes(source.presetProvider as ImageProvider)) invalid();
   if (source.mode !== 'tavern' && source.mode !== 'custom') invalid();
-  if (source.transport !== 'nonstream' && source.transport !== 'stream' && source.transport !== 'compatible') invalid();
+  if (source.transport !== 'nonstream' && source.transport !== 'stream' && source.transport !== 'compatible' && source.transport !== 'toolcall') invalid();
   if (source.parseImageMarkers !== undefined && typeof source.parseImageMarkers !== 'boolean') invalid();
   if (source.hideImageContext !== undefined && typeof source.hideImageContext !== 'boolean') invalid();
   const head = entries(source.head);

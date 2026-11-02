@@ -70,7 +70,7 @@ export function validateModelSettings(value) {
         invalid();
     if (source.mode !== 'tavern' && source.mode !== 'custom')
         invalid();
-    if (source.transport !== 'nonstream' && source.transport !== 'stream' && source.transport !== 'compatible')
+    if (source.transport !== 'nonstream' && source.transport !== 'stream' && source.transport !== 'compatible' && source.transport !== 'toolcall')
         invalid();
     if (source.parseImageMarkers !== undefined && typeof source.parseImageMarkers !== 'boolean')
         invalid();

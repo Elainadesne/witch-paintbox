@@ -137,6 +137,19 @@ export function presetWorkspaceView(settings, state) {
     return `${presetIndexView(settings, state)}
     <div class="preset-detail"><header class="preset-detail-heading"><h3>${current ? '编辑条目' : escape(titleFor(selected))}</h3>${current ? '' : '<span>自动读取</span>'}</header>${detail}</div>`;
 }
+export function modelChoicesView(settings, query = '') {
+    const search = query.trim().toLowerCase();
+    const models = settings.models.filter(model => !search || model.toLowerCase().includes(search));
+    return `<p class="config-status" role="status">${search ? `匹配 ${models.length} / ${settings.models.length} 个模型` : `共 ${models.length} 个模型`}${models.length ? '，点击名称选用。' : '，请调整搜索词或手动填写模型名。'}</p>
+    <div class="model-picker-list" aria-label="模型列表">${models.map(model => `<button type="button" class="text-button" data-model-action="choose-model" data-model-name="${escape(model)}" aria-pressed="${model === settings.model}">${escape(model)}</button>`).join('')}</div>`;
+}
+export function modelPickerView(settings) {
+    return settings.models.length ? `<details class="prompt-section model-picker" data-model-picker>
+    <summary>浏览全部模型 · ${settings.models.length}</summary>
+    <label class="config-field"><span>搜索模型</span><input type="search" data-model-search placeholder="输入关键词筛选模型" autocomplete="off" spellcheck="false"></label>
+    <div data-model-choices>${modelChoicesView(settings)}</div>
+  </details>` : '';
+}
 export function modelSettingsView(settings, state) {
     const providerName = imageProviderName(settings.presetProvider);
     return `<div class="image-settings model-settings">
@@ -162,11 +175,11 @@ export function modelSettingsView(settings, state) {
         </div>
         <div class="model-choice-line">
           <label class="config-field"><span>模型</span>
-            <input type="text" data-model-field="model" value="${escape(settings.model)}" list="witch-model-options" maxlength="512" placeholder="选择或填写模型名称" autocomplete="off" spellcheck="false">
-            <datalist id="witch-model-options">${settings.models.map(model => `<option value="${escape(model)}"></option>`).join('')}</datalist>
+            <input type="text" data-model-field="model" value="${escape(settings.model)}" maxlength="512" placeholder="填写模型名称，或从下方列表选择" autocomplete="off" spellcheck="false">
           </label>
           <button type="button" class="text-button" data-model-action="refresh-models"${state.refreshing ? ' disabled' : ''}>${state.refreshing ? '刷新中…' : '刷新列表'}</button>
         </div>
+        <div data-model-picker-host${settings.models.length ? '' : ' hidden'}>${modelPickerView(settings)}</div>
       </div>
       <div class="parameter-group"><h3 class="subsection-title">回复参数</h3><div class="parameter-grid model-parameters">
         <label class="config-field"><span>最大回复长度 · max tokens</span>
@@ -180,6 +193,7 @@ export function modelSettingsView(settings, state) {
         { value: 'nonstream', label: '非流式' },
         { value: 'stream', label: '流式' },
         { value: 'compatible', label: '假流兼容' },
+        { value: 'toolcall', label: 'ToolCall 结构化' },
     ], settings.transport)}</select>
         </label>
       </div></div>
