@@ -6,7 +6,7 @@ function escape(value) {
 }
 const scopeTitles = { all: '全部配置', artists: '画师串', presets: '预设', worldbooks: '世界书' };
 const scopeDescriptions = {
-    all: '包含 NAI / GPT / Gemini / Grok 各通道生图 API、参数、画师串和预设，以及共用模型 API、标签锚定（含角色图）、通用服装、世界书与使用偏好。',
+    all: '包含 NAI / GPT / Gemini / Grok 各通道生图 API、参数、画师串和预设，以及共用模型 API、标签锚定（含角色图）、通用服装、世界书、生图设置与使用偏好。',
     artists: '分享当前生图类型的命名画师配置、提示词及选用状态，文件会记录目标类型。',
     presets: '分享当前生图类型的预设名称、文本条目、编排顺序、功能层启用状态及共用标记开关。',
     worldbooks: '包含完整世界书库、原文条目，以及 NAI / GPT 两套已保存的挂载选择。',
@@ -246,7 +246,7 @@ export class ConfigTransfer {
             await applyArchive(archive, this.context, modes);
             this.onApplied(archive.kind, archive.kind === 'artists' || archive.kind === 'presets' ? archive.data.provider : undefined);
             this.pending = null;
-            this.notice = archive.kind === 'all' ? '配置已导入，当前页面即可继续使用；使用偏好已提交酒馆保存。' : `${scopeTitles[archive.kind]}已导入，当前页面即可继续使用。`;
+            this.notice = archive.kind === 'all' ? '配置已导入，当前页面即可继续使用；生图设置与使用偏好已提交酒馆保存。' : `${scopeTitles[archive.kind]}已导入，当前页面即可继续使用。`;
         }
         catch (error) {
             this.error = true;

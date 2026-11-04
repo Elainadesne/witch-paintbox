@@ -1,3 +1,5 @@
+import { currentPreferences } from './settings.js';
+
 export type ImageGenerationProgress =
   | { state: 'queued'; position: number; columns?: number }
   | { state: 'generating'; columns?: number };
@@ -9,19 +11,33 @@ interface QueuedGeneration {
 }
 
 const waiting: QueuedGeneration[] = [];
-let running = false;
-interface ImageQueueState { generating: boolean; queued: number }
+let running = 0;
+let concurrency = 1;
+let draining = false;
+export interface ImageQueueState { generating: boolean; active: number; queued: number; limit: number }
 const listeners = new Set<(state: ImageQueueState) => void>();
 
+function queueState(): ImageQueueState {
+  return { generating: running > 0, active: running, queued: waiting.length, limit: concurrency };
+}
+
+/** Apply saved preferences once host storage is ready, then follow edits/imports/resets. */
+export function bindImageQueuePreferences(signal: AbortSignal): void {
+  if (signal.aborted) return;
+  const update = () => { concurrency = currentPreferences().imageConcurrency; drain(); };
+  window.addEventListener('witch-paintbox:preferences-changed', update, { signal });
+  update();
+}
+
 export function onImageQueueChanged(listener: (state: ImageQueueState) => void): () => void {
-  listener({ generating: running, queued: waiting.length });
+  listener(queueState());
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
 
 function notifyQueue(): void {
   for (const listener of listeners) {
-    try { listener({ generating: running, queued: waiting.length }); }
+    try { listener(queueState()); }
     catch { /* A launcher update must not interrupt the shared queue. */ }
   }
 }
@@ -50,17 +66,18 @@ function updatePositions(): void {
   notifyQueue();
 }
 
-async function drain(): Promise<void> {
-  if (running) return;
-  running = true;
+function drain(): void {
+  if (draining) return;
+  draining = true;
   try {
-    while (waiting.length) {
+    while (waiting.length && running < concurrency) {
       const task = waiting.shift()!;
-      await task.start();
+      ++running;
+      void task.start().finally(() => { --running; drain(); });
     }
   } finally {
-    running = false;
-    notifyQueue();
+    draining = false;
+    updatePositions();
   }
 }
 
@@ -102,7 +119,6 @@ export function queueImageGeneration<T>(
     waiting.push(task);
     signal.addEventListener('abort', cancel, { once: true });
     if (signal.aborted) cancel();
-    if (running) updatePositions();
-    else void drain();
+    drain();
   });
 }

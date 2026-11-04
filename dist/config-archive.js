@@ -3,7 +3,7 @@ import { defaultModelSettings, loadModelSettings, validateModelSettings, loadAll
 import { loadAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT } from './anchor-store.js';
 import { loadSharedOutfits, validateSharedOutfits } from './shared-outfit-store.js';
 import { loadWorldbookArchive, validateWorldbookArchive } from './worldbook-source.js';
-import { defaultSettings, readPetPlacement, readPetScale, readSettings, isPaintboxTheme, readAutoImageDelay, readExcludedTags } from './settings.js';
+import { defaultSettings, readPetPlacement, readPetScale, readSettings, isPaintboxTheme, readAutoImageDelay, readImageConcurrency, readExcludedTags } from './settings.js';
 import { isPageId } from './pages.js';
 export const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
 function object(value, label) {
@@ -37,19 +37,25 @@ function preferences(value) {
     }
     if (source.autoProcessReplies !== undefined) {
         if (typeof source.autoProcessReplies !== 'boolean')
-            throw new Error('自动 AI 生图偏好格式无效。');
+            throw new Error('回复后自动写 Tag 偏好格式无效。');
         optional.autoProcessReplies = source.autoProcessReplies;
     }
     if (source.autoGenerateImages !== undefined) {
         if (typeof source.autoGenerateImages !== 'boolean')
-            throw new Error('自动点击生图偏好格式无效。');
+            throw new Error('新标记自动出图偏好格式无效。');
         optional.autoGenerateImages = source.autoGenerateImages;
     }
     if (source.autoImageDelay !== undefined) {
         const delay = readAutoImageDelay(source.autoImageDelay);
         if (delay === null)
-            throw new Error('自动点击生图间隔须在 0～60 秒之间。');
+            throw new Error('自动出图等待与间隔须在 0～60 秒之间。');
         optional.autoImageDelay = delay;
+    }
+    if (source.imageConcurrency !== undefined) {
+        const concurrency = readImageConcurrency(source.imageConcurrency);
+        if (concurrency === null)
+            throw new Error('最大同时生图数须为 1～4 的整数。');
+        optional.imageConcurrency = concurrency;
     }
     for (const name of ['petLines', 'petMotion', 'petAway']) {
         const value = source[name];
@@ -348,6 +354,6 @@ export function summarizeArchive(archive) {
             : provider === 'gemini' ? settings.geminiParameters.model : settings.grokParameters.model;
         rows.push({ title: `${providerName(provider)} 生图 API`, detail: `${settings.connectionProfiles.length} 个保存连接；模型 ${modelLabel || '未选模型'}，${canvas}，含全部生图参数。` }, { title: `${providerName(provider)} 画师串`, detail: `${settings.artists.length} 个命名配置及当前提示词。${settings.artists.map(item => item.name).join('、')}` }, { title: `${providerName(provider)} 预设`, detail: `“${preset.presetName || '未命名'}”，${preset.head.length + preset.tail.length} 个文本条目，含编排、功能层选择和 ${preset.worldbooks.length} 本世界书挂载。` });
     }
-    rows.push({ title: '共用模型 API', detail: `${model.api.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.api.model || '未选模型'}`}；含回复参数及配图标记开关。` }, { title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` }, { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装。${sharedOutfits.map(outfit => outfit.name).join('、')}` }, { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含各通道挂载关系。${worldbooks.map(book => book.name).join('、')}` }, { title: '使用偏好', detail: `含页面记忆与悬浮球位置。自动 AI 生图：${archive.data.preferences.autoProcessReplies ? '开启' : '关闭'}；自动点击生图：${archive.data.preferences.autoGenerateImages ? '开启' : '关闭'}（仅限最新一楼，间隔 ${archive.data.preferences.autoImageDelay} 秒）；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，采用文件偏好后会清理本机过期图片` : '关闭'}。` });
+    rows.push({ title: '共用模型 API', detail: `${model.api.mode === 'tavern' ? '跟随酒馆主 API' : `自定义接口 · ${model.api.model || '未选模型'}`}；含回复参数及配图标记开关。` }, { title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` }, { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装。${sharedOutfits.map(outfit => outfit.name).join('、')}` }, { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含各通道挂载关系。${worldbooks.map(book => book.name).join('、')}` }, { title: '生图设置与使用偏好', detail: `含生图设置、页面记忆与悬浮球位置。最大同时生图数：${archive.data.preferences.imageConcurrency} 张。回复后自动写 Tag：${archive.data.preferences.autoProcessReplies ? '开启' : '关闭'}；新标记自动出图：${archive.data.preferences.autoGenerateImages ? '开启' : '关闭'}（仅限最新一楼，间隔 ${archive.data.preferences.autoImageDelay} 秒）；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，采用文件偏好后会清理本机过期图片` : '关闭'}。` });
     return rows;
 }

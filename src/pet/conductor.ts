@@ -17,7 +17,7 @@ export function faultLine(fault: PetFault | undefined): Line | null {
 }
 
 export interface ConductorHooks {
-  status(generating: boolean, queued: number): void;
+  status(generating: boolean, queued: number, active: number): void;
   stop(): void;
   wake(): void;
   readTarget(floor: number | null): void;
@@ -48,7 +48,7 @@ export function conduct(m: Motion, acts: Acts, speech: Speech, hooks: ConductorH
     if (stopped) return;
     queued = state.queued;
     m.st.box.queued = queued + autoWaiting;
-    hooks.status(state.generating, state.queued);
+    hooks.status(state.generating, state.queued, state.active);
     hooks.wake();
   });
 

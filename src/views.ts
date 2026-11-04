@@ -1,5 +1,5 @@
 import { navigation, pages, pluginName, type PageId } from './pages.js';
-import { MAX_AUTO_IMAGE_DELAY, type Settings } from './settings.js';
+import { MAX_AUTO_IMAGE_DELAY, MAX_IMAGE_CONCURRENCY, type Settings } from './settings.js';
 import { updateHistoryView } from './update-history.js';
 import { getHostStore, isTauriHost } from './host-storage.js';
 import { getSyncApiKeys } from './host-settings.js';
@@ -31,10 +31,11 @@ const guideLinks = {
   worldbookMount: { label: '挂载条目', page: 'features', featureTab: 'worldbook', selector: '[data-worldbook-mount]' },
   currentImages: { label: '当前角色卡', page: 'review', reviewScope: 'current' },
   allImages: { label: '全部角色卡', page: 'review', reviewScope: 'all' },
-  habits: { label: '配图与留存', page: 'preferences', selector: '[aria-labelledby="image-habits-heading"]' },
-  autoProcess: { label: '自动 AI 生图', page: 'preferences', selector: '[name="autoProcessReplies"]' },
-  autoImages: { label: '自动点击生图', page: 'preferences', selector: '[name="autoGenerateImages"]' },
-  retention: { label: '自动清理', page: 'preferences', selector: '[name="imageRetentionDays"]' },
+  habits: { label: '生图与出图', page: 'image-workflow', selector: '[aria-labelledby="image-habits-heading"]' },
+  autoProcess: { label: '回复后自动写 Tag', page: 'image-workflow', selector: '[name="autoProcessReplies"]' },
+  autoImages: { label: '新标记自动出图', page: 'image-workflow', selector: '[name="autoGenerateImages"]' },
+  retention: { label: '自动清理', page: 'image-workflow', selector: '[name="imageRetentionDays"]' },
+  concurrency: { label: '并发生图', page: 'image-workflow', selector: '[name="imageConcurrency"]' },
   tia: { label: '桌宠缇娅', page: 'preferences', selector: '[aria-labelledby="pet-heading"]' },
   exportConfig: { label: '导出配置', page: 'preferences', selector: '[data-config-transfer] .config-section' },
   importConfig: { label: '导入配置', page: 'preferences', selector: '[data-transfer-file]' },
@@ -55,7 +56,7 @@ function guideLeaf(link: GuideLink, title: string, description: string, tags: Gu
 
 // 每个板块一格画匣颜料（取自 box_paint 的 8 格）；选中板块的颜色即面板主色
 export const navigationPaints: Record<string, string> = {
-  guide: '#EBA63A', connections: '#E6872A', features: '#C8A04C', review: '#8C6649', preferences: '#5C3D2A',
+  guide: '#EBA63A', connections: '#E6872A', features: '#C8A04C', workflow: '#A76D40', review: '#8C6649', preferences: '#5C3D2A',
 };
 
 export function navigationView(page: PageId): string {
@@ -111,9 +112,14 @@ function guideView(): string {
             ${guideLeaf('currentImages', pages.review.title, pages.review.description, ['currentImages', 'allImages'])}
           </div>
         </div>
+        <div class="map-branch">${node('image-workflow')}
+          <div class="map-leaves">
+            ${guideLeaf('habits', '自动配图与队列', '正文完成后写 Tag，再交给画笔绘制', ['autoProcess', 'autoImages', 'concurrency', 'retention'])}
+          </div>
+        </div>
         <div class="map-branch">${node('preferences')}
           <div class="map-leaves">
-            ${guideLeaf('habits', '使用习惯', '安排配图留存，调整缇娅的陪伴', ['autoProcess', 'autoImages', 'retention', 'tia', 'updates'])}
+            ${guideLeaf('tia', '使用习惯', '调整缇娅的陪伴，查看画匣更新', ['tia', 'updates'])}
             ${guideLeaf('exportConfig', '配置迁移与分享', '选择配置范围，迁移或分享', ['exportConfig', 'importConfig'])}
           </div>
         </div>
@@ -147,18 +153,41 @@ function hostSyncView(): string {
   </section>`;
 }
 
-function preferencesView(settings: Settings): string {
+function imageWorkflowView(settings: Settings): string {
   return `
     <section class="preference-section" aria-labelledby="image-habits-heading">
-      <header class="section-heading section-heading--plain"><h3 id="image-habits-heading" class="section-title">配图与留存</h3><p class="section-description">安排自动绘制，给本机画匣留出空间。</p></header>
+      <header class="section-heading section-heading--plain"><h3 id="image-habits-heading" class="section-title">自动配图</h3><p class="section-description">正文完成 → 模型写 Tag → 生成图片。两步可以分别开启。</p></header>
+      <label class="preference-row"><span><strong>回复后自动写 Tag</strong><span>原“自动 AI 生图”。新正文及酒馆助手后续任务结束、正文稳定 3 秒后，调用已保存的模型 API 和预设，写入配图标记。只开启此项时，图片由你手动生成。会消耗模型 API 额度。</span></span><input type="checkbox" name="autoProcessReplies" ${settings.autoProcessReplies ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>新标记自动出图</strong><span>原“自动点击生图”。仅将最新回复中新出现的配图标记自动送入生图队列；配合上一项即可全程自动出图。已有图片跳过，失败不自动重试；打开聊天或开启功能时不补跑历史标记。会消耗生图额度。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
+      <p class="config-status" data-workflow-status role="status">${workflowStatus(settings)}</p>
+      <label class="preference-row"><span><strong>自动出图等待与间隔</strong><span>正文稳定后先等待此时长；逐张绘制时，每张结束后再等此时长。并发时，空位按此间隔依次补入新任务。填 0 为立即接上，默认 1 秒，最多 ${MAX_AUTO_IMAGE_DELAY} 秒。</span></span>
+        <span class="preference-number"><input type="number" name="autoImageDelay" min="0" max="${MAX_AUTO_IMAGE_DELAY}" step="0.1" inputmode="decimal" value="${settings.autoImageDelay}" aria-label="自动出图等待与间隔（秒）">秒</span></label>
+    </section>
+    <section class="preference-section" aria-labelledby="image-queue-heading">
+      <header class="section-heading section-heading--plain"><h3 id="image-queue-heading" class="section-title">并发与队列</h3><p class="section-description">正文配图、重绘、试绘和角色图共用同一队列，按入队顺序开始。</p></header>
+      <label class="preference-row"><span><strong>最大同时生图数</strong><span>默认 1 张，可设为 1～${MAX_IMAGE_CONCURRENCY} 张。调低时正在生成的图片继续完成，后续按新上限开始；模型写 Tag 仍一次处理一条回复。请按生图服务允许的并发数设置。</span></span>
+        <select name="imageConcurrency" aria-label="最大同时生图数">${Array.from({ length: MAX_IMAGE_CONCURRENCY }, (_, i) => i + 1).map(value => `<option value="${value}"${settings.imageConcurrency === value ? ' selected' : ''}>${value} 张</option>`).join('')}</select></label>
+      <p class="config-status" data-image-queue-status role="status"></p>
+    </section>
+    <section class="preference-section" aria-labelledby="image-retention-heading">
+      <header class="section-heading section-heading--plain"><h3 id="image-retention-heading" class="section-title">图片留存</h3><p class="section-description">管理保存在这台设备上的图片历史。</p></header>
       <label class="preference-row"><span><strong>自动清理生图</strong><span>按生成时间清理所有角色卡的本机图片历史；角色锚定图保留。开启后立即清理，关闭酒馆期间的过期图片会在下次打开时清理。</span></span>
         <select name="imageRetentionDays" aria-label="图片保留时间">${[[0, '关闭'], [1, '保留 1 天'], [3, '保留 3 天'], [7, '保留 7 天']].map(([value, label]) => `<option value="${value}"${settings.imageRetentionDays === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
       <p class="config-status" data-cleanup-status role="status"></p>
-      <label class="preference-row"><span><strong>自动 AI 生图</strong><span>收到新正文后自动为最新回复调用模型写配图标记，相当于替你点菜单里的“AI生图”；配合“自动点击生图”即可全程自动出图。会等酒馆空闲、酒馆助手的后续生成任务结束，并确认正文稳定 3 秒后再开始；手动停止的回复和已有配图标记的楼层不处理。会消耗模型 API 额度。</span></span><input type="checkbox" name="autoProcessReplies" ${settings.autoProcessReplies ? 'checked' : ''}></label>
-      <label class="preference-row"><span><strong>自动点击生图</strong><span>仅限最新一楼。楼层里出现新的配图标记后自动点“生成图片”：AI 回复结束、提示词稳定后，按正文顺序依次绘制。会消耗生图额度；已有图片跳过，失败不自动重试，打开聊天或开启功能时不补跑历史标记。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
-      <label class="preference-row"><span><strong>自动点击生图间隔</strong><span>提示词稳定后等多久开始画，以及画完一张后隔多久接上下一张。填 0 为立即接上，默认 1 秒，最多 ${MAX_AUTO_IMAGE_DELAY} 秒。</span></span>
-        <span class="preference-number"><input type="number" name="autoImageDelay" min="0" max="${MAX_AUTO_IMAGE_DELAY}" step="0.1" inputmode="decimal" value="${settings.autoImageDelay}" aria-label="自动生图间隔（秒）">秒</span></label>
+      <button type="button" class="secondary" data-page="review">打开生图回顾 →</button>
     </section>
+    <div class="actions"><button type="button" class="secondary" data-action="reset-image-workflow">恢复默认生图设置</button><p class="muted" role="status" data-feedback>更改会自动保存。</p></div>`;
+}
+
+export function workflowStatus(settings: Settings): string {
+  if (settings.autoProcessReplies && settings.autoGenerateImages) return '当前流程：正文完成 → 模型写 Tag → 自动生成图片。';
+  if (settings.autoProcessReplies) return '当前流程：正文完成 → 模型写 Tag → 手动点击生成图片。';
+  if (settings.autoGenerateImages) return '当前流程：正文出现新配图标记 → 自动生成图片。';
+  return '自动配图已关闭，可从缇娅菜单手动使用“AI生图”或“指定插图”。';
+}
+
+function preferencesView(settings: Settings): string {
+  return `
     <section class="preference-section" aria-labelledby="pet-heading">
       <header class="section-heading section-heading--plain"><div class="pet-heading-line"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><small class="pet-credit">由 <strong>Lovéthia</strong> 宝宝制作，无比感谢！</small></div><p class="section-description">调整缇娅的大小、台词与动作；人物和画匣会一起缩放。</p></header>
       <div class="preference-row pet-size-row">
@@ -185,7 +214,7 @@ function preferencesView(settings: Settings): string {
       <input type="checkbox" name="rememberPosition" ${settings.rememberPosition ? 'checked' : ''}>
     </label>
     <div class="actions">
-      <button type="button" class="secondary" data-action="reset-preferences">恢复默认偏好</button>
+      <button type="button" class="secondary" data-action="reset-preferences">恢复默认使用偏好</button>
       <p class="muted" role="status" data-feedback>更改会自动保存。</p>
     </div>
     ${hostSyncView()}
@@ -219,6 +248,7 @@ export function pageView(page: PageId, settings: Settings, featureTab: FeatureTa
     case 'image-api': return '<div data-image-settings></div>';
     case 'model-api': return '<div data-model-settings></div>';
     case 'features': return featureView(featureTab);
+    case 'image-workflow': return heading + imageWorkflowView(settings);
     case 'review': return heading + '<div data-image-review></div>';
     case 'preferences': return heading + preferencesView(settings);
   }

@@ -7,8 +7,8 @@ export function bindLauncher(button, initial, onMove, onOpen, signal, onDrag) {
     const idleLabel = button.getAttribute('aria-label') ?? '';
     const idleTitle = button.title;
     const idleText = button.textContent;
-    const stopQueue = onImageQueueChanged(({ generating, queued }) => {
-        const status = `正在生图${queued ? ` · 还有 ${queued} 张排队` : ''}`;
+    const stopQueue = onImageQueueChanged(({ generating, active, queued }) => {
+        const status = `正在生成 ${active} 张${queued ? ` · 还有 ${queued} 张排队` : ''}`;
         button.classList.toggle('generating', generating);
         button.textContent = generating ? '绘制中' : idleText;
         button.title = generating ? `${status} · 点击打开菜单` : idleTitle;

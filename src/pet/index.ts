@@ -170,8 +170,8 @@ async function start(options: PetOptions, placement: () => PetPlacement | null, 
     if (Array.isArray(saved) && saved.length === 8 && saved.every(c => Array.isArray(c) && c.length === 3 && c.every(v => Number.isFinite(v)))) box.tint(saved as number[][], false);
   } catch { /* no palette yet */ }
 
-  const status = (generating: boolean, queued: number) => {
-    const text = `正在生图${queued ? ` · 还有 ${queued} 张排队` : ''}`;
+  const status = (generating: boolean, queued: number, active: number) => {
+    const text = `正在生成 ${active} 张${queued ? ` · 还有 ${queued} 张排队` : ''}`;
     launcher.title = generating ? `${text} · 点击打开菜单` : idleTitle;
     launcher.setAttribute('aria-label', generating ? `${text}，${idleLabel}` : idleLabel);
     launcher.setAttribute('aria-busy', String(generating));

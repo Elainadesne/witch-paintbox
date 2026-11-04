@@ -1,15 +1,29 @@
+import { currentPreferences } from './settings.js';
 const waiting = [];
-let running = false;
+let running = 0;
+let concurrency = 1;
+let draining = false;
 const listeners = new Set();
+function queueState() {
+    return { generating: running > 0, active: running, queued: waiting.length, limit: concurrency };
+}
+/** Apply saved preferences once host storage is ready, then follow edits/imports/resets. */
+export function bindImageQueuePreferences(signal) {
+    if (signal.aborted)
+        return;
+    const update = () => { concurrency = currentPreferences().imageConcurrency; drain(); };
+    window.addEventListener('witch-paintbox:preferences-changed', update, { signal });
+    update();
+}
 export function onImageQueueChanged(listener) {
-    listener({ generating: running, queued: waiting.length });
+    listener(queueState());
     listeners.add(listener);
     return () => { listeners.delete(listener); };
 }
 function notifyQueue() {
     for (const listener of listeners) {
         try {
-            listener({ generating: running, queued: waiting.length });
+            listener(queueState());
         }
         catch { /* A launcher update must not interrupt the shared queue. */ }
     }
@@ -36,19 +50,20 @@ function updatePositions() {
     }
     notifyQueue();
 }
-async function drain() {
-    if (running)
+function drain() {
+    if (draining)
         return;
-    running = true;
+    draining = true;
     try {
-        while (waiting.length) {
+        while (waiting.length && running < concurrency) {
             const task = waiting.shift();
-            await task.start();
+            ++running;
+            void task.start().finally(() => { --running; drain(); });
         }
     }
     finally {
-        running = false;
-        notifyQueue();
+        draining = false;
+        updatePositions();
     }
 }
 /** One shared FIFO for every image entry point; the operation includes response decoding. */
@@ -90,9 +105,6 @@ export function queueImageGeneration(operation, signal, onProgress) {
         signal.addEventListener('abort', cancel, { once: true });
         if (signal.aborted)
             cancel();
-        if (running)
-            updatePositions();
-        else
-            void drain();
+        drain();
     });
 }

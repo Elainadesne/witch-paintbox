@@ -14,12 +14,14 @@ export interface Settings {
   lastPage: PageId;
   position: Position | null;
   imageRetentionDays: 0 | 1 | 3 | 7;
-  /** 正文写完后自动调用模型写配图标记（相当于自动点“AI生图”） */
+  /** 回复后自动写 Tag：正文写完后自动调用模型写配图标记 */
   autoProcessReplies: boolean;
-  /** 自动点击生图：新出现的配图标记自动绘制 */
+  /** 新标记自动出图：新出现的配图标记自动绘制 */
   autoGenerateImages: boolean;
-  /** 自动点击生图在提示词稳定后、以及两张图之间等待的秒数；0 为立即接上 */
+  /** 自动出图的首次等待及补位间隔秒数；0 为立即接上 */
   autoImageDelay: number;
+  /** 所有图片入口共用的最大同时请求数，默认逐张生成。 */
+  imageConcurrency: number;
   petLines: boolean;
   petMotion: boolean;
   petScale: number;
@@ -64,10 +66,15 @@ export interface TavernContext {
 
 export function defaultSettings(): Settings {
   return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-    imageRetentionDays: 0, autoProcessReplies: false, autoGenerateImages: false, autoImageDelay: 1, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto', excludedTags: [...DEFAULT_EXCLUDED_TAGS] };
+    imageRetentionDays: 0, autoProcessReplies: false, autoGenerateImages: false, autoImageDelay: 1, imageConcurrency: 1, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto', excludedTags: [...DEFAULT_EXCLUDED_TAGS] };
 }
 
 export const MAX_AUTO_IMAGE_DELAY = 60;
+export const MAX_IMAGE_CONCURRENCY = 4;
+
+export function readImageConcurrency(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_IMAGE_CONCURRENCY ? value : null;
+}
 
 /** 秒数保留一位小数；超出 0～60 或不是数字时返回 null。 */
 export function readAutoImageDelay(value: unknown): number | null {
@@ -111,6 +118,7 @@ export function readSettings(context: TavernContext): Settings {
   if (typeof saved.autoProcessReplies === 'boolean') settings.autoProcessReplies = saved.autoProcessReplies;
   if (typeof saved.autoGenerateImages === 'boolean') settings.autoGenerateImages = saved.autoGenerateImages;
   settings.autoImageDelay = readAutoImageDelay(saved.autoImageDelay) ?? settings.autoImageDelay;
+  settings.imageConcurrency = readImageConcurrency(saved.imageConcurrency) ?? settings.imageConcurrency;
   if (typeof saved.petLines === 'boolean') settings.petLines = saved.petLines;
   if (typeof saved.petMotion === 'boolean') settings.petMotion = saved.petMotion;
   settings.petScale = readPetScale(saved.petScale);

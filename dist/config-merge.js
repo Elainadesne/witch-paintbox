@@ -7,7 +7,7 @@ import { loadWorldbookArchive, replaceWorldbookArchive } from './worldbook-sourc
 import { defaultSettings, readSettings, saveSettings } from './settings.js';
 export const importSectionTitles = {
     api: '生图与模型 API', parameters: '生图参数', artists: '画师串', presets: '预设',
-    anchors: '标签锚定', sharedOutfits: '通用服装', worldbooks: '世界书', preferences: '使用偏好',
+    anchors: '标签锚定', sharedOutfits: '通用服装', worldbooks: '世界书', preferences: '生图设置与使用偏好',
 };
 const PROFILE_LIMIT = 200;
 const PARAMETER_FIELDS = ['parameters', 'openaiParameters', 'geminiParameters', 'grokParameters'];

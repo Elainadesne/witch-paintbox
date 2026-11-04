@@ -38,7 +38,7 @@ export function conduct(m, acts, speech, hooks, signal) {
             return;
         queued = state.queued;
         m.st.box.queued = queued + autoWaiting;
-        hooks.status(state.generating, state.queued);
+        hooks.status(state.generating, state.queued, state.active);
         hooks.wake();
     });
     const handle = (event) => {

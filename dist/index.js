@@ -9,9 +9,9 @@ import { ConfigTransfer } from './config-transfer.js';
 import { registerBuiltinLayers } from './builtin-layers.js';
 import { bindContextFilter } from './context-filter.js';
 import { isPageId, pluginName } from './pages.js';
-import { defaultSettings, extensionId, isPaintboxTheme, readAutoImageDelay, readPetScale, readSettings, saveSettings } from './settings.js';
+import { defaultSettings, extensionId, isPaintboxTheme, readAutoImageDelay, readImageConcurrency, readPetScale, readSettings, saveSettings } from './settings.js';
 import { bindPaintboxTheme } from './paintbox-theme.js';
-import { guideDestination, navigationView, pageView } from './views.js';
+import { guideDestination, navigationView, pageView, workflowStatus } from './views.js';
 import { getHostStore, initializeHostStorage } from './host-storage.js';
 import { getSyncApiKeys, initializeSettingsStorage, setSyncApiKeys } from './host-settings.js';
 import { initializeNativeLibraries } from './host-library.js';
@@ -25,6 +25,7 @@ import { initializeSifangChat } from './sifang-chat.js';
 import { bindSifangImages } from './sifang-images.js';
 import { bindPet } from './pet/index.js';
 import { emitPetEvent } from './pet-events.js';
+import { bindImageQueuePreferences, onImageQueueChanged } from './image-queue.js';
 import { bindPanelViewport } from './panel-viewport.js';
 async function mount() {
     if (document.getElementById(extensionId))
@@ -72,6 +73,10 @@ async function mount() {
             const delay = content.querySelector('[name="autoImageDelay"]');
             if (delay)
                 delay.value = String(settings.autoImageDelay);
+            const concurrency = content.querySelector('[name="imageConcurrency"]');
+            if (concurrency)
+                concurrency.value = String(settings.imageConcurrency);
+            showWorkflowStatus();
             const retention = content.querySelector('[name="imageRetentionDays"]');
             if (retention)
                 retention.value = String(settings.imageRetentionDays);
@@ -97,6 +102,7 @@ async function mount() {
             nativeError = error instanceof Error ? error.message : '独立前端接口未能初始化，请检查前端与画匣版本。';
         }
     }
+    bindImageQueuePreferences(signal);
     bindImageHistorySync(signal);
     bindImageRetention(signal);
     signal.addEventListener('abort', unregisterLayers, { once: true });
@@ -183,6 +189,20 @@ async function mount() {
             status.textContent = imageRetentionStatus();
     };
     window.addEventListener('witch-paintbox:cleanup-status', showCleanupStatus, { signal });
+    let queueState;
+    function showQueueStatus() {
+        const status = content.querySelector('[data-image-queue-status]');
+        if (status && queueState)
+            status.textContent = queueState.active || queueState.queued
+                ? `正在生成 ${queueState.active} 张 · 等待 ${queueState.queued} 张 · 同时最多 ${queueState.limit} 张。` : '队列空闲。';
+    }
+    const stopQueue = onImageQueueChanged(state => { queueState = state; showQueueStatus(); });
+    signal.addEventListener('abort', stopQueue, { once: true });
+    function showWorkflowStatus() {
+        const status = content.querySelector('[data-workflow-status]');
+        if (status)
+            status.textContent = workflowStatus(settings);
+    }
     window.addEventListener('resize', () => { if (panel.open)
         paintNavigation(); }, { signal });
     const launcherMenu = bindLauncherMenu(launcher, root, signal, from => openPanel(settings.rememberPage ? settings.lastPage : 'guide', launcher, from), {
@@ -321,6 +341,7 @@ async function mount() {
         if (page === 'review' && reviewContainer)
             imageReview.mount(reviewContainer, destination?.reviewScope);
         showCleanupStatus();
+        showQueueStatus();
         content.scrollTop = 0;
         settings.lastPage = page;
         persist();
@@ -400,8 +421,21 @@ async function mount() {
                 panel.close();
             if (button.dataset.action === 'reset-pet-scale')
                 setPetScale(1);
+            if (button.dataset.action === 'reset-image-workflow') {
+                const defaults = defaultSettings();
+                for (const key of ['autoProcessReplies', 'autoGenerateImages', 'autoImageDelay', 'imageConcurrency', 'imageRetentionDays']) {
+                    Object.assign(settings, { [key]: defaults[key] });
+                }
+                persist();
+                navigate('image-workflow', false);
+                content.querySelector('[data-feedback]').textContent = '已恢复默认生图设置。';
+                content.querySelector('[data-action="reset-image-workflow"]').focus();
+            }
             if (button.dataset.action === 'reset-preferences') {
-                settings = defaultSettings();
+                const defaults = defaultSettings();
+                settings = { ...defaults, autoProcessReplies: settings.autoProcessReplies, autoGenerateImages: settings.autoGenerateImages,
+                    autoImageDelay: settings.autoImageDelay, imageConcurrency: settings.imageConcurrency, imageRetentionDays: settings.imageRetentionDays,
+                    excludedTags: settings.excludedTags };
                 floating.reset();
                 persist();
                 refreshTheme();
@@ -459,6 +493,17 @@ async function mount() {
                 refreshTheme();
                 return;
             }
+            if (input instanceof HTMLSelectElement && input.name === 'imageConcurrency') {
+                const value = readImageConcurrency(Number(input.value));
+                if (transfer.isApplying || value === null) {
+                    input.value = String(settings.imageConcurrency);
+                    return;
+                }
+                settings.imageConcurrency = value;
+                persist();
+                content.querySelector('[data-feedback]').textContent = `最大同时生图数已设为 ${value} 张。`;
+                return;
+            }
             if (input instanceof HTMLInputElement && input.name === 'autoImageDelay') {
                 const delay = readAutoImageDelay(input.value.trim() === '' ? NaN : Number(input.value));
                 if (transfer.isApplying || delay === null) {
@@ -468,7 +513,7 @@ async function mount() {
                 settings.autoImageDelay = delay;
                 input.value = String(delay);
                 persist();
-                content.querySelector('[data-feedback]').textContent = delay ? `自动点击生图间隔已设为 ${delay} 秒。` : '自动点击生图改为立即接上。';
+                content.querySelector('[data-feedback]').textContent = delay ? `自动出图等待与间隔已设为 ${delay} 秒。` : '自动出图改为立即接上。';
                 return;
             }
             if (input instanceof HTMLSelectElement && input.name === 'imageRetentionDays') {
@@ -507,6 +552,7 @@ async function mount() {
             if (input.name === 'petMotion')
                 settings.petMotion = input.checked;
             persist();
+            showWorkflowStatus();
             content.querySelector('[data-feedback]').textContent = '更改会自动保存。';
         }, { signal });
     }, { once: true, signal });

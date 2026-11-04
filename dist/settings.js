@@ -26,9 +26,13 @@ export function readExcludedTags(value) {
 export const isPaintboxTheme = (value) => value === 'auto' || value === 'day' || value === 'night';
 export function defaultSettings() {
     return { rememberPage: false, rememberPosition: true, lastPage: 'guide', position: null,
-        imageRetentionDays: 0, autoProcessReplies: false, autoGenerateImages: false, autoImageDelay: 1, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto', excludedTags: [...DEFAULT_EXCLUDED_TAGS] };
+        imageRetentionDays: 0, autoProcessReplies: false, autoGenerateImages: false, autoImageDelay: 1, imageConcurrency: 1, petLines: true, petMotion: true, petScale: 1, petAway: false, petPlacement: null, paintboxTheme: 'auto', excludedTags: [...DEFAULT_EXCLUDED_TAGS] };
 }
 export const MAX_AUTO_IMAGE_DELAY = 60;
+export const MAX_IMAGE_CONCURRENCY = 4;
+export function readImageConcurrency(value) {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_IMAGE_CONCURRENCY ? value : null;
+}
 /** 秒数保留一位小数；超出 0～60 或不是数字时返回 null。 */
 export function readAutoImageDelay(value) {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > MAX_AUTO_IMAGE_DELAY)
@@ -77,6 +81,7 @@ export function readSettings(context) {
     if (typeof saved.autoGenerateImages === 'boolean')
         settings.autoGenerateImages = saved.autoGenerateImages;
     settings.autoImageDelay = readAutoImageDelay(saved.autoImageDelay) ?? settings.autoImageDelay;
+    settings.imageConcurrency = readImageConcurrency(saved.imageConcurrency) ?? settings.imageConcurrency;
     if (typeof saved.petLines === 'boolean')
         settings.petLines = saved.petLines;
     if (typeof saved.petMotion === 'boolean')

@@ -268,12 +268,12 @@ h2 { font-size: 25px; line-height: 1.35; font-weight: 650; }
   content: "";
 }
 .map-root::after { bottom: -12px; }
-.map-branches { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.map-branches { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .map-branches::before {
   position: absolute;
   top: -12px;
-  right: calc((100% - 24px) / 6);
-  left: calc((100% - 24px) / 6);
+  right: calc((100% - 36px) / 8);
+  left: calc((100% - 36px) / 8);
   height: 1px;
   background: var(--border);
   content: "";
@@ -1185,7 +1185,7 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
   }
   #image-plugin-panel .sidebar::-webkit-scrollbar { display: none; }
   #image-plugin-panel .sidebar::after { display: none; }
-  #image-plugin-panel .nav-item { flex: none; flex-direction: column; justify-content: center; gap: 3px; min-height: 54px; padding: 4px 14px; font-size: 12px; letter-spacing: .1em; }
+  #image-plugin-panel .nav-item { flex: 1 0 58px; min-width: 0; flex-direction: column; justify-content: center; gap: 3px; min-height: 54px; padding: 4px 5px; font-size: 12px; letter-spacing: .1em; }
   #image-plugin-panel .nav-well { width: 16px; height: 16px; }
   #image-plugin-panel .wash-trail { display: none; }
   #image-plugin-panel .content { padding: 8px 18px 24px; }
