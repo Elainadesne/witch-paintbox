@@ -5,21 +5,29 @@ export const pages = {
   'image-api': { title: '生图 API', description: '管理用于生成图片的服务连接。', group: 'connections' },
   'model-api': { title: '模型 API', description: '生成提示词并插入正文，交给生图 API 绘图。', group: 'connections' },
   features: { title: '插件功能', description: '让角色与世界资料参与配图。', group: 'features' },
-  'image-workflow': { title: '生图与出图', description: '安排自动配图、同时生图数量与图片留存。', group: 'workflow' },
+  'image-workflow': { title: '出图与生图', description: '安排自动配图、同时生图数量与图片留存。', group: 'preferences' },
   review: { title: '生图回顾', description: '翻看保存在这台设备上的配图。', group: 'review' },
   preferences: { title: '使用偏好', description: '调整使用习惯，迁移或分享配置。', group: 'preferences' },
 } as const;
 
 export type PageId = keyof typeof pages;
 
+export interface NavigationItem {
+  group: string;
+  page: PageId;
+  title: string;
+  children?: readonly NavigationItem[];
+}
+
 export const navigation = [
   { group: 'guide', page: 'guide', title: '开始使用' },
   { group: 'connections', page: 'image-api', title: '接口配置' },
   { group: 'features', page: 'features', title: '插件功能' },
-  { group: 'workflow', page: 'image-workflow', title: '生图与出图' },
   { group: 'review', page: 'review', title: '生图回顾' },
-  { group: 'preferences', page: 'preferences', title: '使用偏好' },
-] as const;
+  { group: 'preferences', page: 'preferences', title: '使用偏好', children: [
+    { group: 'preferences', page: 'image-workflow', title: '出图与生图' },
+  ] },
+] as const satisfies readonly NavigationItem[];
 
 export function isPageId(value: unknown): value is PageId {
   return typeof value === 'string' && Object.hasOwn(pages, value);

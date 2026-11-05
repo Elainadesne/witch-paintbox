@@ -259,7 +259,9 @@ async function mount() {
         const paint = current.style.getPropertyValue('--c');
         panel.style.setProperty('--wash', paint);
         const place = () => {
-            const top = current.offsetTop, left = current.offsetLeft;
+            const bounds = current.getBoundingClientRect(), container = sidebar.getBoundingClientRect();
+            const top = bounds.top - container.top + sidebar.scrollTop;
+            const left = bounds.left - container.left + sidebar.scrollLeft;
             const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
             if (!still && fromTop !== undefined && fromTop !== top && current.offsetHeight) {
                 mark.style.transition = 'none';

@@ -18,7 +18,7 @@ const guideLinks = {
     worldbookMount: { label: '挂载条目', page: 'features', featureTab: 'worldbook', selector: '[data-worldbook-mount]' },
     currentImages: { label: '当前角色卡', page: 'review', reviewScope: 'current' },
     allImages: { label: '全部角色卡', page: 'review', reviewScope: 'all' },
-    habits: { label: '生图与出图', page: 'image-workflow', selector: '[aria-labelledby="image-habits-heading"]' },
+    habits: { label: '出图与生图', page: 'image-workflow', selector: '[aria-labelledby="image-habits-heading"]' },
     autoProcess: { label: '回复后自动写 Tag', page: 'image-workflow', selector: '[name="autoProcessReplies"]' },
     autoImages: { label: '新标记自动出图', page: 'image-workflow', selector: '[name="autoGenerateImages"]' },
     retention: { label: '自动清理', page: 'image-workflow', selector: '[name="imageRetentionDays"]' },
@@ -39,14 +39,23 @@ function guideLeaf(link, title, description, tags) {
 }
 // 每个板块一格画匣颜料（取自 box_paint 的 8 格）；选中板块的颜色即面板主色
 export const navigationPaints = {
-    guide: '#EBA63A', connections: '#E6872A', features: '#C8A04C', workflow: '#A76D40', review: '#8C6649', preferences: '#5C3D2A',
+    guide: '#EBA63A', connections: '#E6872A', features: '#C8A04C', review: '#8C6649', preferences: '#5C3D2A',
 };
 export function navigationView(page) {
-    return `<i class="wash-mark" aria-hidden="true"></i>` + navigation.map((item, index) => `
-    <button type="button" class="nav-item" data-page="${item.page}" style="--c:${navigationPaints[item.group]};--i:${index}"
-      ${pages[page].group === item.group ? 'aria-current="page"' : ''}>
-      <i class="nav-well" aria-hidden="true"></i><span class="nav-number" aria-hidden="true">0${index + 1}</span><span>${item.title}</span>
-    </button>`).join('');
+    function branch(items, depth = 0) {
+        return items.map((item, index) => {
+            const children = item.children?.length ? branch(item.children, depth + 1) : '';
+            return `<div class="nav-branch${depth ? ' nav-branch--child' : ''}">
+        <button type="button" class="nav-item${depth ? ' nav-item--child' : ''}${children && pages[page].group === item.group ? ' has-active-child' : ''}"
+          data-page="${item.page}" style="--c:${navigationPaints[item.group]};--i:${index}"
+          ${page === item.page || !children && !depth && pages[page].group === item.group ? 'aria-current="page"' : ''}>
+          <i class="nav-well" aria-hidden="true"></i><span class="nav-number" aria-hidden="true">0${index + 1}</span><span>${item.title}</span>
+        </button>
+        ${children ? `<div class="nav-children" role="group" aria-label="${item.title}子页面">${children}</div>` : ''}
+      </div>`;
+        }).join('');
+    }
+    return `<i class="wash-mark" aria-hidden="true"></i>` + branch(navigation);
 }
 function node(page) {
     return `<button type="button" class="map-node" data-page="${page}">
@@ -97,13 +106,9 @@ function guideView() {
             ${guideLeaf('currentImages', pages.review.title, pages.review.description, ['currentImages', 'allImages'])}
           </div>
         </div>
-        <div class="map-branch">${node('image-workflow')}
-          <div class="map-leaves">
-            ${guideLeaf('habits', '自动配图与队列', '正文完成后写 Tag，再交给画笔绘制', ['autoProcess', 'autoImages', 'concurrency', 'retention'])}
-          </div>
-        </div>
         <div class="map-branch">${node('preferences')}
           <div class="map-leaves">
+            ${guideLeaf('habits', pages['image-workflow'].title, pages['image-workflow'].description, ['autoProcess', 'autoImages', 'concurrency', 'retention'])}
             ${guideLeaf('tia', '使用习惯', '调整缇娅的陪伴，查看画匣更新', ['tia', 'updates'])}
             ${guideLeaf('exportConfig', '配置迁移与分享', '选择配置范围，迁移或分享', ['exportConfig', 'importConfig'])}
           </div>
@@ -115,8 +120,8 @@ function guideView() {
       <ol class="guide-steps">
         <li><span class="guide-step-number" aria-hidden="true">01</span><div><h4>连接接口，导入预设</h4><p>选择 NAI 或 GPT，配置两类 API，再导入对应服务的预设。</p></div></li>
         <li><span class="guide-step-number" aria-hidden="true">02</span><div><h4>补充角色与世界资料</h4><p>按需要配置标签锚定、上传世界书，并勾选要挂载的条目。</p></div></li>
-        <li><span class="guide-step-number" aria-hidden="true">03</span><div><h4>让 AI 处理最新回复</h4><p>打开悬浮球菜单，点击“AI生图”，为正文插入配图位置；也可在使用偏好开启自动 AI 生图，正文写完自动处理。</p></div></li>
-        <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层中生成图片</h4><p>点击“生成图片”，或在使用偏好开启自动点击生图。已保存图片可在生图回顾中翻看。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">03</span><div><h4>让 AI 处理最新回复</h4><p>打开悬浮球菜单，点击“AI生图”，为正文插入配图位置；也可在使用偏好的“出图与生图”中开启“回复后自动写 Tag”，正文写完自动处理。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层中生成图片</h4><p>点击“生成图片”，或在使用偏好的“出图与生图”中开启“新标记自动出图”。已保存图片可在生图回顾中翻看。</p></div></li>
       </ol>
     </section>
     <section class="guide-transfer" aria-labelledby="guide-transfer-heading">
@@ -223,7 +228,7 @@ function featureView(tab) {
 }
 export function pageView(page, settings, featureTab = 'anchors') {
     const heading = `<header class="page-heading">
-    <p class="eyebrow">${page === 'guide' ? '从这里开始' : pluginName}</p>
+    <p class="eyebrow">${page === 'guide' ? '从这里开始' : page === 'image-workflow' ? '使用偏好 / 出图与生图' : pluginName}</p>
     <h2>${pages[page].title}</h2><p>${pages[page].description}</p>
   </header>`;
     switch (page) {

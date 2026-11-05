@@ -268,12 +268,12 @@ h2 { font-size: 25px; line-height: 1.35; font-weight: 650; }
   content: "";
 }
 .map-root::after { bottom: -12px; }
-.map-branches { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.map-branches { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .map-branches::before {
   position: absolute;
   top: -12px;
-  right: calc((100% - 36px) / 8);
-  left: calc((100% - 36px) / 8);
+  right: calc((100% - 24px) / 6);
+  left: calc((100% - 24px) / 6);
   height: 1px;
   background: var(--border);
   content: "";
@@ -993,6 +993,13 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
   box-shadow: inset 0 0 0 1px #3a24162e;
 }
 
+/* 使用偏好下的递归子导航，保留独立页面及当前项高亮。 */
+#image-plugin-panel .nav-branch { min-width: 0; }
+#image-plugin-panel .nav-children { margin: 0 0 4px 20px; padding-left: 8px; border-left: 1px solid var(--pencil); }
+#image-plugin-panel .nav-item--child { width: 100%; padding: 8px 3px; gap: 6px; font-size: 12px; letter-spacing: .04em; }
+#image-plugin-panel .nav-item--child .nav-well { width: 8px; height: 8px; }
+#image-plugin-panel .nav-item.has-active-child { color: var(--ink); }
+
 /* 内容区：同一张纸，不再另起底色 */
 #image-plugin-panel .content { padding: 14px 46px 48px 38px; background: transparent; scrollbar-color: var(--pencil) transparent; }
 #image-plugin-panel .content:focus, #image-plugin-panel .content:focus-visible { outline: none; }
@@ -1186,7 +1193,12 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
   #image-plugin-panel .sidebar::-webkit-scrollbar { display: none; }
   #image-plugin-panel .sidebar::after { display: none; }
   #image-plugin-panel .nav-item { flex: 1 0 58px; min-width: 0; flex-direction: column; justify-content: center; gap: 3px; min-height: 54px; padding: 4px 5px; font-size: 12px; letter-spacing: .1em; }
+  #image-plugin-panel .sidebar > .nav-branch { flex: 1 0 58px; align-self: flex-start; }
+  #image-plugin-panel .nav-branch > .nav-item { width: 100%; }
+  #image-plugin-panel .nav-children { margin: 0 0 0 5px; padding-left: 4px; }
+  #image-plugin-panel .nav-item--child { flex-direction: row; min-height: 36px; padding: 4px 1px; gap: 3px; font-size: 11px; letter-spacing: 0; }
   #image-plugin-panel .nav-well { width: 16px; height: 16px; }
+  #image-plugin-panel .nav-item--child .nav-well { width: 6px; height: 6px; }
   #image-plugin-panel .wash-trail { display: none; }
   #image-plugin-panel .content { padding: 8px 18px 24px; }
   #image-plugin-panel h2 { font-size: 22px; }

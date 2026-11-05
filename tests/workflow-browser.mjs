@@ -59,6 +59,11 @@ try {
   const panel = page.locator('#image-plugin-panel');
   await panel.waitFor({ state: 'visible' });
   await page.locator('.sidebar [data-page="image-workflow"]').click();
+  const preferenceBranch = page.locator('.sidebar > .nav-branch:has(> [data-page="preferences"])');
+  assert.equal(await preferenceBranch.locator('.nav-children [data-page="image-workflow"]').count(), 1);
+  assert.equal(await page.locator('.sidebar > .nav-branch > .nav-item').count(), 5);
+  assert.equal(await preferenceBranch.locator('[data-page="image-workflow"]').getAttribute('aria-current'), 'page');
+  assert.equal(await preferenceBranch.locator(':scope > [data-page="preferences"]').getAttribute('aria-current'), null);
   assert.equal(await panel.locator('[name="imageConcurrency"]').inputValue(), '1');
   await panel.locator('[name="autoProcessReplies"]').check();
   await panel.locator('[name="autoGenerateImages"]').check();
@@ -131,11 +136,12 @@ try {
     const content = element.querySelector('.content'), sidebar = element.querySelector('.sidebar');
     const rect = element.getBoundingClientRect();
     return { left: rect.left, right: rect.right, width: innerWidth, contentWidth: content.clientWidth, contentScroll: content.scrollWidth,
-      navFits: [...sidebar.querySelectorAll('.nav-item')].every(item => item.scrollWidth <= item.clientWidth), navCount: sidebar.querySelectorAll('.nav-item').length };
+      navFits: [...sidebar.querySelectorAll('.nav-item')].every(item => item.scrollWidth <= item.clientWidth), navCount: sidebar.querySelectorAll('.nav-item').length, primaryCount: sidebar.querySelectorAll(':scope > .nav-branch > .nav-item').length,
+      childBelowParent: sidebar.querySelector('[data-page="image-workflow"]').getBoundingClientRect().top >= sidebar.querySelector('[data-page="preferences"]').getBoundingClientRect().bottom };
   });
   assert.ok(geometry.left >= 0 && geometry.right <= geometry.width);
   assert.ok(geometry.contentScroll <= geometry.contentWidth + 1, JSON.stringify(geometry));
-  assert.equal(geometry.navFits, true); assert.equal(geometry.navCount, 6);
+  assert.equal(geometry.navFits, true); assert.equal(geometry.navCount, 6); assert.equal(geometry.primaryCount, 5); assert.equal(geometry.childBelowParent, true);
   await panel.locator('[data-action="reset-image-workflow"]').click();
   assert.equal(await panel.locator('[name="imageConcurrency"]').inputValue(), '1');
   assert.equal(await panel.locator('[name="autoProcessReplies"]').isChecked(), false);

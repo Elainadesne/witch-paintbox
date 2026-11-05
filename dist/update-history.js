@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-11-05', title: '生图设置归入使用偏好',
+        changes: [
+            '“出图与生图”移至“使用偏好”之下，侧栏按父子结构缩进显示，开始使用系谱图同步归类；手机上同样保留父子层级。',
+            '自动配图、并发与留存功能和保存值沿用，子页面仍可直接打开。',
+        ],
+    },
+    {
         date: '2026-11-04', title: '生图与出图独立设置、并发生图',
         changes: [
             '新增“生图与出图”一级页面，集中管理自动配图、并发队列与图片留存；桌宠、界面和配置迁移保留在使用偏好。两页各自恢复默认。',
