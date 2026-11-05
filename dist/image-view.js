@@ -1,7 +1,7 @@
 import { NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES, NAI_SIZE_PRESETS } from './novelai.js';
 import { getHostStore } from './host-storage.js';
 import { getSyncApiKeys } from './host-settings.js';
-import { OPENAI_IMAGE_QUALITIES } from './openai-image.js';
+import { OPENAI_IMAGE_QUALITIES, OPENAI_IMAGE_COMPLEXITIES, OPENAI_IMAGE_26_MODELS, supportsOpenAIImageComplexity, openAIImageComplexityLabel, openAIImageComplexityHint } from './openai-image.js';
 import { GEMINI_ASPECT_RATIOS, GEMINI_IMAGE_SIZES, GEMINI_MODELS, GROK_ASPECT_RATIOS, GROK_DEFAULT_MODEL, GROK_QUALITIES, GROK_RESOLUTIONS, geminiExpectedSize, geminiFixedTier, grokExpectedSize, } from './aspect-image.js';
 export const OPENAI_SIZE_PRESETS = [
     { value: 'portrait', label: '竖图 (1024×1536)', width: 1024, height: 1536 },
@@ -79,7 +79,7 @@ export function imageSettingsView(settings, state) {
     const natural = kind !== 'novelai';
     const protocol = kind === 'gemini' ? settings.geminiParameters.protocol : kind === 'grok' ? settings.grokParameters.protocol : '';
     const modelValue = kind === 'gemini' ? settings.geminiParameters.model : kind === 'grok' ? settings.grokParameters.model : settings.openaiParameters.model;
-    const suggested = kind === 'gemini' ? [...GEMINI_MODELS] : kind === 'grok' ? [GROK_DEFAULT_MODEL] : [];
+    const suggested = kind === 'gemini' ? [...GEMINI_MODELS] : kind === 'grok' ? [GROK_DEFAULT_MODEL] : openai ? [...OPENAI_IMAGE_26_MODELS] : [];
     const modelList = [...new Set([...suggested, ...settings.models])];
     const serviceName = { novelai: 'NAI', openai: 'GPT 生图服务', gemini: 'Gemini', grok: 'Grok' }[kind];
     const dimensions = openai ? settings.openaiParameters : parameters;
@@ -137,7 +137,7 @@ export function imageSettingsView(settings, state) {
           <datalist id="witch-image-model-options">${modelList.map(model => `<option value="${escape(model)}"></option>`).join('')}</datalist>
         </label>
         <button type="button" class="text-button" data-action="refresh-models"${state.refreshing ? ' disabled' : ''}>${state.refreshing ? '刷新中…' : '刷新列表'}</button>
-      </div><p class="config-status" data-model-list-status role="status"></p>`
+      </div><p class="config-status" data-model-list-status role="status"></p>${openai ? '<p class="config-status">支持手填 GPT Image 2.6 Flare / Sunburst；列表建议不代表当前渠道已开通，实际可用模型以服务端为准。</p>' : ''}`
         : `<label class="config-field prominent-field"><span>生图模型</span><select data-parameter="model">${options(NAI_MODELS, parameters.model)}</select></label>`}
       <div class="parameter-group"><h3 class="subsection-title">画幅</h3>
         <div class="feature-tabs image-size-switch" aria-label="画幅选择方式">
@@ -150,9 +150,11 @@ export function imageSettingsView(settings, state) {
         ${numberField('width', '宽度', dimensions.width, 64, 4096, openai ? 16 : 64, `图片宽度，单位为像素，使用 ${openai ? 16 : 64} 的倍数。`)}
         ${numberField('height', '高度', dimensions.height, 64, 4096, openai ? 16 : 64, `图片高度，单位为像素，使用 ${openai ? 16 : 64} 的倍数。`)}
       </div>`}</div>
-      ${aspect ? '' : openai ? `<div class="parameter-group"><h3 class="subsection-title">质量</h3>
+      ${aspect ? '' : openai ? `<div class="parameter-group"><h3 class="subsection-title">质量与规划</h3>
         <label class="config-field"><span>生成质量</span><select data-parameter="quality">${options(OPENAI_IMAGE_QUALITIES.map(value => ({ value, label: value === 'auto' ? '自动 · auto' : value })), settings.openaiParameters.quality)}</select></label>
-        <p class="config-status">可用尺寸和质量由所选模型与服务决定。</p>
+        <label class="config-field"><span>规划深度 · complexity</span><select data-parameter="complexity" aria-describedby="image-complexity-hint"${supportsOpenAIImageComplexity(modelValue) ? '' : ' disabled'}>${options(OPENAI_IMAGE_COMPLEXITIES.map(value => ({ value, label: openAIImageComplexityLabel(value) })), settings.openaiParameters.complexity)}</select></label>
+        <p class="config-status" id="image-complexity-hint" data-complexity-hint>${openAIImageComplexityHint(modelValue)}</p>
+        <p class="config-status">可用尺寸和质量由所选模型与服务决定；当前生成单张静态 PNG。</p>
       </div>` : `<div class="parameter-group"><h3 class="subsection-title">采样</h3><div class="parameter-grid sampling-grid">
         ${numberField('steps', '步数', parameters.steps, 1, 50, 1, '生成时的采样步数。')}
         ${numberField('scale', '提示词引导强度', parameters.scale, 0, 100, 0.1, '控制生成结果遵循提示词的程度。')}

@@ -3,11 +3,24 @@ import { ImageResponseError } from './image-response.js';
 import { readRasterImage } from './raster-image.js';
 import { queueImageGeneration } from './image-queue.js';
 export const OPENAI_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'];
+export const OPENAI_IMAGE_COMPLEXITIES = ['default', 'low', 'medium', 'high'];
+export const OPENAI_IMAGE_26_MODELS = ['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'];
+export function supportsOpenAIImageComplexity(model) {
+    return OPENAI_IMAGE_26_MODELS.some(value => value === model.trim());
+}
+export function openAIImageComplexityLabel(value) {
+    return { default: '跟随模型（未指定）', low: '低 · low', medium: '中 · medium', high: '高 · high' }[value];
+}
+export function openAIImageComplexityHint(model) {
+    return supportsOpenAIImageComplexity(model)
+        ? 'complexity 控制渲染前的规划深度，与生成质量独立。跟随模型时不指定此参数，GPT Image 2.6 官方默认高；更高的规划深度可能增加等待时间。'
+        : '选择 GPT Image 2.6 Flare 或 Sunburst 后可设置规划深度。当前模型不发送 complexity；选值保留，切回 2.6 后生效。';
+}
 const OFFICIAL_ENDPOINT = 'https://api.openai.com/v1/images/generations';
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_JSON_BYTES = 46 * 1024 * 1024;
 export function defaultOpenAIImageParameters() {
-    return { model: '', width: 1024, height: 1536, quality: 'auto' };
+    return { model: '', width: 1024, height: 1536, quality: 'auto', complexity: 'default' };
 }
 export function fail(message, fault) { throw new ImageResponseError(message, fault); }
 export function validateOpenAIImageParameters(value, dimensions = 'request') {
@@ -15,10 +28,12 @@ export function validateOpenAIImageParameters(value, dimensions = 'request') {
     if (!params || typeof params.model !== 'string' || params.model.length > 512 || /[\x00-\x1f\x7f]/.test(params.model)
         || ![params.width, params.height].every(size => Number.isInteger(size) && size >= (dimensions === 'image' ? 1 : 64)
             && size <= 4096 && (dimensions === 'image' || size % 16 === 0))
-        || !OPENAI_IMAGE_QUALITIES.includes(params.quality)) {
-        fail('GPT 生图参数无效，请检查模型、尺寸和质量设置。', 'setup');
+        || !OPENAI_IMAGE_QUALITIES.includes(params.quality)
+        || params.complexity !== undefined && !OPENAI_IMAGE_COMPLEXITIES.includes(params.complexity)) {
+        fail('GPT 生图参数无效，请检查模型、尺寸、质量和规划深度设置。', 'setup');
     }
-    return { model: params.model.trim(), width: params.width, height: params.height, quality: params.quality };
+    return { model: params.model.trim(), width: params.width, height: params.height, quality: params.quality,
+        complexity: params.complexity ?? 'default' };
 }
 /** Accept an API base or a complete generations endpoint without guessing other protocols. */
 export function validateOpenAIImageConnection(connection, officialEndpoint = OFFICIAL_ENDPOINT) {
@@ -208,7 +223,7 @@ export async function generateOpenAIImage(connection, parameters, prompt, signal
     const params = validateOpenAIImageParameters(parameters);
     if (!params.model)
         fail('请先填写或拉取生图模型名称。', 'setup');
-    if (/^gpt-image-2(?:\.5-(?:sunburst|flare))?(?:-|$)/.test(params.model)) {
+    if (/^gpt-image-2(?:\.[56]-(?:sunburst|flare))?(?:-|$)/.test(params.model)) {
         const area = params.width * params.height;
         if (Math.max(params.width, params.height) > 3840 || area < 655_360 || area > 8_294_400
             || params.width > params.height * 3 || params.height > params.width * 3) {
@@ -217,7 +232,11 @@ export async function generateOpenAIImage(connection, parameters, prompt, signal
     }
     if (typeof prompt !== 'string' || !prompt.trim())
         fail('请填写正面提示词。', 'setup');
-    const body = { model: params.model, prompt, n: 1, size: `${params.width}x${params.height}`, quality: params.quality, output_format: 'png' };
+    // Keep a saved 2.6 choice when switching models, but record only what this request can send.
+    if (!supportsOpenAIImageComplexity(params.model))
+        params.complexity = 'default';
+    const body = { model: params.model, prompt, n: 1, size: `${params.width}x${params.height}`, quality: params.quality, output_format: 'png',
+        ...(params.complexity === 'default' ? {} : { complexity: params.complexity }) };
     const image = await postImagesGeneration(configured, body, signal, onProgress);
     return { blob: image.blob, parameters: { ...params, width: image.width, height: image.height } };
 }

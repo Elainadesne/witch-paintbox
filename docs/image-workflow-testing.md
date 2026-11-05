@@ -27,3 +27,14 @@
 ## 实机验证范围
 
 尚未使用真实模型或生图 API 消耗额度。安装测试分支后，配置原有模型 API、预设和生图 API，在「使用偏好 → 出图与生图」开启两个自动开关，将同时生图数设为 2，再发送一轮能生成多处配图标记的正文，检查同时请求、图片落点、重绘和切换聊天取消。真实服务允许的并发数由该服务决定。
+
+
+## GPT Image 2.6 离线适配验证（2026-11-05）
+
+范围：两个明确的模型 ID `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst`，标准 Images API 的单张静态 PNG、新规划深度字段和尺寸检查。默认模型和已有模型参数保持，未改写任何模型预设或提示词。GIF、SVG、参考图与涂鸦编辑不在本次接入范围。
+
+新增 8 项 `tests/openai-image-26.test.mjs`，使用原始生产模块、拦截的 fetch 和有效 PNG 字节，检查两个模型的标准请求、三个规划档位、默认省略、旧型号与未知别名隔离、尺寸拒绝与有效边界、旧配置兼容、队列参数冻结、错误不重试及模型列表发现。`npm test` 同时运行原 14 项队列测试与上述接口测试。
+
+浏览器测试复用已有本机酒馆宿主，并以假密钥和拦截的模型列表／生图响应检查真实设置页、试绘、PNG 下载、IndexedDB 历史、图片属性、完整配置导入导出、旧历史默认值和手机布局。官方 API 域名在测试中主动阻断，不消耗模型额度。运行命令与前文相同；2.6 界面截图命名为 `gpt-image-26-desktop.png` / `gpt-image-26-mobile.png`。
+
+参数依据：[图像生成指南](https://developers.openai.com/api/docs/guides/image-generation)、[Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)、[2.6 模型设置说明](https://developers.openai.com/api/docs/guides/image-prompting)。尺寸沿用 GPT Image 系列的本地检查，真实服务可能有额外限制。未使用真实 2.6 API，尚未验证渠道是否开放模型或接收 complexity、实际延迟、图像质量、费用、服务限流和跨域配置。TT 存储复用既有配置机制，本次浏览器宿主未连接真实 TT。

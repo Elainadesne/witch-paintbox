@@ -1,3 +1,4 @@
+import { openAIImageComplexityLabel, supportsOpenAIImageComplexity } from './openai-image.js';
 import { NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES } from './novelai.js';
 import { imageFileExtension } from './raster-image.js';
 export function createImageGallery(summary, signal, handlers) {
@@ -176,6 +177,8 @@ export function createImageGallery(summary, signal, handlers) {
         ];
         if (entry.provider === 'openai') {
             fields.push(['请求质量', entry.parameters.quality]);
+            if (supportsOpenAIImageComplexity(entry.parameters.model))
+                fields.push(['请求规划深度', openAIImageComplexityLabel(entry.parameters.complexity)]);
         }
         else if (entry.provider === 'gemini') {
             fields.push(['接口协议', entry.parameters.protocol], ['请求比例', entry.parameters.aspectRatio], ['分辨率档位', entry.parameters.imageSize]);

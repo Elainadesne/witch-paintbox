@@ -4,6 +4,7 @@ import { loadAnchors, validateAnchorLibrary, ANCHOR_PORTRAIT_LIMIT, type Charact
 import { loadSharedOutfits, validateSharedOutfits, type SharedOutfit } from './shared-outfit-store.js';
 import { loadWorldbookArchive, validateWorldbookArchive, type StoredWorldbook } from './worldbook-source.js';
 import { defaultSettings, readPetPlacement, readPetScale, readSettings, type Settings, type TavernContext, isPaintboxTheme, readAutoImageDelay, readImageConcurrency, readExcludedTags } from './settings.js';
+import { openAIImageComplexityLabel, supportsOpenAIImageComplexity } from './openai-image.js';
 import { isPageId } from './pages.js';
 
 export const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
@@ -353,7 +354,9 @@ export function summarizeArchive(archive: ParsedArchive): ArchiveSummary[] {
           : `${settings.grokParameters.aspectRatio} · ${settings.grokParameters.resolution.toUpperCase()}`;
     const modelLabel = provider === 'novelai' ? settings.parameters.model : provider === 'openai' ? settings.openaiParameters.model
       : provider === 'gemini' ? settings.geminiParameters.model : settings.grokParameters.model;
-    rows.push({ title: `${providerName(provider)} 生图 API`, detail: `${settings.connectionProfiles.length} 个保存连接；模型 ${modelLabel || '未选模型'}，${canvas}，含全部生图参数。` },
+    const planning = provider === 'openai' && supportsOpenAIImageComplexity(modelLabel)
+      ? `，规划深度 ${openAIImageComplexityLabel(settings.openaiParameters.complexity)}` : '';
+    rows.push({ title: `${providerName(provider)} 生图 API`, detail: `${settings.connectionProfiles.length} 个保存连接；模型 ${modelLabel || '未选模型'}，${canvas}${planning}，含全部生图参数。` },
       { title: `${providerName(provider)} 画师串`, detail: `${settings.artists.length} 个命名配置及当前提示词。${settings.artists.map(item => item.name).join('、')}` },
       { title: `${providerName(provider)} 预设`, detail: `“${preset.presetName || '未命名'}”，${preset.head.length + preset.tail.length} 个文本条目，含编排、功能层选择和 ${preset.worldbooks.length} 本世界书挂载。` });
   }

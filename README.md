@@ -93,8 +93,11 @@ NAI 页的自定义渠道需兼容 NovelAI 生图请求协议并允许浏览器�
 - GPT 模型名支持手填或点击“刷新列表”，以当前连接请求 `GET /v1/models`。列表只反映服务返回的名称，不保证每个模型都能生图；拉取失败仍可手填。修改连接会清空旧列表但保留已填模型名，刷新不自动替换模型。
 - 官方使用 `https://api.openai.com/v1/images/generations`。自定义可填站点根、API base（如 `https://example.com/v1`）或完整的 `/images/generations` 地址，模型列表请求使用同一 base 的 `/models`。服务需允许浏览器跨域访问，并实现此 Images API 协议；聊天补全与异步任务轮询协议不属于本通道。
 - GPT 默认竖图 1024×1536，提供横图、方图及自定义尺寸，质量可选 auto/low/medium/high/xhigh/max。实际支持范围以所选模型和服务为准。每次请求一张 PNG，读取 `data[0].b64_json` 或兼容站点的 `data[0].url`，也支持内嵌图片 data URL、换行或省略末尾填充的 base64。部分兼容站返回 JPEG 或静态 WebP 时，按真实文件内容校验并保留原始格式，继续使用原队列、局部画框、历史与全屏界面；下载扩展名与属性显示实际格式。图片限制为 32 MiB、单边不超过 4096 像素；损坏图片、动态 WebP、HTML 和错误 JSON 不会当作图片保存。取图片 URL 时不附带 API 密钥。
+- **GPT Image 2.6 静态生图**：模型输入提供 `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst` 建议，保留手填与刷新列表，不自动替换已选模型。内置建议不代表当前渠道已开通该模型。2.6 静态请求沿用 `POST /v1/images/generations`、单张 PNG、现有队列与历史。2 / 2.5 / 2.6 的请求尺寸检查覆盖最长边 3840、宽高比 1:3～3:1、总像素 655,360～8,294,400；宽高仍须为 16 的倍数，最终以服务端支持为准。
+- **规划深度 · complexity**：选择上述两个 2.6 模型后可用，与生成质量 `quality` 独立。支持跟随模型、低、中、高；默认跟随模型，不发送该字段（OpenAI 官方 2.6 默认高）。旧配置及旧历史缺少字段时采用跟随模型。切换到其他模型或未知别名时禁用此项并省略请求参数，保留已选值供切回 2.6 使用；生成历史记录本次实际请求的值。排队中的请求固定提交时的参数，后续修改不改变已排队的任务。完整配置导入、导出和 TT 配置存储沿用现有机制；服务端拒绝参数时不自动重试或切换模型。
+- 本轮 2.6 适配仅覆盖静态图片与规划深度，GIF / SVG 输出、涂鸦引导编辑和参考图编辑尚未接入。实现依据 [OpenAI 图像生成文档](https://developers.openai.com/api/docs/guides/image-generation) 与 [Images API 参考](https://developers.openai.com/api/reference/resources/images/methods/generate)；仅完成离线模拟验证，没有真实 2.6 API 调用，不能据此确认任何中转渠道的可用性、速度、画质或实际费用。
 - GPT 发送用户原始场景描述，沿用现有独立 `@角色` / `#服装` 引用展开及画师正面串拼接，不把 `|` / `~` 转成 NAI 角色分栏，也不改写权重语法。GPT 不提供独立负面栏；约束由用户预设负责。插件不添加自然语言模板、不替用户改预设。角色图仅展示，不自动作为参考图发送。
-- GPT 图片历史保存模型、实际尺寸和请求质量；旧 NAI 历史继续显示种子、步数及采样器等参数。两种服务共用串行队列，取消与超时不会自动重试付费请求。
+- GPT 图片历史保存模型、实际尺寸、请求质量及 2.6 的请求规划深度；旧 NAI 历史继续显示种子、步数及采样器等参数。两种服务共用可配置并发的队列，取消与超时不会自动重试付费请求。
 
 接口依据：[OpenAI 图片生成](https://developers.openai.com/api/reference/resources/images/methods/generate)、[模型列表](https://developers.openai.com/api/reference/resources/models/methods/list)。
 

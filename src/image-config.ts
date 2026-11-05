@@ -1,7 +1,7 @@
 import { loadImageSettings, saveImageSettings, switchImageProvider, type ImageSettings } from './image-settings.js';
 import { aspectParameters, imageSettingsView, OPENAI_SIZE_PRESETS } from './image-view.js';
 import { NAI_SIZE_PRESETS, validateImageConnection, type ImageConnection } from './novelai.js';
-import { fetchOpenAIImageModels, validateOpenAIImageConnection, type OpenAIImageParameters } from './openai-image.js';
+import { fetchOpenAIImageModels, validateOpenAIImageConnection, OPENAI_IMAGE_26_MODELS, supportsOpenAIImageComplexity, openAIImageComplexityHint, type OpenAIImageParameters } from './openai-image.js';
 import { fetchGeminiImageModels } from './gemini-image.js';
 import { fetchGrokImageModels, validateGrokConnection } from './grok-image.js';
 import type { GeminiImageParameters, GrokImageParameters } from './aspect-image.js';
@@ -168,6 +168,7 @@ export class ImageConfig {
     );
     this.mountVibes();
     this.syncParameters();
+    this.syncOpenAIComplexity();
     this.syncImageSizeMode();
     this.syncGeneration();
   }
@@ -252,7 +253,8 @@ export class ImageConfig {
     if (field instanceof HTMLInputElement && !field.checkValidity()) return;
     if (settings.provider === 'openai') {
       switch (parameter) {
-        case 'model': settings.openaiParameters.model = field.value; break;
+        case 'model': settings.openaiParameters.model = field.value; this.syncOpenAIComplexity(); break;
+        case 'complexity': settings.openaiParameters.complexity = field.value as OpenAIImageParameters['complexity']; break;
         case 'quality': settings.openaiParameters.quality = field.value as OpenAIImageParameters['quality']; break;
         case 'width': case 'height':
           if (field.value === '') return;
@@ -331,6 +333,15 @@ export class ImageConfig {
       const native = schedule.querySelector<HTMLOptionElement>('option[value="native"]');
       if (native) native.disabled = !legacy;
     }
+  }
+
+  private syncOpenAIComplexity(): void {
+    if (this.settings?.provider !== 'openai' || !this.container) return;
+    const model = this.settings.openaiParameters.model;
+    const input = this.container.querySelector<HTMLSelectElement>('[data-parameter="complexity"]');
+    if (input) input.disabled = !supportsOpenAIImageComplexity(model);
+    const hint = this.container.querySelector<HTMLElement>('[data-complexity-hint]');
+    if (hint) hint.textContent = openAIImageComplexityHint(model);
   }
 
   private syncSizePreset(): void {
@@ -609,7 +620,13 @@ export class ImageConfig {
     if (!this.settings || this.settings.provider === 'novelai') return;
     this.modelOptions = [];
     this.settings.models = [];
-    this.container?.querySelector<HTMLDataListElement>('#witch-image-model-options')?.replaceChildren();
+    const list = this.container?.querySelector<HTMLDataListElement>('#witch-image-model-options');
+    if (list) {
+      list.replaceChildren();
+      if (this.settings.provider === 'openai') for (const model of OPENAI_IMAGE_26_MODELS) {
+        const option = document.createElement('option'); option.value = model; list.append(option);
+      }
+    }
   }
 
   private syncModelRefresh(): void {
@@ -641,7 +658,7 @@ export class ImageConfig {
       const list = this.container?.querySelector<HTMLDataListElement>('#witch-image-model-options');
       if (list) {
         const fragment = document.createDocumentFragment();
-        for (const model of models) {
+        for (const model of new Set([...(settings.provider === 'openai' ? OPENAI_IMAGE_26_MODELS : []), ...models])) {
           const option = document.createElement('option');
           option.value = model;
           fragment.append(option);

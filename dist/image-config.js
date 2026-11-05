@@ -1,7 +1,7 @@
 import { loadImageSettings, saveImageSettings, switchImageProvider } from './image-settings.js';
 import { aspectParameters, imageSettingsView, OPENAI_SIZE_PRESETS } from './image-view.js';
 import { NAI_SIZE_PRESETS, validateImageConnection } from './novelai.js';
-import { fetchOpenAIImageModels, validateOpenAIImageConnection } from './openai-image.js';
+import { fetchOpenAIImageModels, validateOpenAIImageConnection, OPENAI_IMAGE_26_MODELS, supportsOpenAIImageComplexity, openAIImageComplexityHint } from './openai-image.js';
 import { fetchGeminiImageModels } from './gemini-image.js';
 import { fetchGrokImageModels, validateGrokConnection } from './grok-image.js';
 import { VibePanel } from './vibe-panel.js';
@@ -162,6 +162,7 @@ export class ImageConfig {
         this.container.innerHTML = imageSettingsView({ ...this.settings, connection: this.connection, activeConnectionId: this.connectionId, models: this.modelOptions }, { connectionName: this.connectionName, artistName: this.artistName, connectionSaved: this.isConnectionSaved(), refreshing: this.modelRequest !== null, moreOpen: this.moreProviders, advancedOpen: this.advancedOpen });
         this.mountVibes();
         this.syncParameters();
+        this.syncOpenAIComplexity();
         this.syncImageSizeMode();
         this.syncGeneration();
     }
@@ -265,6 +266,10 @@ export class ImageConfig {
             switch (parameter) {
                 case 'model':
                     settings.openaiParameters.model = field.value;
+                    this.syncOpenAIComplexity();
+                    break;
+                case 'complexity':
+                    settings.openaiParameters.complexity = field.value;
                     break;
                 case 'quality':
                     settings.openaiParameters.quality = field.value;
@@ -369,6 +374,17 @@ export class ImageConfig {
             if (native)
                 native.disabled = !legacy;
         }
+    }
+    syncOpenAIComplexity() {
+        if (this.settings?.provider !== 'openai' || !this.container)
+            return;
+        const model = this.settings.openaiParameters.model;
+        const input = this.container.querySelector('[data-parameter="complexity"]');
+        if (input)
+            input.disabled = !supportsOpenAIImageComplexity(model);
+        const hint = this.container.querySelector('[data-complexity-hint]');
+        if (hint)
+            hint.textContent = openAIImageComplexityHint(model);
     }
     syncSizePreset() {
         const width = this.container?.querySelector('[data-parameter="width"]');
@@ -685,7 +701,16 @@ export class ImageConfig {
             return;
         this.modelOptions = [];
         this.settings.models = [];
-        this.container?.querySelector('#witch-image-model-options')?.replaceChildren();
+        const list = this.container?.querySelector('#witch-image-model-options');
+        if (list) {
+            list.replaceChildren();
+            if (this.settings.provider === 'openai')
+                for (const model of OPENAI_IMAGE_26_MODELS) {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    list.append(option);
+                }
+        }
     }
     syncModelRefresh() {
         const button = this.container?.querySelector('[data-action="refresh-models"]');
@@ -718,7 +743,7 @@ export class ImageConfig {
             const list = this.container?.querySelector('#witch-image-model-options');
             if (list) {
                 const fragment = document.createDocumentFragment();
-                for (const model of models) {
+                for (const model of new Set([...(settings.provider === 'openai' ? OPENAI_IMAGE_26_MODELS : []), ...models])) {
                     const option = document.createElement('option');
                     option.value = model;
                     fragment.append(option);

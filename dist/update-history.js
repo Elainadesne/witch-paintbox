@@ -1,6 +1,14 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-11-05', title: 'GPT Image 2.6 静态生图与规划深度',
+        changes: [
+            'GPT 生图模型新增 2.6 Flare / Sunburst 输入建议，补齐尺寸校验，保留原模型选择与单张静态 PNG 流程。',
+            '新增独立于画质的“规划深度”：跟随模型、低、中、高。跟随时不指定参数；切换到其他模型时省略该参数并保留选值。',
+            '完整配置迁移与图片属性支持规划深度，旧配置和旧历史采用跟随模型；失败不自动重试或更换模型。',
+        ],
+    },
+    {
         date: '2026-11-05', title: '生图设置归入使用偏好',
         changes: [
             '“出图与生图”移至“使用偏好”之下，侧栏按父子结构缩进显示，开始使用系谱图同步归类；手机上同样保留父子层级。',

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --experimental-vm-modules tests/image-workflow.test.mjs"
+    "test": "npm run build && node --experimental-vm-modules tests/image-workflow.test.mjs && node tests/openai-image-26.test.mjs"
   },
   "devDependencies": {
     "typescript": "~5.8.3"
