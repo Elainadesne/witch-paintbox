@@ -38,3 +38,10 @@
 浏览器测试复用已有本机酒馆宿主，并以假密钥和拦截的模型列表／生图响应检查真实设置页、试绘、PNG 下载、IndexedDB 历史、图片属性、完整配置导入导出、旧历史默认值和手机布局。官方 API 域名在测试中主动阻断，不消耗模型额度。运行命令与前文相同；2.6 界面截图命名为 `gpt-image-26-desktop.png` / `gpt-image-26-mobile.png`。
 
 参数依据：[图像生成指南](https://developers.openai.com/api/docs/guides/image-generation)、[Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)、[2.6 模型设置说明](https://developers.openai.com/api/docs/guides/image-prompting)。尺寸沿用 GPT Image 系列的本地检查，真实服务可能有额外限制。未使用真实 2.6 API，尚未验证渠道是否开放模型或接收 complexity、实际延迟、图像质量、费用、服务限流和跨域配置。TT 存储复用既有配置机制，本次浏览器宿主未连接真实 TT。
+
+
+## 角色批量选取通用服装（2026-11-06）
+
+角色编辑页通过“服装库 → 从通用服装添加”批量复制已保存的通用服装到角色草稿，再用现有默认服装下拉框选择。保持现有数据结构、角色调用规则与提示词构造；复制的名称、标签和权重原样带入，并分配独立角色服装 ID。原默认服装不自动改变；“保存角色”之前不写入角色存储。重名与“无服装”保留名称不可添加，复制后的角色服装与通用库分别编辑。
+
+浏览器用例 `tests/shared-outfit-picker-browser.mjs` 复用本机宿主，检查空库跳转并保留角色草稿、超过 50 条结果的搜索、跨搜索多选、同名保护、复制后保存与默认服装展开、角色与通用源分别编辑、源删除及未通知的跨页变化、手机宽度。仅运行此用例可在原浏览器测试命令前设置 `WITCH_BROWSER_CASE=shared-outfits`。截图为 `shared-outfit-picker-desktop.png` / `shared-outfit-picker-mobile.png`，均输出到原测试截图目录。

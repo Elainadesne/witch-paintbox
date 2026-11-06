@@ -60,6 +60,9 @@ export class AnchorConfig {
     sharedDraft = null;
     sharedDirty = false;
     sharedDeleting = false;
+    sharedPickerOpen = false;
+    sharedPickerSearch = '';
+    sharedPickerSelection = new Set();
     round = [];
     roundNotice = '正在读取本轮图片…';
     roundError = false;
@@ -189,6 +192,8 @@ export class AnchorConfig {
         }
         if (this.tab === 'shared-outfits' && !this.sharedDraft && !this.busy)
             this.render();
+        if (this.tab === 'anchors' && this.draft && !this.busy)
+            this.updateSharedOutfitChoices();
     }
     render() {
         if (!this.container)
@@ -281,6 +286,7 @@ export class AnchorConfig {
             : '<button type="button" class="text-button" data-anchor-action="add-negative">添加负面提示词</button>'}
         </div>
         <section class="anchor-outfit-section"><div class="anchor-toolbar"><h3 class="subsection-title">服装库</h3><button type="button" class="text-button" data-anchor-action="add-outfit">＋ 添加服装</button></div>
+          ${this.sharedOutfitPickerView()}
           <label class="config-field"><span>当前服装（默认）</span><select data-anchor-field="selectedOutfitId"><option value="">只用固定外貌</option>${draft.outfits.map(outfit => `<option value="${escape(outfit.id)}"${draft.selectedOutfitId === outfit.id ? ' selected' : ''}>${escape(outfit.name || '未命名服装')}</option>`).join('')}</select></label>
           <p class="config-status">当前选择作为 default；其他服装也会随角色资料提供给模型，供当轮选择。</p>
           <div class="anchor-outfit-editors">${draft.outfits.map(outfit => `<details class="anchor-outfit" data-outfit="${escape(outfit.id)}"${outfit.id === draft.selectedOutfitId || !outfit.name ? ' open' : ''}>
@@ -297,6 +303,93 @@ export class AnchorConfig {
           ${exists ? `<button type="button" class="text-button anchor-danger" data-anchor-action="delete"${this.portraitRequest ? ' disabled' : ''}>删除角色</button>` : ''}</div>
         ${this.deleting ? '<div class="anchor-delete-confirm" role="alert"><p>删除这个角色及其服装库？原生成图片会保留。</p><button type="button" class="text-button anchor-danger" data-anchor-action="confirm-delete">确认删除</button><button type="button" class="text-button" data-anchor-action="cancel-delete">取消</button></div>' : ''}
       </fieldset>`;
+    }
+    sharedOutfitUnavailable(outfit) {
+        if (outfit.name === '无服装')
+            return '此名称为角色服装保留字';
+        return this.draft?.outfits.some(item => item.name.trim() === outfit.name) ? '角色已有同名服装' : '';
+    }
+    sharedOutfitChoicesView() {
+        if (this.sharedOutfitsError)
+            return `<p class="config-status is-error" role="alert">${escape(this.sharedOutfitsError)}</p><button type="button" class="text-button" data-anchor-action="reload-shared">重新读取</button>`;
+        if (!this.sharedOutfits.length)
+            return '<p class="config-status">还没有已保存的通用服装。</p><button type="button" class="text-button" data-anchor-tab="shared-outfits">去通用服装库添加 →</button>';
+        const query = this.sharedPickerSearch.trim().toLocaleLowerCase();
+        const matching = this.sharedOutfits.filter(outfit => outfit.name.toLocaleLowerCase().includes(query));
+        return `<p class="config-status">${matching.length > 50 ? `找到 ${matching.length} 套，先显示前 50 套；可搜索缩小范围。` : matching.length ? `找到 ${matching.length} 套服装。` : '没有找到匹配的服装。'}</p>
+      <div class="anchor-shared-choices">${matching.slice(0, 50).map(outfit => {
+            const unavailable = this.sharedOutfitUnavailable(outfit);
+            return `<label class="anchor-shared-choice"><input type="checkbox" data-shared-outfit-pick="${escape(outfit.id)}"${unavailable ? ' disabled' : this.sharedPickerSelection.has(outfit.id) ? ' checked' : ''}>
+          <span><strong>${escape(outfit.name)}</strong>${unavailable ? `<small>${unavailable}</small>` : ''}<span class="anchor-tag-excerpt">${escape(outfit.tags)}</span></span></label>`;
+        }).join('')}</div>`;
+    }
+    sharedOutfitPickerView() {
+        return `<div class="anchor-shared-picker">
+      <button type="button" class="text-button" data-anchor-action="toggle-shared-picker" aria-expanded="${this.sharedPickerOpen}" aria-controls="anchor-shared-picker-panel">从通用服装添加</button>
+      ${this.sharedPickerOpen ? `<div id="anchor-shared-picker-panel" class="anchor-shared-panel">
+        <p class="config-status">勾选后，将服装名称和 Tag 复制到当前角色草稿，可单独调整；之后通用库的修改不会联动。添加后可在下方选为默认服装，点击“保存角色”生效。</p>
+        <label class="config-field"><span>搜索通用服装</span><input type="search" data-shared-outfit-search value="${escape(this.sharedPickerSearch)}" maxlength="128" placeholder="按服装名称搜索" autocomplete="off"></label>
+        <div data-shared-picker-results>${this.sharedOutfitChoicesView()}</div>
+        <div class="actions"><button type="button" class="secondary" data-anchor-action="import-shared-outfits"${!this.sharedPickerSelection.size || this.sharedOutfitsError ? ' disabled' : ''}>添加所选服装${this.sharedPickerSelection.size ? `（${this.sharedPickerSelection.size} 套）` : ''}</button></div>
+      </div>` : ''}
+    </div>`;
+    }
+    updateSharedOutfitChoices() {
+        for (const id of this.sharedPickerSelection) {
+            const outfit = this.sharedOutfits.find(item => item.id === id);
+            if (!outfit || this.sharedOutfitUnavailable(outfit))
+                this.sharedPickerSelection.delete(id);
+        }
+        const results = this.container?.querySelector('[data-shared-picker-results]');
+        if (results)
+            results.innerHTML = this.sharedOutfitChoicesView();
+        this.syncSharedOutfitSelection();
+    }
+    syncSharedOutfitSelection() {
+        const button = this.container?.querySelector('[data-anchor-action="import-shared-outfits"]');
+        if (button) {
+            button.disabled = this.busy || !this.sharedPickerSelection.size || !!this.sharedOutfitsError;
+            button.textContent = `添加所选服装${this.sharedPickerSelection.size ? `（${this.sharedPickerSelection.size} 套）` : ''}`;
+        }
+    }
+    importSharedOutfits() {
+        if (!this.draft || !this.sharedPickerSelection.size)
+            return;
+        try {
+            // Read the saved library again: a selection can outlive another tab's edits or deletions.
+            const latest = loadSharedOutfits();
+            const selected = latest.filter(outfit => this.sharedPickerSelection.has(outfit.id));
+            if (selected.length !== this.sharedPickerSelection.size) {
+                this.refreshSharedOutfits();
+                this.message('通用服装库已变化，请核对后重新选择。', true);
+                return;
+            }
+            this.sharedOutfits = latest;
+            this.sharedOutfitsError = '';
+            let added = 0, skipped = 0;
+            for (const outfit of selected) {
+                if (this.sharedOutfitUnavailable(outfit)) {
+                    ++skipped;
+                    continue;
+                }
+                this.draft.outfits.push({ id: newAnchorId(), name: outfit.name, tags: outfit.tags });
+                ++added;
+            }
+            this.sharedPickerSelection.clear();
+            if (added) {
+                this.sharedPickerOpen = false;
+                this.sharedPickerSearch = '';
+                this.markDirty();
+            }
+            this.render();
+            if (added)
+                this.container?.querySelector('[data-anchor-field="selectedOutfitId"]')?.focus({ preventScroll: true });
+            this.message(added ? `已添加 ${added} 套服装${skipped ? `，跳过 ${skipped} 套同名或保留名称的服装` : ''}。可在“当前服装（默认）”中选用，点击“保存角色”生效。`
+                : '所选服装已存在或使用了保留名称，未覆盖角色已有服装。');
+        }
+        catch (error) {
+            this.message(error instanceof Error ? error.message : '读取通用服装失败，请重试。', true);
+        }
     }
     pickerView() {
         if (!this.picker)
@@ -335,6 +428,22 @@ export class AnchorConfig {
         }
         if (!this.draft)
             return;
+        if (field.hasAttribute('data-shared-outfit-search')) {
+            this.sharedPickerSearch = field.value;
+            this.updateSharedOutfitChoices();
+            return;
+        }
+        if (field instanceof HTMLInputElement && field.dataset.sharedOutfitPick) {
+            const outfit = this.sharedOutfits.find(item => item.id === field.dataset.sharedOutfitPick);
+            if (outfit && !this.sharedOutfitUnavailable(outfit)) {
+                if (field.checked)
+                    this.sharedPickerSelection.add(outfit.id);
+                else
+                    this.sharedPickerSelection.delete(outfit.id);
+            }
+            this.syncSharedOutfitSelection();
+            return;
+        }
         const key = field.dataset.anchorField;
         if (key === 'aliases') {
             this.draft.aliases = field.value.split(/[,，\r\n]+/).map(alias => alias.trim()).filter(Boolean);
@@ -398,6 +507,9 @@ export class AnchorConfig {
             id: newAnchorId(), name: '', aliases: [], appearance: source ? imageHistoryPositive(source.entry) : '', negative: '', outfits: [],
             selectedOutfitId: '', portrait: source?.entry.blob ?? null, updatedAt: Date.now(),
         };
+        this.sharedPickerOpen = false;
+        this.sharedPickerSearch = '';
+        this.sharedPickerSelection.clear();
         this.sourcePrompt = source ? imageHistoryPositive(source.entry) : '';
         this.negativeExpanded = !!this.draft.negative.trim();
         this.dirty = !anchor;
@@ -738,6 +850,15 @@ export class AnchorConfig {
                 break;
             case 'add-outfit':
                 this.addOutfit();
+                break;
+            case 'toggle-shared-picker':
+                this.sharedPickerOpen = !this.sharedPickerOpen;
+                this.refreshSharedOutfits();
+                this.render();
+                this.container?.querySelector(this.sharedPickerOpen ? '[data-shared-outfit-search]' : '[data-anchor-action="toggle-shared-picker"]')?.focus({ preventScroll: true });
+                break;
+            case 'import-shared-outfits':
+                this.importSharedOutfits();
                 break;
             case 'remove-outfit': {
                 if (!this.draft)

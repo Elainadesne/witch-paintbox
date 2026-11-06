@@ -836,6 +836,15 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .anchor-negative > .anchor-toolbar { flex-wrap: wrap; margin: 8px 0 0; }
 .anchor-negative > .anchor-toolbar > .config-status { flex: 1 1 220px; }
 .anchor-outfit-section { margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border); }
+.anchor-shared-picker { margin: 0 0 18px; }
+.anchor-shared-panel { padding: 12px; border-left: 2px solid var(--border); background: var(--field-paper); }
+.anchor-shared-panel > .config-status:first-child { margin-top: 0; }
+.anchor-shared-choices { display: grid; gap: 8px; max-height: 260px; overflow: auto; overscroll-behavior: contain; }
+.anchor-shared-choice { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 8px 0; border-bottom: 1px dashed var(--border); cursor: pointer; }
+.anchor-shared-choice > input { margin-top: 3px; }
+.anchor-shared-choice > span { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.anchor-shared-choice small { color: var(--muted); }
+.anchor-shared-choice:has(input:disabled) { opacity: .65; cursor: default; }
 .anchor-outfit-editors { display: grid; gap: 12px; margin-top: 18px; }
 .anchor-outfit { min-width: 0; border: 1px solid var(--border); border-radius: 3px; }
 .anchor-outfit > summary { padding: 10px 12px; border-radius: 2px; background: var(--surface); color: var(--accent); cursor: pointer; overflow-wrap: anywhere; }

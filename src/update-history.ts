@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
   {
+    date: '2026-11-06', title: '角色服装可从通用服装库批量添加',
+    changes: [
+      '角色编辑页新增“从通用服装添加”，支持名称搜索、跨搜索批量勾选，将服装名称和 Tag 带入角色草稿；保存角色后生效。',
+      '带入后可选为默认服装或单独调整。同名服装不会覆盖，通用库的后续修改与删除不影响角色已复制的服装。',
+    ],
+  },
+  {
     date: '2026-11-05', title: 'GPT Image 2.6 静态生图与规划深度',
     changes: [
       'GPT 生图模型新增 2.6 Flare / Sunburst 输入建议，补齐尺寸校验，保留原模型选择与单张静态 PNG 流程。',
