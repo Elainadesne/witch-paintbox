@@ -1,6 +1,6 @@
 import { imageChatContext, watchChatRendering } from './chat-host.js';
 import { loadImageHistoryPage, loadImageHistoryCategories, deleteImageHistory, historyScope, historySourceName, historyTitle, historyWasDeleted, onImageHistoryChanged } from './image-history.js';
-import { createImageGallery } from './image-gallery.js';
+import { createImageGallery, gallerySelectionAfterUpdate } from './image-gallery.js';
 /** A bounded page of local images. Switching pages releases every old object URL. */
 export class ImageReview {
     container = null;
@@ -83,11 +83,14 @@ export class ImageReview {
             this.version++;
             this.loading = false;
             const removed = this.items.filter(item => historyWasDeleted(item.entry, change));
-            this.items = this.items.filter(item => !historyWasDeleted(item.entry, change));
-            const selected = this.items.find(item => item.entry.id === this.selectedId) ?? this.items.at(-1);
-            this.selectedId = selected?.entry.id ?? null;
+            const remaining = this.items.filter(item => !historyWasDeleted(item.entry, change));
+            this.selectedId = gallerySelectionAfterUpdate(this.items, remaining, this.selectedId);
+            this.items = remaining;
+            const selected = this.items.find(item => item.entry.id === this.selectedId);
             this.gallery?.setSummary(selected ? historyTitle(selected.entry) : '生图回顾');
             this.gallery?.setImages(this.items, this.selectedId);
+            if (removed.length && !this.items.length)
+                this.message('本页图片已删空。');
             this.render();
             removed.forEach(item => URL.revokeObjectURL(item.url));
             if (!this.gallery?.element.open)

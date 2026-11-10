@@ -8,6 +8,23 @@ export interface GalleryImage {
   url: string;
 }
 
+/** Keep the current image, or its next surviving neighbour in the previous order. */
+export function gallerySelectionAfterUpdate(previous: readonly GalleryImage[], next: readonly GalleryImage[],
+  selectedId: string | null): string | null {
+  const remaining = new Set(next.map(item => item.entry.id));
+  if (selectedId !== null && remaining.has(selectedId)) return selectedId;
+  const index = previous.findIndex(item => item.entry.id === selectedId);
+  if (index >= 0) {
+    for (let at = index + 1; at < previous.length; at++) {
+      if (remaining.has(previous[at].entry.id)) return previous[at].entry.id;
+    }
+    for (let at = index - 1; at >= 0; at--) {
+      if (remaining.has(previous[at].entry.id)) return previous[at].entry.id;
+    }
+  }
+  return next.at(-1)?.entry.id ?? null;
+}
+
 export function createImageGallery(summary: string, signal: AbortSignal, handlers: {
   onSelect(id: string): void;
   onDelete(id: string): Promise<void>;
@@ -254,9 +271,10 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
     const scrollLeft = thumbnails.scrollLeft;
     const focusedId = thumbnails.querySelector<HTMLButtonElement>(':focus')?.dataset.imageId;
     const previousId = selectedId;
+    const previousItems = items;
     items = [...nextItems];
     selectedId = items.some(item => item.entry.id === nextSelectedId) ? nextSelectedId
-      : items.some(item => item.entry.id === selectedId) ? selectedId : items.at(-1)?.entry.id ?? null;
+      : gallerySelectionAfterUpdate(previousItems, items, previousId);
     const liveIds = new Set(items.map(item => item.entry.id));
     for (const id of thumbnailButtons.keys()) if (!liveIds.has(id)) thumbnailButtons.delete(id);
     thumbnails.replaceChildren(...items.map(({ entry, url }, index) => {

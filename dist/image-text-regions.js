@@ -53,11 +53,15 @@ export function imageTextRegions(text, excludedTags = []) {
     const excludedOpening = excludedTags.length ? new RegExp(`^<(${[...excludedTags].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|')})(?=[\\s/>])`, 'i') : null;
     const lines = textLines(text);
     const regions = [];
+    // Indentation inside a prose container is HTML formatting, not a Markdown code block.
+    const containers = [];
+    const proseContainer = /^(?:address|article|aside|blockquote|body|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|html|li|main|nav|ol|p|section|span|summary|table|tbody|td|tfoot|th|thead|tr|ul)$/i;
     const fence = /^ {0,3}(?:> ?)*(`{3,}|~{3,})(.*)$/;
     let lineIndex = 0;
     let at = 0;
-    const add = (kind, end, closed = true, nested = false, excludedTag) => {
-        regions.push({ start: at, end, kind, closed, ...(nested ? { nested: true } : {}), ...(excludedTag ? { excluded: excludedTag } : {}) });
+    const add = (kind, end, closed = true, nested = false, excludedTag, opaque = false) => {
+        regions.push({ start: at, end, kind, closed, ...(nested ? { nested: true } : {}),
+            ...(excludedTag ? { excluded: excludedTag } : {}), ...(opaque ? { opaque: true } : {}) });
         at = end;
     };
     while (at < text.length) {
@@ -80,7 +84,7 @@ export function imageTextRegions(text, excludedTags = []) {
                 add('code', closing?.end ?? text.length, !!closing);
                 continue;
             }
-            if (/^(?: {4}|\t)/.test(source)) {
+            if (!containers.length && /^(?: {4}|\t)/.test(source)) {
                 let end = line.end;
                 for (let index = lineIndex + 1; index < lines.length; index++) {
                     const content = text.slice(lines[index].start, lines[index].contentEnd);
@@ -126,7 +130,7 @@ export function imageTextRegions(text, excludedTags = []) {
             const terminator = text.startsWith('<!--', at) ? '-->' : text.startsWith('<![CDATA[', at) ? ']]>' : text.startsWith('<?', at) ? '?>' : '';
             if (terminator) {
                 const end = text.indexOf(terminator, at + 2);
-                add('html', end < 0 ? text.length : end + terminator.length, end >= 0);
+                add('html', end < 0 ? text.length : end + terminator.length, end >= 0, false, undefined, true);
                 continue;
             }
             const own = excludedOpening?.exec(text.slice(at));
@@ -138,7 +142,7 @@ export function imageTextRegions(text, excludedTags = []) {
                     continue;
                 }
             }
-            const tag = /^<\/?([a-z][a-z\d:-]*)(?=[\s/>]|$)/i.exec(text.slice(at));
+            const tag = /^<\/?([a-z][a-z\d:_-]*)(?=[\s/>]|$)/i.exec(text.slice(at));
             if (tag || text.startsWith('<!', at)) {
                 const end = tagEnd(text, at);
                 if (end < 0) {
@@ -149,10 +153,21 @@ export function imageTextRegions(text, excludedTags = []) {
                     const close = new RegExp(`</${tag[1]}\\s*>`, 'gi');
                     close.lastIndex = end;
                     const closing = close.exec(text);
-                    add('html', closing ? closing.index + closing[0].length : text.length, !!closing);
+                    add('html', closing ? closing.index + closing[0].length : text.length, !!closing, false, undefined, true);
                 }
-                else
+                else {
+                    if (tag && proseContainer.test(tag[1])) {
+                        const name = tag[1].toLowerCase();
+                        if (text[at + 1] === '/') {
+                            const index = containers.lastIndexOf(name);
+                            if (index >= 0)
+                                containers.length = index;
+                        }
+                        else if (!/\/\s*>$/.test(text.slice(at, end)))
+                            containers.push(name);
+                    }
                     add('html', end);
+                }
                 continue;
             }
         }

@@ -3,7 +3,7 @@ import { imageTextRegions, textLines, type TextRegion } from './image-text-regio
 import { MAX_IMAGE_MARKERS, parseImageMarkers } from './image-markers.js';
 import { withFault } from './pet-events.js';
 
-export type IllustrationSelectionMode = 'paragraph' | 'lines' | 'sentence';
+export type IllustrationSelectionMode = 'paragraph' | 'lines' | 'sentence' | 'manual';
 
 /** A shopping-list item requests one image, chosen from its allowed positions. */
 export interface IllustrationItem {
@@ -19,6 +19,8 @@ export interface IllustrationUnit extends IllustrationItem {
   readonly lineEnd: number;
   /** Set when the unit lies entirely inside an excluded tag block. */
   readonly excluded?: string;
+  /** Manual groups cannot cross code, existing images or opaque/excluded HTML. */
+  readonly blocked?: boolean;
 }
 
 interface Span { start: number; end: number }
@@ -70,10 +72,10 @@ export function buildIllustrationUnits(plan: ImageInsertionPlan, mode: Illustrat
   const original = plan.original;
   const regions = imageTextRegions(original, excludedTags);
   const sentences = mode === 'sentence' ? imageSentenceSpans(original, regions) : null;
-  const rawSpans: Span[] = sentences ?? paragraphSpans(original, mode === 'lines'
+  const rawSpans: Span[] = mode === 'manual' ? textLines(original) : sentences ?? paragraphSpans(original, mode === 'lines'
     ? [3, 5, 8].includes(linesPerParagraph) ? linesPerParagraph : 3 : undefined);
   // Excluded blocks (think, UpdateVariable…) always stand alone, even without a blank line around them.
-  const cuts = regions.filter(region => region.excluded).flatMap(region => [region.start, region.end]);
+  const cuts = mode === 'manual' ? [] : regions.filter(region => region.excluded).flatMap(region => [region.start, region.end]);
   const spans: Span[] = cuts.length ? rawSpans.flatMap(span => {
     const inside = cuts.filter(cut => cut > span.start && cut < span.end);
     if (!inside.length) return [span];
@@ -86,7 +88,7 @@ export function buildIllustrationUnits(plan: ImageInsertionPlan, mode: Illustrat
   let leadingStart: number | undefined;
   for (const span of spans) {
     const text = original.slice(span.start, span.end);
-    if (!text.trim()) {
+    if (!text.trim() && mode !== 'manual') {
       if (units.length) units[units.length - 1].end = span.end;
       else leadingStart ??= span.start;
       continue;
@@ -121,15 +123,41 @@ export function buildIllustrationUnits(plan: ImageInsertionPlan, mode: Illustrat
     }
     return Math.max(1, low);
   };
+  const barriers = mode === 'manual' ? regions.filter(region =>
+    region.kind !== 'html' || region.excluded || region.opaque || !region.closed) : [];
+  let barrierIndex = 0;
   return Object.freeze(units.map(unit => {
     const text = original.slice(unit.start, unit.end);
+    while (barrierIndex < barriers.length && barriers[barrierIndex].end <= unit.start) barrierIndex++;
+    const blocked = barrierIndex < barriers.length && barriers[barrierIndex].start < unit.end;
     const first = text.length - text.trimStart().length;
     const last = Math.max(first, text.trimEnd().length - 1);
     const from = unit.start + first, to = unit.start + last + 1;
     const block = regions.find(region => region.excluded && region.start <= from && to <= region.end);
     return Object.freeze({ ...unit, id: `${mode}:${unit.start}:${unit.end}`, text,
-      lineStart: lineAt(from), lineEnd: lineAt(unit.start + last), ...(block ? { excluded: block.excluded } : {}) });
+      ...(blocked ? { blocked: true, pointIds: Object.freeze([] as string[]) } : {}),
+      lineStart: lineAt(mode === 'manual' ? unit.start : from),
+      lineEnd: lineAt(mode === 'manual' ? Math.max(unit.start, unit.end - 1) : unit.start + last),
+      ...(block ? { excluded: block.excluded } : {}) });
   }));
+}
+
+/** Build one image request from consecutive source rows, never from rendered wrapping. */
+export function groupIllustrationLines(plan: ImageInsertionPlan, units: readonly IllustrationUnit[],
+  first: number, last: number): IllustrationUnit {
+  const startIndex = Math.min(first, last), endIndex = Math.max(first, last);
+  if (!Number.isInteger(first) || !Number.isInteger(last) || startIndex < 0 || endIndex >= units.length
+    || !units[first]?.pointIds.length || !units[last]?.pointIds.length) {
+    throw withFault(new Error('请选择有正文和可用插入点的首尾行。'), 'format');
+  }
+  const selected = units.slice(startIndex, endIndex + 1);
+  if (selected.some(unit => unit.blocked)) {
+    throw withFault(new Error('所选范围跨过了代码、已有配图或排除内容，请分开选择。'), 'format');
+  }
+  const from = selected[0], to = selected.at(-1)!;
+  const pointIds = Object.freeze(selected.flatMap(unit => [...unit.pointIds]));
+  return Object.freeze({ id: `manual:${from.start}:${to.end}`, start: from.start, end: to.end,
+    text: plan.original.slice(from.start, to.end), lineStart: from.lineStart, lineEnd: to.lineEnd, pointIds });
 }
 
 /** Validate the entire list before a request, preserving its order and sorting each range by source offset. */

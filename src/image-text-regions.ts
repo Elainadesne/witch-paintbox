@@ -5,6 +5,8 @@ export interface TextRegion {
   kind: 'code' | 'html' | 'image';
   closed: boolean;
   nested?: boolean;
+  /** The whole region is opaque, unlike a single HTML opening or closing token. */
+  opaque?: boolean;
   /** Whole block of an excluded tag (think, UpdateVariable…), name in lower case. */
   excluded?: string;
 }
@@ -59,11 +61,15 @@ export function imageTextRegions(text: string, excludedTags: readonly string[] =
   const excludedOpening = excludedTags.length ? new RegExp(`^<(${[...excludedTags].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|')})(?=[\\s/>])`, 'i') : null;
   const lines = textLines(text);
   const regions: TextRegion[] = [];
+  // Indentation inside a prose container is HTML formatting, not a Markdown code block.
+  const containers: string[] = [];
+  const proseContainer = /^(?:address|article|aside|blockquote|body|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|html|li|main|nav|ol|p|section|span|summary|table|tbody|td|tfoot|th|thead|tr|ul)$/i;
   const fence = /^ {0,3}(?:> ?)*(`{3,}|~{3,})(.*)$/;
   let lineIndex = 0;
   let at = 0;
-  const add = (kind: TextRegion['kind'], end: number, closed = true, nested = false, excludedTag?: string) => {
-    regions.push({ start: at, end, kind, closed, ...(nested ? { nested: true } : {}), ...(excludedTag ? { excluded: excludedTag } : {}) });
+  const add = (kind: TextRegion['kind'], end: number, closed = true, nested = false, excludedTag?: string, opaque = false) => {
+    regions.push({ start: at, end, kind, closed, ...(nested ? { nested: true } : {}),
+      ...(excludedTag ? { excluded: excludedTag } : {}), ...(opaque ? { opaque: true } : {}) });
     at = end;
   };
   while (at < text.length) {
@@ -85,7 +91,7 @@ export function imageTextRegions(text: string, excludedTags: readonly string[] =
         add('code', closing?.end ?? text.length, !!closing);
         continue;
       }
-      if (/^(?: {4}|\t)/.test(source)) {
+      if (!containers.length && /^(?: {4}|\t)/.test(source)) {
         let end = line.end;
         for (let index = lineIndex + 1; index < lines.length; index++) {
           const content = text.slice(lines[index].start, lines[index].contentEnd);
@@ -122,7 +128,7 @@ export function imageTextRegions(text: string, excludedTags: readonly string[] =
       const terminator = text.startsWith('<!--', at) ? '-->' : text.startsWith('<![CDATA[', at) ? ']]>' : text.startsWith('<?', at) ? '?>' : '';
       if (terminator) {
         const end = text.indexOf(terminator, at + 2);
-        add('html', end < 0 ? text.length : end + terminator.length, end >= 0);
+        add('html', end < 0 ? text.length : end + terminator.length, end >= 0, false, undefined, true);
         continue;
       }
       const own = excludedOpening?.exec(text.slice(at));
@@ -131,7 +137,7 @@ export function imageTextRegions(text: string, excludedTags: readonly string[] =
         const close = end > 0 && !/\/\s*>$/.test(text.slice(at, end)) ? excludedEnd(text, own[1], end) : -1;
         if (close > 0) { add('html', close, true, false, own[1].toLowerCase()); continue; }
       }
-      const tag = /^<\/?([a-z][a-z\d:-]*)(?=[\s/>]|$)/i.exec(text.slice(at));
+      const tag = /^<\/?([a-z][a-z\d:_-]*)(?=[\s/>]|$)/i.exec(text.slice(at));
       if (tag || text.startsWith('<!', at)) {
         const end = tagEnd(text, at);
         if (end < 0) { add('html', text.length, false); continue; }
@@ -139,8 +145,17 @@ export function imageTextRegions(text: string, excludedTags: readonly string[] =
           const close = new RegExp(`</${tag[1]}\\s*>`, 'gi');
           close.lastIndex = end;
           const closing = close.exec(text);
-          add('html', closing ? closing.index + closing[0].length : text.length, !!closing);
-        } else add('html', end);
+          add('html', closing ? closing.index + closing[0].length : text.length, !!closing, false, undefined, true);
+        } else {
+          if (tag && proseContainer.test(tag[1])) {
+            const name = tag[1].toLowerCase();
+            if (text[at + 1] === '/') {
+              const index = containers.lastIndexOf(name);
+              if (index >= 0) containers.length = index;
+            } else if (!/\/\s*>$/.test(text.slice(at, end))) containers.push(name);
+          }
+          add('html', end);
+        }
         continue;
       }
     }

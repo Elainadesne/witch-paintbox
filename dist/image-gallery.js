@@ -1,6 +1,24 @@
 import { openAIImageComplexityLabel, supportsOpenAIImageComplexity } from './openai-image.js';
 import { NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES } from './novelai.js';
 import { imageFileExtension } from './raster-image.js';
+/** Keep the current image, or its next surviving neighbour in the previous order. */
+export function gallerySelectionAfterUpdate(previous, next, selectedId) {
+    const remaining = new Set(next.map(item => item.entry.id));
+    if (selectedId !== null && remaining.has(selectedId))
+        return selectedId;
+    const index = previous.findIndex(item => item.entry.id === selectedId);
+    if (index >= 0) {
+        for (let at = index + 1; at < previous.length; at++) {
+            if (remaining.has(previous[at].entry.id))
+                return previous[at].entry.id;
+        }
+        for (let at = index - 1; at >= 0; at--) {
+            if (remaining.has(previous[at].entry.id))
+                return previous[at].entry.id;
+        }
+    }
+    return next.at(-1)?.entry.id ?? null;
+}
 export function createImageGallery(summary, signal, handlers) {
     const element = document.createElement('dialog');
     element.className = 'wp-gallery';
@@ -236,9 +254,10 @@ export function createImageGallery(summary, signal, handlers) {
         const scrollLeft = thumbnails.scrollLeft;
         const focusedId = thumbnails.querySelector(':focus')?.dataset.imageId;
         const previousId = selectedId;
+        const previousItems = items;
         items = [...nextItems];
         selectedId = items.some(item => item.entry.id === nextSelectedId) ? nextSelectedId
-            : items.some(item => item.entry.id === selectedId) ? selectedId : items.at(-1)?.entry.id ?? null;
+            : gallerySelectionAfterUpdate(previousItems, items, previousId);
         const liveIds = new Set(items.map(item => item.entry.id));
         for (const id of thumbnailButtons.keys())
             if (!liveIds.has(id))

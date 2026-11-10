@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { testSharedOutfitPicker } from './shared-outfit-picker-browser.mjs';
 import { testOpenAIImage26 } from './openai-image-26-browser.mjs';
+import { testIllustrationPicker } from './illustration-picker-browser.mjs';
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -12,27 +13,33 @@ const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const screenshots = process.env.WITCH_SCREENSHOTS || '/tmp/witch-image-workflow-preview';
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
+  if (pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
   if (pathname === '/') {
-    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end('<!doctype html><html lang="zh-CN"><body style="margin:0;background:#eee"><div id="extensions_settings"></div><div id="chat"></div><script type="module" src="/dist/index.js"></script></body></html>'); return;
   }
   if (pathname === '/scripts/extensions/regex/engine.js') {
     res.setHeader('Content-Type', 'text/javascript');
     res.end('export const SCRIPT_TYPES={GLOBAL:0},regex_placement={USER_INPUT:1,AI_OUTPUT:2};export function getScriptsByType(){return []};export async function saveScriptsByType(){};export function getRegexedString(t){return t}'); return;
   }
+  if (pathname === '/script.js' || pathname === '/scripts/group-chats.js') {
+    res.setHeader('Content-Type', 'text/javascript');
+    res.end(pathname === '/script.js' ? 'export const is_send_press=false,isChatSaving=false;export const isGenerating=()=>false;'
+      : 'export const is_group_generating=false;'); return;
+  }
   const file = path.resolve(root, `.${pathname}`);
   if (!file.startsWith(`${root}/`)) { res.writeHead(403).end(); return; }
   try {
     const data = await readFile(file);
-    res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'application/octet-stream');
+    res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'application/octet-stream');
     res.end(data);
   } catch { res.writeHead(404).end(); }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
-  browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
+  browser = await chromium.launch({ headless: true, args: ['--no-sandbox'], executablePath: process.env.WITCH_CHROMIUM });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, hasTouch: true, reducedMotion: 'reduce' });
   page.setDefaultTimeout(8000);
   const errors = [];
   page.on('console', message => { if (message.type() === 'error') console.error('browser:', message.text()); });
@@ -57,7 +64,12 @@ try {
   });
   const url = `http://127.0.0.1:${server.address().port}`;
   await page.goto(url);
-  if (process.env.WITCH_BROWSER_CASE === 'shared-outfits') {
+  if (process.env.WITCH_BROWSER_CASE === 'illustration') {
+    await mkdir(screenshots, { recursive: true });
+    const illustration = await testIllustrationPicker(page, screenshots);
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ result: 'passed', illustration, screenshots }, null, 2));
+  } else if (process.env.WITCH_BROWSER_CASE === 'shared-outfits') {
     await page.getByRole('button', { name: '打开魔女画匣', exact: true }).click();
     const panel = page.locator('#image-plugin-panel'); await panel.waitFor({ state: 'visible' });
     await mkdir(screenshots, { recursive: true });
@@ -159,7 +171,9 @@ try {
     const image26 = await testOpenAIImage26(page, panel, screenshots);
     const outfits = await testSharedOutfitPicker(page, panel, screenshots);
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ result: 'passed', archiveResult, importedQueueLimit, geometry, image26, outfits, screenshots }, null, 2));
+    const illustration = await testIllustrationPicker(page, screenshots);
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ result: 'passed', archiveResult, importedQueueLimit, geometry, image26, outfits, illustration, screenshots }, null, 2));
   }
 } finally {
   await browser?.close(); await new Promise(resolve => server.close(resolve));
