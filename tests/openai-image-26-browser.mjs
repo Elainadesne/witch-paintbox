@@ -5,8 +5,8 @@ import path from 'node:path';
 export async function testOpenAIImage26(page, panel, screenshots) {
   await page.setViewportSize({ width: 1280, height: 900 });
   const pixel = await page.evaluate(() => {
-    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
-    const context = canvas.getContext('2d'); context.fillStyle = '#678ab0'; context.fillRect(0, 0, 64, 64);
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1024;
+    const context = canvas.getContext('2d'); context.fillStyle = '#678ab0'; context.fillRect(0, 0, 1024, 1024);
     return canvas.toDataURL('image/png').split(',')[1];
   });
   const calls = [];
@@ -51,6 +51,23 @@ export async function testOpenAIImage26(page, panel, screenshots) {
   assert.deepEqual(calls[0], { model: 'gpt-image-2.6-sunburst', prompt: 'offline fixture scene', n: 1,
     size: '1024x1024', quality: 'max', output_format: 'png', complexity: 'medium' });
   assert.match(await panel.locator('[data-output] a').getAttribute('download'), /\.png$/);
+  const preview = panel.getByRole('button', { name: '全屏查看本次生成的图片' });
+  const previewImage = preview.locator('img');
+  await previewImage.evaluate(image => image.decode());
+  assert.equal((await previewImage.boundingBox()).height, 480);
+  await page.setViewportSize({ width: 844, height: 390 });
+  const compactPreview = await previewImage.boundingBox();
+  assert.ok(compactPreview.height <= 390 * .7);
+  assert.equal(compactPreview.width, compactPreview.height);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await preview.press('Enter');
+  const viewer = panel.getByRole('dialog', { name: '绘图工坊 · 试绘 · 图片查看器' });
+  await viewer.waitFor({ state: 'visible' });
+  assert.equal(await viewer.locator('.wp-gallery-image').getAttribute('src'), await previewImage.getAttribute('src'));
+  assert.ok((await viewer.locator('.wp-gallery-image').boundingBox()).height > 480);
+  await page.keyboard.press('Escape');
+  await viewer.waitFor({ state: 'hidden' });
+  assert.equal(await preview.evaluate(button => button.matches(':focus')), true);
   const roundTrip = await page.evaluate(async () => {
     const { loadImageHistoryPage, saveImageHistory } = await import('/dist/image-history.js');
     const { exportArchive, parseArchive, summarizeArchive } = await import('/dist/config-archive.js');
