@@ -26,8 +26,8 @@ export function gallerySelectionAfterUpdate(previous: readonly GalleryImage[], n
 }
 
 export function createImageGallery(summary: string, signal: AbortSignal, handlers: {
-  onSelect(id: string): void;
-  onDelete(id: string): Promise<void>;
+  onSelect?(id: string): void;
+  onDelete?(id: string): Promise<void>;
 }): {
   element: HTMLDialogElement;
   setImages(items: GalleryImage[], selectedId: string | null): void;
@@ -135,6 +135,7 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
   const title = element.querySelector<HTMLElement>('.wp-gallery-title')!;
   const download = element.querySelector<HTMLAnchorElement>('[data-gallery-download]')!;
   const deleteButton = element.querySelector<HTMLButtonElement>('[data-gallery-delete]')!;
+  deleteButton.hidden = !handlers.onDelete;
   const propertiesButton = element.querySelector<HTMLButtonElement>('[data-gallery-properties]')!;
   const closeButton = element.querySelector<HTMLButtonElement>('[data-gallery-close]')!;
   const status = element.querySelector<HTMLElement>('.wp-gallery-status')!;
@@ -264,7 +265,7 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
     if (!deletingId) message();
     renderSelected();
     revealSelected();
-    handlers.onSelect(id);
+    handlers.onSelect?.(id);
   }
 
   function setImages(nextItems: GalleryImage[], nextSelectedId: string | null): void {
@@ -319,7 +320,7 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
     if (!download.hasAttribute('href')) event.preventDefault();
   }, { signal });
   deleteButton.addEventListener('click', async () => {
-    if (!selectedId || deletingId) return;
+    if (!handlers.onDelete || !selectedId || deletingId) return;
     deletingId = selectedId;
     renderSelected();
     message('正在删除当前图片…');

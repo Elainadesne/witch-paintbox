@@ -119,6 +119,7 @@ export function createImageGallery(summary, signal, handlers) {
     const title = element.querySelector('.wp-gallery-title');
     const download = element.querySelector('[data-gallery-download]');
     const deleteButton = element.querySelector('[data-gallery-delete]');
+    deleteButton.hidden = !handlers.onDelete;
     const propertiesButton = element.querySelector('[data-gallery-properties]');
     const closeButton = element.querySelector('[data-gallery-close]');
     const status = element.querySelector('.wp-gallery-status');
@@ -248,7 +249,7 @@ export function createImageGallery(summary, signal, handlers) {
             message();
         renderSelected();
         revealSelected();
-        handlers.onSelect(id);
+        handlers.onSelect?.(id);
     }
     function setImages(nextItems, nextSelectedId) {
         const scrollLeft = thumbnails.scrollLeft;
@@ -308,7 +309,7 @@ export function createImageGallery(summary, signal, handlers) {
             event.preventDefault();
     }, { signal });
     deleteButton.addEventListener('click', async () => {
-        if (!selectedId || deletingId)
+        if (!handlers.onDelete || !selectedId || deletingId)
             return;
         deletingId = selectedId;
         renderSelected();

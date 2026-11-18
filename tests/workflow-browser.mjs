@@ -28,7 +28,7 @@ const server = createServer(async (req, res) => {
       : 'export const is_group_generating=false;'); return;
   }
   const file = path.resolve(root, `.${pathname}`);
-  if (!file.startsWith(`${root}/`)) { res.writeHead(403).end(); return; }
+  if (!file.startsWith(`${root}${path.sep}`)) { res.writeHead(403).end(); return; }
   try {
     const data = await readFile(file);
     res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'application/octet-stream');

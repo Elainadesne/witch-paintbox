@@ -535,7 +535,8 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .generation-trigger span { color: #f8edd7; font-size: 12px; }
 .generation-trigger:hover:not(:disabled) { background: var(--accent-hover); }
 .generation-area [data-output]:not(:empty) { display: grid; justify-items: center; gap: 12px; margin-top: 20px; }
-.generation-area [data-output] img { display: block; max-width: 100%; max-height: 560px; object-fit: contain; }
+.generation-area [data-output] [data-action="preview-output"] { display: block; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+.generation-area [data-output] img { display: block; width: auto; height: auto; max-width: min(100%, 640px); max-height: min(480px, 70vh); max-height: min(480px, 70dvh); }
 .generation-area [data-output] a { color: var(--accent); }
 .generation-actions { display: flex; justify-content: center; gap: 12px; }
 

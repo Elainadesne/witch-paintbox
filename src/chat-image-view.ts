@@ -33,7 +33,16 @@ export function createChatImageView(summary: string, signal: AbortSignal) {
   slot.addEventListener('click', event => event.stopPropagation(), { signal });
   const root = slot.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
-    :host { --button-surface: #45434e; --frame-inset: 8px; --image-width: 383px; --image-ratio: .6842; display: block; box-sizing: border-box; width: max-content; min-width: min(100%, calc(var(--image-width) + var(--frame-inset) + var(--frame-inset) + 2px)); max-width: 100%; margin: .8em auto; color: #3c3931; font: inherit; text-indent: 0; text-align: left; }
+    :host {
+      --button-surface: #45434e;
+      --frame-inset: 8px;
+      --image-source-width: 383px;
+      --image-ratio: .6842;
+      --preview-max-height: min(480px, 70vh);
+      --image-width: min(var(--image-source-width), 640px, calc(var(--preview-max-height) * var(--image-ratio)));
+      display: block; box-sizing: border-box; width: max-content; min-width: min(100%, calc(var(--image-width) + var(--frame-inset) + var(--frame-inset) + 2px)); max-width: 100%; margin: .8em auto; color: #3c3931; font: inherit; text-indent: 0; text-align: left;
+    }
+    @supports (height: 1dvh) { :host { --preview-max-height: min(480px, 70dvh); } }
     *, *::before, *::after { box-sizing: border-box; }
     /* Weather's metal rails and the attribute card's bevelled corner fittings. */
     figure { position: relative; width: 100%; min-width: 0; max-width: 100%; margin: 0; padding: var(--frame-inset); border: 1px solid #80683f; border-radius: 3px; background: linear-gradient(135deg, #e0c58e 0, #9c7843 24%, #ead5a1 52%, #a1814a 78%, #d2b779) border-box; box-shadow: 0 3px 10px #623d1a24, inset 0 1px 0 #fff3cf, inset 0 -1px 0 #5d472b88; }
@@ -124,8 +133,7 @@ export function createChatImageView(summary: string, signal: AbortSignal) {
   const setImageSize = (width: number, height: number) => {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
     slot.style.setProperty('--image-ratio', String(width / height));
-    // Preserve the current 560px display-height limit without making the frame 680px wide.
-    slot.style.setProperty('--image-width', `${Math.min(width, 560 * width / height)}px`);
+    slot.style.setProperty('--image-source-width', `${width}px`);
   };
   const refreshTheme = () => {
     if (!slot.isConnected) return;
