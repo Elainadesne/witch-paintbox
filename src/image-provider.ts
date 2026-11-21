@@ -1,7 +1,7 @@
 import type { ImageSettings } from './image-settings.js';
 import { prepareImagePrompt, type CharacterPrompt, type PreparedImagePrompt } from './image-prompt.js';
 import { resolveStoredAnchorPromptFields } from './anchor-resolver.js';
-import { generateImage, type ImageParameters } from './novelai.js';
+import { generateImage, lockMediumEffort, type ImageParameters } from './novelai.js';
 import { generateOpenAIImage, type OpenAIImageParameters } from './openai-image.js';
 import { generateGeminiImage } from './gemini-image.js';
 import { prepareVibeReferences } from './vibe-transfer.js';
@@ -75,8 +75,10 @@ export async function generatePreparedImage(
     return { blob: result.blob, provider: 'grok', parameters: { ...result.parameters, width: result.width, height: result.height }, positive, negative: '', characters: [] };
   }
   if (settings.provider && settings.provider !== 'novelai') throw withFault(new Error('当前生图服务类型不受支持。'), 'setup');
-  const parameters = { ...settings.parameters };
-  const prepared = { positive: prompt.positive, negative: prompt.negative, characters: prompt.characters.map(character => ({ ...character })) };
+  const locked = lockMediumEffort({ ...settings.parameters },
+    { positive: prompt.positive, negative: prompt.negative, characters: prompt.characters.map(character => ({ ...character })) });
+  const parameters = locked.params;
+  const prepared = locked.prompt;
   // Encode before queueing so a failed or paid encoding never holds the shared image queue.
   const vibes = await prepareVibeReferences(connection, parameters.model, signal);
   const result = await generateImage(connection, parameters, prepared.positive, prepared.negative, signal,

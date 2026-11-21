@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-11-21', title: 'NAI 新增 V5 Full 性能版',
+        changes: [
+            'NAI 模型列表新增“NAI Diffusion V5 Full · 性能版（Medium Effort）”，同等质量约省 42% 点数。',
+            '性能版固定 14 步与 Euler Ancestral、不支持引导重缩放；负面提示词改用官方 Heavy 预设，可在正面提示词里用 -3::hat:: 这类负强调排除内容。',
+        ],
+    },
+    {
         date: '2026-11-21', title: '生图与模型 API 配置改为自动保存',
         changes: [
             '生图 API 的渠道、服务 URL、密钥与配置名称填写后自动保存为当前连接，不再需要点击“保存”；切换渠道立即保存，输入停顿片刻后保存。',

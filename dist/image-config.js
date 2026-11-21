@@ -1,6 +1,6 @@
 import { loadImageSettings, saveImageSettings, switchImageProvider } from './image-settings.js';
 import { aspectParameters, imageSettingsView, OPENAI_SIZE_PRESETS } from './image-view.js';
-import { NAI_SIZE_PRESETS, validateImageConnection } from './novelai.js';
+import { isNaiMediumEffort, NAI_SIZE_PRESETS, validateImageConnection } from './novelai.js';
 import { fetchOpenAIImageModels, validateOpenAIImageConnection, OPENAI_IMAGE_26_MODELS, supportsOpenAIImageComplexity, openAIImageComplexityHint } from './openai-image.js';
 import { fetchGeminiImageModels } from './gemini-image.js';
 import { fetchGrokImageModels, validateGrokConnection } from './grok-image.js';
@@ -457,6 +457,18 @@ export class ImageConfig {
                 input.checked = p[key];
             }
         }
+        const medium = isNaiMediumEffort(p.model);
+        for (const key of ['steps', 'sampler', 'cfgRescale']) {
+            const input = this.container?.querySelector(`[data-parameter="${key}"]`);
+            if (input)
+                input.disabled = medium;
+        }
+        const negative = this.container?.querySelector('[data-field="negative"]');
+        if (negative)
+            negative.disabled = medium;
+        const hint = this.container?.querySelector('[data-medium-effort-hint]');
+        if (hint)
+            hint.hidden = !medium;
         const schedule = this.container?.querySelector('[data-parameter="noiseSchedule"]');
         if (schedule) {
             schedule.disabled = p.model.startsWith('nai-diffusion-5') || p.sampler === 'k_dpm_fast';

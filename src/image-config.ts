@@ -1,6 +1,6 @@
 import { loadImageSettings, saveImageSettings, switchImageProvider, type ImageSettings } from './image-settings.js';
 import { aspectParameters, imageSettingsView, OPENAI_SIZE_PRESETS } from './image-view.js';
-import { NAI_SIZE_PRESETS, validateImageConnection, type ImageConnection } from './novelai.js';
+import { isNaiMediumEffort, NAI_SIZE_PRESETS, validateImageConnection, type ImageConnection } from './novelai.js';
 import { fetchOpenAIImageModels, validateOpenAIImageConnection, OPENAI_IMAGE_26_MODELS, supportsOpenAIImageComplexity, openAIImageComplexityHint, type OpenAIImageParameters } from './openai-image.js';
 import { fetchGeminiImageModels } from './gemini-image.js';
 import { fetchGrokImageModels, validateGrokConnection } from './grok-image.js';
@@ -404,6 +404,15 @@ export class ImageConfig {
         input.checked = p[key];
       }
     }
+    const medium = isNaiMediumEffort(p.model);
+    for (const key of ['steps', 'sampler', 'cfgRescale'] as const) {
+      const input = this.container?.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-parameter="${key}"]`);
+      if (input) input.disabled = medium;
+    }
+    const negative = this.container?.querySelector<HTMLTextAreaElement>('[data-field="negative"]');
+    if (negative) negative.disabled = medium;
+    const hint = this.container?.querySelector<HTMLElement>('[data-medium-effort-hint]');
+    if (hint) hint.hidden = !medium;
     const schedule = this.container?.querySelector<HTMLSelectElement>('[data-parameter="noiseSchedule"]');
     if (schedule) {
       schedule.disabled = p.model.startsWith('nai-diffusion-5') || p.sampler === 'k_dpm_fast';

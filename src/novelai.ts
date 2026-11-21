@@ -9,6 +9,7 @@ export type { ImageGenerationProgress } from './image-queue.js';
 // Official model catalog: https://docs.novelai.net/en/image/models/
 export const NAI_MODELS = [
   { value: 'nai-diffusion-5-full', label: 'NAI Diffusion V5 Full' },
+  { value: 'nai-diffusion-5-full-medium', label: 'NAI Diffusion V5 Full · 性能版（Medium Effort）' },
   { value: 'nai-diffusion-5-curated', label: 'NAI Diffusion V5 Curated' },
   { value: 'nai-diffusion-4-5-full', label: 'NAI Diffusion V4.5 Full' },
   { value: 'nai-diffusion-4-5-curated', label: 'NAI Diffusion V4.5 Curated' },
@@ -73,6 +74,28 @@ export function defaultImageParameters(): ImageParameters {
     model: 'nai-diffusion-5-full', width: 832, height: 1216,
     steps: 28, scale: 5, sampler: 'k_euler_ancestral', seed: -1,
     noiseSchedule: 'karras', cfgRescale: 0, sm: false, smDyn: false,
+  };
+}
+
+/**
+ * V5 Full "Medium" effort is a distilled model with locked settings (NovelAI web client, 2026-10-08):
+ * 14 steps, Euler Ancestral, no CFG rescale, no custom Undesired Content — only the "heavy" preset.
+ */
+export const NAI_MEDIUM_EFFORT_MODEL = 'nai-diffusion-5-full-medium';
+const NAI_V5_HEAVY_UC = 'lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page';
+
+export function isNaiMediumEffort(model: string): boolean {
+  return model === NAI_MEDIUM_EFFORT_MODEL;
+}
+
+/** Apply the locked settings so the request and the saved record match what was actually generated. */
+export function lockMediumEffort<T extends { negative: string; characters: CharacterPrompt[] }>(
+  params: ImageParameters, prompt: T,
+): { params: ImageParameters; prompt: T } {
+  if (!isNaiMediumEffort(params.model)) return { params, prompt };
+  return {
+    params: { ...params, steps: 14, sampler: 'k_euler_ancestral', cfgRescale: 0, noiseSchedule: 'karras' },
+    prompt: { ...prompt, negative: NAI_V5_HEAVY_UC, characters: prompt.characters.map(character => ({ ...character, negative: '' })) },
   };
 }
 

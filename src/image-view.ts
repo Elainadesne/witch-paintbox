@@ -158,7 +158,8 @@ export function imageSettingsView(settings: ImageSettings, state: ImageViewState
         </label>
         <button type="button" class="text-button" data-action="refresh-models"${state.refreshing ? ' disabled' : ''}>${state.refreshing ? '刷新中…' : '刷新列表'}</button>
       </div><p class="config-status" data-model-list-status role="status"></p>${openai ? '<p class="config-status">支持手填 GPT Image 2.6 Flare / Sunburst；列表建议不代表当前渠道已开通，实际可用模型以服务端为准。</p>' : ''}`
-        : `<label class="config-field prominent-field"><span>生图模型</span><select data-parameter="model">${options(NAI_MODELS, parameters.model)}</select></label>`}
+        : `<label class="config-field prominent-field"><span>生图模型</span><select data-parameter="model">${options(NAI_MODELS, parameters.model)}</select></label>
+        <p class="config-status" data-medium-effort-hint${parameters.model === 'nai-diffusion-5-full-medium' ? '' : ' hidden'}>性能版约省 42% 点数：步数固定 14、采样器固定 Euler Ancestral、不支持引导重缩放；负面提示词改用官方 Heavy 预设，自定义负面（含角色负面）不会发送。要排除内容，可在正面提示词里用负强调，如 -3::hat::。</p>`}
       <div class="parameter-group"><h3 class="subsection-title">画幅</h3>
         <div class="feature-tabs image-size-switch" aria-label="画幅选择方式">
           <button type="button" data-action="select-size-mode" data-size-mode="fixed" aria-pressed="true">固定画幅</button>
