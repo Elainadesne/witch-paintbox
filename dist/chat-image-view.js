@@ -1,33 +1,16 @@
-/** Match the surrounding page color while keeping the generation button's text white. */
-function pageButtonColor(element) {
-    const layers = [];
-    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-        const view = parent.ownerDocument.defaultView ?? window;
-        const color = view.getComputedStyle(parent).backgroundColor;
-        if (!/^rgba?\(/.test(color))
-            continue;
-        const values = color.match(/[\d.]+/g)?.map(Number);
-        if (!values || values.length < 3)
-            continue;
-        const alpha = values[3] ?? 1;
-        if (alpha <= 0)
-            continue;
-        layers.push([values[0], values[1], values[2], alpha]);
-        if (alpha >= 1)
-            break;
+import { tavernIsDark } from './paintbox-theme.js';
+import { currentPreferences } from './settings.js';
+/** Tallest a picture is shown in the chat, in CSS pixels; narrow chats shrink it further. */
+const DISPLAY_HEIGHT = 760;
+/** The frame follows the paintbox's day/night preference, like the main panel. */
+function frameTheme() {
+    try {
+        const wanted = currentPreferences().paintboxTheme;
+        return wanted === 'night' || (wanted === 'auto' && tavernIsDark()) ? 'night' : 'day';
     }
-    let background = [40, 40, 48];
-    for (const [r, g, b, alpha] of layers.reverse()) {
-        background = [r, g, b].map((value, index) => value * alpha + background[index] * (1 - alpha));
+    catch {
+        return 'day';
     }
-    const luminance = (rgb) => rgb.map(value => {
-        const channel = value / 255;
-        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
-    }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
-    let button = background.map(value => Math.min(255, value + 18));
-    while (1.05 / (luminance(button) + .05) < 4.5)
-        button = button.map(value => value * .9);
-    return `rgb(${button.map(Math.round).join(', ')})`;
 }
 export function createChatImageView(summary, signal) {
     const slot = document.createElement('div');
@@ -37,62 +20,99 @@ export function createChatImageView(summary, signal) {
     slot.addEventListener('click', event => event.stopPropagation(), { signal });
     const root = slot.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>
-    :host { --button-surface: #45434e; --frame-inset: 8px; --image-width: 383px; --image-ratio: .6842; display: block; box-sizing: border-box; width: max-content; min-width: min(100%, calc(var(--image-width) + var(--frame-inset) + var(--frame-inset) + 2px)); max-width: 100%; margin: .8em auto; color: #3c3931; font: inherit; text-indent: 0; text-align: left; }
+    /* 「颜料未干」的一页画稿：水彩纸、棕墨线、楷体画题，与画匣主面板同一套纸墨。 */
+    :host {
+      --paper: #f7f0e3; --paper-deep: #efe4d0; --ink: #3a2416; --ink-soft: #6e4730; --muted: #8a7563;
+      --pencil: #3a24163a; --wash: #e6872a; --wash-ink: color-mix(in oklab, var(--wash) 62%, #3a2416);
+      --wash-soft: color-mix(in oklab, var(--wash) 22%, transparent); --mat: #fbf6ec; --grain-blend: multiply; --grain-opacity: 1;
+      --serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", STSong, serif;
+      --kai: "AR PL UKai CN", KaiTi, STKaiti, "Kaiti SC", var(--serif);
+      --ease: cubic-bezier(.16, 1, .3, 1);
+      --frame-inset: 14px; --image-width: 507px; --image-ratio: .6667;
+      display: block; box-sizing: border-box; width: max-content;
+      min-width: min(100%, calc(min(var(--image-width), 78vh * var(--image-ratio)) + var(--frame-inset) * 2));
+      max-width: 100%; margin: 1.1em auto; color: var(--ink); font: inherit; text-indent: 0; text-align: left;
+    }
+    :host([data-theme="night"]) {
+      --paper: #2b2018; --paper-deep: #21170f; --ink: #efe1c8; --ink-soft: #d9c3a3; --muted: #b7a185;
+      --pencil: #efe1c83d; --wash: #f0a85a; --wash-ink: color-mix(in oklab, var(--wash) 78%, #fff3dd);
+      --wash-soft: color-mix(in oklab, var(--wash) 24%, transparent); --mat: #33261c; --grain-blend: screen; --grain-opacity: .5;
+    }
     *, *::before, *::after { box-sizing: border-box; }
-    /* Weather's metal rails and the attribute card's bevelled corner fittings. */
-    figure { position: relative; width: 100%; min-width: 0; max-width: 100%; margin: 0; padding: var(--frame-inset); border: 1px solid #80683f; border-radius: 3px; background: linear-gradient(135deg, #e0c58e 0, #9c7843 24%, #ead5a1 52%, #a1814a 78%, #d2b779) border-box; box-shadow: 0 3px 10px #623d1a24, inset 0 1px 0 #fff3cf, inset 0 -1px 0 #5d472b88; }
-    figure::before { content: ''; position: absolute; inset: 3px; border: 1px solid #bba06d; border-radius: 1px; background: #fdfaf2; box-shadow: inset 0 0 0 1px #fffcf0, 0 0 0 1px #71572e33; pointer-events: none; }
+    /* 纸：底色与颗粒都在伪元素上，毛边用多边形裁出 */
+    figure { position: relative; isolation: isolate; width: 100%; min-width: 0; max-width: 100%; margin: 0; padding: var(--frame-inset); padding-bottom: calc(var(--frame-inset) - 4px); filter: drop-shadow(0 6px 10px #2a180b2e) drop-shadow(0 1px 1px #2a180b24); }
+    figure::before, figure::after { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; clip-path: var(--deckle); }
+    figure::before { background: radial-gradient(120% 80% at 15% 0%, var(--mat) 0%, transparent 60%), radial-gradient(90% 80% at 100% 100%, var(--paper-deep) 0%, transparent 70%), var(--paper); }
+    figure::after { opacity: var(--grain-opacity); mix-blend-mode: var(--grain-blend); background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 .23 0 0 0 0 .14 0 0 0 0 .09 0 0 0 .08 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+    :host([data-theme="night"]) figure::after { filter: invert(1); }
+    :host { --deckle: polygon(0% 3px, 5.56% 3.1px, 11.11% 2.9px, 16.67% .6px, 22.22% 2.1px, 27.78% 1.6px, 33.33% 1.9px, 38.89% .8px, 44.44% .9px, 50% 1.6px, 55.56% 1px, 61.11% 1.7px, 66.67% .5px, 72.22% .6px, 77.78% 2.4px, 83.33% 1.6px, 88.89% 1.8px, 94.44% 2.5px, calc(100% - 1.4px) 0%, calc(100% - .6px) 5.56%, calc(100% - 2.6px) 11.11%, calc(100% - 2px) 16.67%, calc(100% - 2.2px) 22.22%, calc(100% - 2.1px) 27.78%, calc(100% - 3.1px) 33.33%, calc(100% - 1.4px) 38.89%, calc(100% - 2.5px) 44.44%, calc(100% - 1.4px) 50%, calc(100% - 2px) 55.56%, calc(100% - 2.2px) 61.11%, calc(100% - 1.3px) 66.67%, calc(100% - .6px) 72.22%, calc(100% - 1.7px) 77.78%, calc(100% - 2.4px) 83.33%, calc(100% - 2.1px) 88.89%, calc(100% - 1.7px) 94.44%, 100% calc(100% - 2.2px), 94.44% calc(100% - .9px), 88.89% calc(100% - .9px), 83.33% calc(100% - 1.3px), 77.78% calc(100% - 2.7px), 72.22% calc(100% - .9px), 66.67% calc(100% - .7px), 61.11% calc(100% - .7px), 55.56% calc(100% - .5px), 50% calc(100% - 1.2px), 44.44% calc(100% - 2px), 38.89% calc(100% - 2.7px), 33.33% calc(100% - 1.3px), 27.78% calc(100% - 1.4px), 22.22% calc(100% - 1.2px), 16.67% calc(100% - 1.3px), 11.11% calc(100% - 2.6px), 5.56% calc(100% - 1.9px), 1.1px 100%, .7px 94.44%, 2.6px 88.89%, 2.4px 83.33%, 2.7px 77.78%, 1.1px 72.22%, 1.9px 66.67%, 3px 61.11%, 2.1px 55.56%, 3px 50%, .9px 44.44%, 3.1px 38.89%, .6px 33.33%, 1.6px 27.78%, .5px 22.22%, 2.7px 16.67%, 2.3px 11.11%, 3.1px 5.56%); }
+    /* 一条斜贴的纸胶带，颜色取当前颜料 */
+    .tape { position: absolute; z-index: 2; top: -9px; left: 50%; width: 104px; height: 22px; pointer-events: none; background: repeating-linear-gradient(90deg, #ffffff2e 0 6px, transparent 6px 13px), color-mix(in oklab, var(--wash) 82%, transparent); clip-path: polygon(3% 8%, 97% 0, 100% 50%, 96% 100%, 2% 92%, 0 45%); transform: translateX(-50%) rotate(-2.5deg); box-shadow: 0 2px 4px #120a0540; opacity: .92; }
     .scene, .footer { position: relative; min-width: 0; }
     .scene { width: 100%; max-width: 100%; }
-    .frame-corner { position: absolute; z-index: 1; width: 24px; height: 24px; color: #8b6834; pointer-events: none; filter: drop-shadow(.5px .8px .3px #50391d55); }
-    .frame-corner:nth-of-type(1) { top: 1px; left: 1px; }
-    .frame-corner:nth-of-type(2) { top: 1px; right: 1px; transform: scaleX(-1); }
-    .frame-corner:nth-of-type(3) { bottom: 1px; left: 1px; transform: scaleY(-1); }
-    .frame-corner:nth-of-type(4) { bottom: 1px; right: 1px; transform: scale(-1); }
-    .scene > summary { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 2px; padding: 5px 96px; text-align: center; list-style: none; cursor: pointer; overflow-wrap: anywhere; }
+    .scene > summary { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 14px; min-width: 0; padding: 6px 2px 10px; list-style: none; cursor: pointer; overflow-wrap: anywhere; }
     .scene > summary::-webkit-details-marker { display: none; }
-    .scene > summary::after { content: '⌄'; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); color: #8b6834; }
-    .scene[open] > summary::after { content: '⌃'; }
-    /* Explicit tracks stop an image's intrinsic width from widening a narrow details/grid. */
-    .scene-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 100%; padding-top: 8px; min-width: 0; contain: inline-size; }
-    .label { font-size: 10px; letter-spacing: .2em; opacity: .6; }
-    .title { color: inherit; font: inherit; font-size: .95em; font-weight: 650; line-height: 1.65; text-wrap: balance; }
-    .regenerate { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); width: 66px; min-height: 36px; padding: 6px 2px; border: 1px solid #ffffff38; border-radius: 3px; background: var(--button-surface); color: #fff; font-size: 12px; line-height: 1.4; white-space: nowrap; }
-    .regenerate:hover:not(:disabled) { filter: brightness(1.1); }
+    .heading { display: grid; gap: 3px; min-width: 0; }
+    .label { display: flex; align-items: center; gap: 8px; color: var(--wash-ink); font: 12px/1 var(--kai); letter-spacing: .4em; }
+    .label::after { content: '▾'; font-size: 10px; letter-spacing: 0; opacity: .7; transition: transform 320ms var(--ease); }
+    .scene:not([open]) .label::after { transform: rotate(-90deg); }
+    .title { color: var(--ink); font: 500 1.06em/1.6 var(--kai); letter-spacing: .08em; text-wrap: balance; }
+    /* 画题下的一道干刷，代替分隔线 */
+    .scene > summary::after { content: ''; position: absolute; left: 0; right: 0; bottom: 2px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--ink-soft) 55%, transparent) 12%, color-mix(in oklab, var(--ink-soft) 30%, transparent) 70%, transparent); pointer-events: none; }
+    .scene:not([open]) > summary::after { opacity: .5; }
     button, a { font: inherit; -webkit-tap-highlight-color: transparent; }
     button { cursor: pointer; }
-    button:disabled { opacity: .6; cursor: wait; }
-    button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
-    .generate { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-width: 0; contain: inline-size; min-height: 44px; padding: 10px 16px; border: 1px solid #ffffff38; border-radius: 3px; background: var(--button-surface); color: #fff; font-size: .85em; font-weight: 650; letter-spacing: .04em; }
-    .generate:not(:disabled):hover { filter: brightness(1.1); }
-    .generate:disabled { opacity: 1; color: #fff; }
-    .generate .ornament { font-size: 15px; opacity: .7; }
-    .canvas { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; justify-self: center; width: min(100%, var(--image-width)); max-width: 100%; min-width: 0; min-height: 0; aspect-ratio: var(--image-ratio); overflow: hidden; background: #ece5d5; border-radius: 2px; box-shadow: 0 0 0 1px #8b68342e; }
+    button:disabled { cursor: wait; }
+    button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px dashed var(--ink); outline-offset: 3px; }
+    /* 再次生图：一行带下划线的墨字 */
+    .regenerate { position: relative; justify-self: end; min-height: 32px; padding: 4px 2px; border: 0; border-radius: 0; background: linear-gradient(currentColor, currentColor) 0 calc(100% - 4px) / 100% 1px no-repeat; color: var(--wash-ink); font: 13px/1.4 var(--kai); letter-spacing: .14em; white-space: nowrap; transition: transform 160ms ease, color 160ms ease; }
+    .regenerate:hover:not(:disabled) { color: var(--ink); transform: translateY(-1px); }
+    .regenerate:disabled { color: var(--muted); background-size: 0 1px; }
+    .scene-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; width: 100%; padding-top: 12px; min-width: 0; contain: inline-size; }
+    /* 生成按钮：一团颜料，悬停时颜料加浓铺开 */
+    .generate { position: relative; isolation: isolate; display: flex; align-items: center; justify-content: center; gap: 10px; justify-self: center; width: min(100%, 300px); min-width: 0; min-height: 46px; margin: 4px 0 6px; padding: 10px 26px; border: 0; background: transparent; color: #fffaf0; font: 500 .92em/1.3 var(--kai); letter-spacing: .22em; transition: transform 160ms ease; }
+    .generate::before { content: ''; position: absolute; inset: 0 -4px; z-index: -1; pointer-events: none; background: var(--wash); border-radius: 46% 54% 40% 60% / 60% 46% 54% 40%; box-shadow: inset 0 -6px 10px color-mix(in oklab, var(--wash) 60%, #3a2416), 0 2px 3px #3a241622; transition: transform 320ms var(--ease), filter 320ms ease; }
+    .generate:hover:not(:disabled) { transform: translateY(-1px); }
+    .generate:hover:not(:disabled)::before { transform: scale(1.05, 1.1); filter: saturate(1.15); }
+    .generate:active:not(:disabled) { transform: translateY(1px) scale(1.04, .94); }
+    .generate:disabled { color: #6e5a48; }
+    .generate:disabled::before { background: #d6c8b1; box-shadow: none; }
+    :host([data-theme="night"]) .generate { color: #2b1a0f; }
+    :host([data-theme="night"]) .generate::before { box-shadow: inset 0 -6px 10px color-mix(in oklab, var(--wash) 70%, #3a2416); }
+    :host([data-theme="night"]) .generate:disabled { color: #b7a185; }
+    :host([data-theme="night"]) .generate:disabled::before { background: #4a382a; }
+    .generate .ornament { font-size: 14px; opacity: .75; }
+    /* 画心：衬一层浅纸，铅笔描一圈，像裱在画稿上 */
+    .canvas { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; justify-self: center; width: min(100%, var(--image-width), calc(78vh * var(--image-ratio))); max-width: 100%; min-width: 0; min-height: 0; aspect-ratio: var(--image-ratio); overflow: hidden; background: color-mix(in oklab, var(--paper-deep) 80%, var(--ink) 6%); box-shadow: 0 0 0 1px var(--pencil), 0 0 0 5px var(--mat), 0 0 0 6px color-mix(in oklab, var(--pencil) 70%, transparent), 0 3px 8px 6px #2a180b14; margin: 6px 0; }
     .preview { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
-    .preview img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; margin: 0; object-fit: contain; transition: opacity .3s ease-out; }
+    .preview img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; margin: 0; object-fit: contain; transition: opacity .9s var(--ease), filter .9s var(--ease); }
     .canvas.veiled .preview img { opacity: 0; transition: none; }
-    .canvas[data-busy="true"] .preview { opacity: .65; }
-    .placeholder { display: grid; place-items: center; opacity: .4; font-size: 26px; }
-    .canvas[data-phase="generating"] .placeholder { animation: breathe 2s ease-in-out infinite; }
-    .footer, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
-    .footer { justify-content: space-between; contain: inline-size; padding-top: 8px; font-size: .76em; line-height: 1.6; }
+    .canvas[data-busy="true"] .preview img { opacity: .55; filter: saturate(.6) blur(1px); }
+    /* 绘制中：一抹颜料在纸上洇开又收拢 */
+    .placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: var(--wash-ink); font-size: 24px; opacity: .55; }
+    .placeholder::before { content: ''; position: absolute; width: 42%; aspect-ratio: 1.4; border-radius: 46% 54% 40% 60% / 60% 46% 54% 40%; background: var(--wash-soft); }
+    .canvas[data-phase="generating"] .placeholder::before { animation: bloom 2.6s ease-in-out infinite; }
+    .canvas[data-phase="generating"] .placeholder { animation: breathe 2.6s ease-in-out infinite; }
+    .footer, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 18px; }
+    .footer { justify-content: space-between; contain: inline-size; padding: 4px 2px 0; color: var(--muted); font: .8em/1.6 var(--kai); letter-spacing: .06em; }
     .footer:has(.status:empty):not(:has(.actions > :not([hidden]))) { display: none; }
     .scene:not([open]) + .footer { display: none; }
     :host([data-busy="true"]) .footer, .scene:not([open]) + .footer:has(.status[data-error="true"]) { display: flex; }
-    .actions button, .actions a { display: inline-flex; align-items: center; min-height: 32px; padding: 0; border: 0; background: transparent; color: inherit; text-decoration: none; }
-    .actions button:hover, .actions a:hover { text-decoration: underline; text-underline-offset: 5px; }
-    .cancel, .status { opacity: .7; }
+    .actions button, .actions a { display: inline-flex; align-items: center; min-height: 32px; padding: 0 2px; border: 0; background: linear-gradient(currentColor, currentColor) 0 calc(100% - 6px) / 0 1px no-repeat; color: var(--ink-soft); text-decoration: none; letter-spacing: .12em; transition: background-size 320ms var(--ease), color 160ms ease; }
+    .actions button:hover, .actions a:hover { color: var(--ink); background-size: 100% 1px; }
     .status { margin: 0; overflow-wrap: anywhere; }
-    .status[data-error="true"] { opacity: 1; }
+    .status[data-error="true"] { color: #a3463e; }
+    :host([data-theme="night"]) .status[data-error="true"] { color: #ef8a7c; }
     [hidden] { display: none !important; }
-    @keyframes breathe { 50% { opacity: .8; } }
-    @media (prefers-reduced-motion: reduce) { .placeholder { animation: none !important; } }
-    @media (max-width: 480px) { :host { --frame-inset: 6px; } .scene > summary { padding-inline: 80px; } .regenerate { right: 19px; width: 58px; font-size: 11px; } .scene > summary::after { right: 3px; } .frame-corner { width: 20px; height: 20px; } .footer { gap: 2px; } .status { flex-basis: 100%; } }
+    @keyframes breathe { 50% { opacity: .9; } }
+    @keyframes bloom { 0%, 100% { transform: scale(.7) rotate(0deg); opacity: .6; } 50% { transform: scale(1.25) rotate(8deg); opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .placeholder, .placeholder::before { animation: none !important; } .preview img { transition: none; } }
+    @media (max-width: 480px) { :host { --frame-inset: 10px; } .tape { width: 84px; height: 18px; top: -7px; } .title { font-size: 1em; } .footer { gap: 2px 14px; } .status { flex-basis: 100%; } }
   </style>
   <figure>
-    ${Array.from({ length: 4 }, () => `<svg class="frame-corner" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M1 25V6L6 1H25L22 4H8L4 8V22Z" fill="#c8aa71" stroke="#76572f" stroke-width=".7"/><path d="M2 22V7L7 2H22M6 20V9L9 6H20" stroke="#f6e2ae" stroke-width=".8"/><path d="m8 12 4-4 4 4-4 4Z" fill="#e5cd91" stroke="#8b6834" stroke-width=".8"/></svg>`).join('')}
+    <span class="tape" aria-hidden="true"></span>
     <details class="scene" open>
-    <summary title="点击画题收起或展开图片"><span class="label">画题</span><span class="title"></span><button type="button" class="regenerate" title="再次生成此画题的图片">再次生图</button></summary>
+    <summary title="点击画题收起或展开图片"><span class="heading"><span class="label">画题</span><span class="title"></span></span><button type="button" class="regenerate" title="再次生成此画题的图片">再次生图</button></summary>
     <div class="scene-body">
     <div class="canvas" hidden>
       <button type="button" class="preview" aria-label="全屏查看图片与历史" hidden><img></button>
@@ -129,15 +149,15 @@ export function createChatImageView(summary, signal) {
         if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0)
             return;
         slot.style.setProperty('--image-ratio', String(width / height));
-        // Preserve the current 560px display-height limit without making the frame 680px wide.
-        slot.style.setProperty('--image-width', `${Math.min(width, 560 * width / height)}px`);
+        // Cap the shown height, never upscale past the picture's own width; the chat width narrows it further.
+        slot.style.setProperty('--image-width', `${Math.min(width, DISPLAY_HEIGHT * width / height)}px`);
     };
     const refreshTheme = () => {
         if (!slot.isConnected)
             return;
-        const color = pageButtonColor(slot);
-        if (slot.style.getPropertyValue('--button-surface') !== color)
-            slot.style.setProperty('--button-surface', color);
+        const theme = frameTheme();
+        if (slot.dataset.theme !== theme)
+            slot.dataset.theme = theme;
     };
     // The desktop pet hides a new picture while it flies in; the frame shows it again after 4 s at the latest.
     let veils = 0;
