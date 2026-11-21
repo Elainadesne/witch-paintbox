@@ -460,7 +460,7 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .credential-line {
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
   gap: 12px;
   margin-top: 20px;
@@ -752,7 +752,7 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color
 .model-save-line[data-saved="true"] { border-bottom-color: var(--accent); }
 .model-save-line > .config-status { margin: 0; }
 .model-save-line > .text-button { margin-left: 0; background: var(--accent-soft); font-weight: 600; }
-.model-save-line.preset-save-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px 12px; margin-top: 0; padding: 0 0 8px; border-top: 0; }
+.model-save-line.preset-save-line { display: grid; grid-template-columns: minmax(0, 1fr); align-items: end; gap: 8px 12px; margin-top: 0; padding: 0 0 8px; border-top: 0; }
 .preset-save-line > .config-status { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; }
 .preset-save-line > .text-button { min-height: 40px; white-space: nowrap; }
 .image-settings .text-button[data-action="delete-artist"], .image-settings .text-button[data-model-action="remove-entry"] { color: var(--danger); }

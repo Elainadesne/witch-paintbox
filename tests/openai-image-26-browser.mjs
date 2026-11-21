@@ -38,7 +38,6 @@ export async function testOpenAIImage26(page, panel, screenshots) {
   await panel.locator('[data-connection="url"]').fill('https://image-mock.invalid/v1');
   await panel.locator('[data-connection="key"]').fill('offline-test-not-a-real-key');
   assert.equal(await panel.locator('#witch-image-model-options option[value="gpt-image-2.6-sunburst"]').count(), 1);
-  await panel.locator('[data-action="save-connection"]').click();
   await page.waitForFunction(() => document.querySelector('#tavern-image-plugin').shadowRoot.querySelector('[data-connection-status]').textContent.includes('已保存'));
   assert.equal(await complexity.isEnabled(), true); assert.equal(await complexity.inputValue(), 'medium');
   await panel.locator('[data-action="refresh-models"]').click();

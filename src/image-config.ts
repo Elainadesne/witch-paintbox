@@ -68,8 +68,16 @@ export class ImageConfig {
   private writing = false;
   private pendingSaves = 0;
   private saveRevision = 0;
+  /** Connection edits save themselves shortly after typing stops. */
+  private connectionTimer = 0;
+  private connectionSaving: Promise<void> | null = null;
+  private connectionError = '';
+  /** The draft was applied but the storage write failed; keep retrying on the next edit or flush. */
+  private connectionWriteFailed = false;
+  /** The profile name was filled in for the player, so it follows the URL until they name it. */
+  private autoNamed = false;
 
-  get hasPendingWrites(): boolean { return this.writing || this.pendingSaves > 0; }
+  get hasPendingWrites(): boolean { return this.writing || this.pendingSaves > 0 || this.connectionTimer !== 0 || this.connectionSaving !== null; }
 
   constructor() {
     this.reloadSaved();
@@ -85,6 +93,10 @@ export class ImageConfig {
       return;
     }
     const previousProvider = this.settings?.provider;
+    this.clearConnectionTimer();
+    this.connectionError = '';
+    this.connectionWriteFailed = false;
+    this.autoNamed = false;
     this.settings = null;
     this.loadError = '';
     this.connection = { channel: 'official', url: '', key: '', appendSuffix: true };
@@ -121,6 +133,7 @@ export class ImageConfig {
   }
 
   unmount(): void {
+    this.flushConnection();
     this.maskKey();
     this.cancelModelRefresh();
     this.listeners?.abort();
@@ -146,8 +159,9 @@ export class ImageConfig {
   }
 
   private isConnectionSaved(): boolean {
+    if (this.connectionWriteFailed) return false;
     const profile = this.settings?.connectionProfiles.find(item => item.id === this.connectionId);
-    return !!profile && profile.name === this.connectionName
+    return !!profile && profile.name === this.connectionName.trim()
       && profile.channel === this.connection.channel && profile.url === this.connection.url
       && profile.appendSuffix === this.connection.appendSuffix
       && profile.key === this.connection.key && this.settings?.activeConnectionId === profile.id;
@@ -217,7 +231,7 @@ export class ImageConfig {
       this.cancelModelRefresh();
       if (this.connection.appendSuffix !== field.checked) this.clearModels();
       this.connection.appendSuffix = field.checked;
-      this.syncConnection();
+      this.scheduleConnection(0);
       return;
     }
     if (connectionField === 'channel' || connectionField === 'url' || connectionField === 'key') {
@@ -225,12 +239,13 @@ export class ImageConfig {
       if (this.connection[connectionField] !== field.value) this.clearModels();
       if (connectionField === 'channel') this.connection.channel = field.value === 'custom' ? 'custom' : 'official';
       else this.connection[connectionField] = field.value;
-      this.syncConnection();
+      this.scheduleConnection(connectionField === 'channel' ? 0 : 700);
       return;
     }
     if (field.dataset.field === 'connectionName') {
       this.connectionName = field.value;
-      this.syncConnection();
+      this.autoNamed = false;
+      this.scheduleConnection(700);
       return;
     }
     if (field.dataset.field === 'artistName') {
@@ -305,12 +320,75 @@ export class ImageConfig {
     const saved = this.isConnectionSaved();
     const line = this.container?.querySelector<HTMLElement>('.credential-line');
     if (line) line.dataset.saved = String(saved);
-    const button = this.container?.querySelector<HTMLButtonElement>('[data-action="save-connection"]');
-    if (button) button.disabled = saved;
     const url = this.container?.querySelector<HTMLElement>('[data-custom-url]');
     if (url) url.hidden = this.connection.channel !== 'custom';
-    this.message('connection', saved ? '已保存。' : '当前密钥配置尚未保存。');
+    const name = this.container?.querySelector<HTMLInputElement>('[data-field="connectionName"]');
+    // Never rewrite the field the player is typing in.
+    if (name && (name.getRootNode() as ShadowRoot | Document).activeElement !== name && name.value !== this.connectionName) name.value = this.connectionName;
+    const select = this.container?.querySelector<HTMLSelectElement>('[data-field="connectionProfile"]');
+    if (select && this.settings) {
+      const wanted = ['', ...this.settings.connectionProfiles.map(item => `${item.id}\u0000${item.name}`)].join('\u0001');
+      const current = Array.from(select.options).map(option => option.value ? `${option.value}\u0000${option.textContent}` : '').join('\u0001');
+      if (wanted !== current) {
+        const fresh = document.createElement('option');
+        fresh.value = ''; fresh.textContent = '新配置';
+        select.replaceChildren(fresh, ...this.settings.connectionProfiles.map(item => {
+          const option = document.createElement('option');
+          option.value = item.id; option.textContent = item.name;
+          return option;
+        }));
+      }
+      select.value = this.connectionId;
+    }
+    this.message('connection', this.connectionSaving || this.connectionTimer ? '正在自动保存…'
+      : saved ? '已自动保存。' : this.connectionError ? `填写完整后自动保存：${this.connectionError}` : '填写后自动保存。', !saved && !this.connectionTimer && !this.connectionSaving && Boolean(this.connectionError));
   }
+
+  private clearConnectionTimer(): void {
+    if (this.connectionTimer) clearTimeout(this.connectionTimer);
+    this.connectionTimer = 0;
+  }
+
+  private scheduleConnection(delay: number): void {
+    this.clearConnectionTimer();
+    this.connectionTimer = window.setTimeout(() => { this.connectionTimer = 0; void this.autoSaveConnection(); }, delay);
+    this.syncConnection();
+  }
+
+  /** Leaving the page or generating must not wait for the typing pause. */
+  flushConnection(): Promise<void> {
+    if (!this.connectionTimer) return this.connectionSaving ?? Promise.resolve();
+    this.clearConnectionTimer();
+    return this.autoSaveConnection();
+  }
+
+  private async autoSaveConnection(): Promise<void> {
+    if (this.connectionSaving) { await this.connectionSaving; return this.isConnectionSaved() ? undefined : this.autoSaveConnection(); }
+    if (!this.settings || this.isConnectionSaved()) { this.connectionError = ''; this.syncConnection(); return; }
+    const run = (async () => {
+      try {
+        this.connectionWriteFailed = false;
+        this.saveConnectionDraft();
+        this.connectionError = '';
+      } catch (error) {
+        this.connectionError = (error as Error).message;
+        return;
+      }
+      try { await this.connectionCommit; }
+      catch (error) {
+        this.connectionWriteFailed = true;
+        this.connectionError = `存储写入失败（${(error as Error).message}），再次修改或离开页面时重试`;
+      }
+    })();
+    this.connectionSaving = run;
+    this.syncConnection();
+    try { await run; } finally {
+      this.connectionSaving = null;
+      this.syncConnection();
+    }
+  }
+
+  private connectionCommit: Promise<void> = Promise.resolve();
 
   private syncParameters(): void {
     if (this.settings!.provider !== 'novelai') return;
@@ -393,6 +471,12 @@ export class ImageConfig {
       return;
     }
     if (field.dataset.field !== 'connectionProfile' && field.dataset.field !== 'artistPreset') return;
+    // Unsaved typing on the previous profile is kept before another one is loaded.
+    if (field.dataset.field === 'connectionProfile') {
+      const chosen = field.value;
+      await this.flushConnection();
+      field.value = chosen;
+    }
     try {
       await this.write(async () => {
         if (field.dataset.field === 'connectionProfile') {
@@ -408,6 +492,10 @@ export class ImageConfig {
           } else {
             this.connection = { channel: 'official', url: '', key: '', appendSuffix: true };
           }
+          this.clearConnectionTimer();
+          this.connectionError = '';
+          this.connectionWriteFailed = false;
+          this.autoNamed = false;
           this.connectionId = profile?.id ?? '';
           this.connectionName = profile?.name ?? '';
           this.render();
@@ -445,7 +533,6 @@ export class ImageConfig {
           button.setAttribute('aria-pressed', String(input.type === 'text'));
           break;
         }
-        case 'save-connection': await this.write(() => this.saveConnection()); break;
         case 'switch-provider': {
           const provider = target.closest<HTMLButtonElement>('button')?.dataset.provider;
           if (provider === 'novelai' || provider === 'openai' || provider === 'gemini' || provider === 'grok') await this.changeProvider(provider);
@@ -467,22 +554,30 @@ export class ImageConfig {
         case 'cancel-generation': this.request?.abort(); break;
       }
     } catch (error) {
-      this.message(action === 'save-connection' ? 'connection' : action === 'switch-provider' ? 'settings'
+      this.message(action === 'switch-provider' ? 'settings'
         : action === 'select-size-mode' ? 'size-mode' : 'artist', (error as Error).message, true);
     }
   }
 
-  private async saveConnection(): Promise<void> {
+  /**
+   * Validate the draft and commit it as the active profile. The new settings take effect at once,
+   * so parameter saves queued behind it keep the same connection; the write itself is awaited via connectionCommit.
+   */
+  private saveConnectionDraft(): void {
     this.cancelModelRefresh();
-    const connection = validateConnectionFor(this.settings!, this.connection);
+    const settings = this.settings!;
+    const connection = validateConnectionFor(settings, this.connection);
     // Store the entered URL so disabling suffix completion does not keep an appended path.
     if (connection.channel === 'custom') connection.url = this.connection.url.trim();
-    const name = this.connectionName.trim() || (connection.channel === 'official' ? OFFICIAL_NAMES[this.settings!.provider] : new URL(connection.url).host);
     const id = this.connectionId || newId();
-    const settings = this.settings!;
-    if (settings.connectionProfiles.some(item => item.id !== id && item.name === name)) {
-      throw new Error('已有同名连接配置，请选中它后保存，或使用其他名称。');
-    }
+    const taken = (name: string) => settings.connectionProfiles.some(item => item.id !== id && item.name === name);
+    let name = this.autoNamed || !this.connectionName.trim() ? '' : this.connectionName.trim();
+    if (!name) {
+      const base = connection.channel === 'official' ? OFFICIAL_NAMES[settings.provider] : new URL(connection.url).host;
+      name = base;
+      for (let index = 2; taken(name); index++) name = `${base} ${index}`;
+      this.autoNamed = true;
+    } else if (taken(name)) throw new Error('已有同名连接配置，请换一个配置名称。');
     const profile = { ...connection, id, name };
     const next = {
       ...settings, connection, activeConnectionId: id,
@@ -491,13 +586,13 @@ export class ImageConfig {
         ? settings.connectionProfiles.map(item => item.id === id ? profile : item)
         : [...settings.connectionProfiles, profile],
     };
-    await saveImageSettings(next);
     this.settings = next;
+    // Keep the trimmed key and URL as the draft; the input fields keep what was typed.
     this.connection = { ...connection };
     this.connectionName = name;
     this.connectionId = id;
-    this.render();
-    this.message('connection', '已保存。');
+    this.pendingSaves++;
+    this.connectionCommit = saveImageSettings(structuredClone(next)).finally(() => { this.pendingSaves--; });
   }
 
   private async saveArtist(action: string): Promise<void> {
@@ -597,8 +692,8 @@ export class ImageConfig {
   private async changeProvider(provider: ImageSettings['provider']): Promise<void> {
     if (!this.settings || provider === this.settings.provider || this.request || !this.validParameters()) return;
     this.cancelModelRefresh();
+    await this.flushConnection();
     await this.write(async () => {
-      // The connection editor is a separate draft: switching never confirms an unsaved key.
       await saveImageSettings(structuredClone(this.settings!));
       await switchImageProvider(provider);
       // Leaving Gemini / Grok for NAI or GPT folds the strip back up.
@@ -674,7 +769,7 @@ export class ImageConfig {
         try { await saveImageSettings(structuredClone(settings)); }
         finally { this.pendingSaves--; }
       }
-      if (current()) this.message('model-list', `已获取 ${models.length} 个模型，当前填写的模型名称保持不变。${confirmed ? '' : '保存当前连接后会保留此列表。'}`);
+      if (current()) this.message('model-list', `已获取 ${models.length} 个模型，当前填写的模型名称保持不变。${confirmed ? '' : '连接自动保存后会保留此列表。'}`);
     } catch (error) {
       if (current()) this.message('model-list', (error as Error).message, true);
     } finally {
@@ -687,8 +782,10 @@ export class ImageConfig {
     if (this.request) return;
     if (!this.validParameters()) return;
     this.generationFailed = false;
+    await this.flushConnection();
+    if (this.request) return;
     if (!this.isConnectionSaved()) {
-      this.generationMessage = '请先保存当前密钥配置。';
+      this.generationMessage = this.connectionError ? `密钥配置还不能使用：${this.connectionError}` : '请先填写密钥配置。';
       this.generationFailed = true;
       this.syncGeneration();
       emitPetEvent({ type: 'end', id: petTaskId(), task: 'image', source: 'config', result: 'failed', fault: 'setup', message: this.generationMessage });

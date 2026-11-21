@@ -48,10 +48,13 @@ export class ModelConfig {
   private worldbookError = false;
   private worldbookDrafts = new Map<string, WorldbookContentDraft>();
   private restoringWorldbookFocus = false;
+  /** Every edit saves itself shortly after the player stops; there is no separate save button. */
+  private saveTimer = 0;
+  private autoError = '';
 
   private get savingSettings(): boolean { return this.saving || isImageSizeModeSaving(); }
   private get savingWorldbookContent(): boolean { return [...this.worldbookDrafts.values()].some(draft => draft.saving); }
-  get hasPendingWrites(): boolean { return this.savingSettings || Boolean(this.worldbook.busy) || this.savingWorldbookContent; }
+  get hasPendingWrites(): boolean { return this.savingSettings || this.saveTimer !== 0 || Boolean(this.worldbook.busy) || this.savingWorldbookContent; }
 
   constructor() {
     this.reloadSaved();
@@ -82,6 +85,7 @@ export class ModelConfig {
   }
 
   reloadSaved(scope: 'all' | 'presets' | 'worldbooks' = 'all', provider: ImageProvider = loadImageSettings().provider): void {
+    if (scope === 'all') { this.clearSaveTimer(); this.autoError = ''; }
     if (scope === 'all') this.sizeModeErrors.clear();
     else if (scope === 'presets') this.sizeModeErrors.delete(provider);
     if (scope === 'all') this.presetDrafts.clear();
@@ -136,6 +140,8 @@ export class ModelConfig {
     const provider = loadImageSettings().provider;
     if (this.settings?.presetProvider === provider) return;
     const previous = this.settings;
+    this.flushSettings();
+    this.autoError = '';
     if (previous) this.presetDrafts.set(previous.presetProvider, {
       preset: modelPresetSettings(previous), selectedKey: this.selectedKey, page: this.presetPage, notice: this.importNotice, error: this.importError,
     });
@@ -200,6 +206,7 @@ export class ModelConfig {
 
   unmount(): void {
     this.flushWorldbookEdits();
+    this.flushSettings();
     this.importRequest++;
     this.maskKey();
     this.refresh?.abort(); this.bookRequest?.abort(); this.previewRequest?.abort();
@@ -210,6 +217,52 @@ export class ModelConfig {
 
   destroy(): void { this.unmount(); this.unsubscribe.forEach(stop => stop()); }
   private isSaved(): boolean { return this.saved === JSON.stringify(this.settings); }
+
+  /** Record a player's edit and save it after a short pause. */
+  private changed(delay = 700): void {
+    this.draftRevision++;
+    this.autoError = '';
+    this.queueSave(delay);
+  }
+
+  private queueSave(delay: number): void {
+    this.clearSaveTimer();
+    this.saveTimer = window.setTimeout(() => { this.saveTimer = 0; void this.saveSettings(); }, delay);
+    this.syncSave();
+  }
+
+  private clearSaveTimer(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = 0;
+  }
+
+  /** Closing the panel or leaving the page saves at once instead of waiting for the pause. */
+  flushSettings(): void {
+    if (!this.saveTimer) return;
+    this.clearSaveTimer();
+    void this.saveSettings();
+  }
+
+  private async saveSettings(): Promise<void> {
+    if (!this.settings || this.isSaved()) { this.syncSave(); return; }
+    // Another write (or a world book import) is still running: try again right after it.
+    if (this.savingSettings || this.worldbook.busy) { this.queueSave(400); return; }
+    const invalid = Array.from(this.container?.querySelectorAll<HTMLInputElement>('input[type="number"]') ?? []).find(field => !field.checkValidity());
+    if (invalid) {
+      this.autoError = `“${invalid.closest('label')?.querySelector('span')?.textContent ?? '数值'}”超出范围，改正后自动保存。`;
+      this.syncSave(); return;
+    }
+    const snapshot = normalizeSizeProtocolEntries(structuredClone(this.settings));
+    this.saving = true; this.syncSave();
+    try {
+      await saveModelSettings(snapshot);
+      this.sizeModeErrors.delete(snapshot.presetProvider);
+      if (this.settings?.presetProvider === snapshot.presetProvider) this.saved = JSON.stringify(snapshot);
+      else if (this.saved) this.saved = JSON.stringify({ ...JSON.parse(this.saved), ...modelSharedSettings(snapshot) });
+    } catch (error) {
+      this.autoError = `自动保存失败，改动仍保留在页面上：${error instanceof Error ? error.message : '存储不可用。'}`;
+    } finally { this.saving = false; this.syncSave(); }
+  }
 
   private applySavedSizeMode(provider: ImageProvider, mode: ImageSizeSelection): void {
     this.sizeModeErrors.delete(provider);
@@ -380,7 +433,7 @@ export class ModelConfig {
         <section class="config-section" data-worldbook-mount>${worldbookSettingsView(this.settings, this.worldbookState(), true)}</section>
         <label class="prompt-enable"><input type="checkbox" data-layer-id="worldbook"${this.settings.enabledLayers.includes('worldbook') ? ' checked' : ''}>在预设中启用世界书层</label>
         <button type="button" class="text-button model-feature-link" data-page="model-api">前往模型 API 预设 →</button>
-        <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() || this.savingSettings ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status">${this.savingSettings ? '正在保存…' : this.isSaved() ? '已保存。' : '选择条目后，点击保存配置生效。'}</p></div>
+        <div class="model-save-line" data-saved="${this.isSaved()}"><p class="config-status" data-model-status role="status">${this.savingSettings ? '正在自动保存…' : this.isSaved() ? '已自动保存。' : ''}</p></div>
       </div>`;
       return;
     }
@@ -395,7 +448,7 @@ export class ModelConfig {
         <div class="feature-layer-list">${layers.map(layer => `<label class="feature-layer-row"><span>${escape(layer.title)}</span><input type="checkbox" data-layer-id="${escape(layer.id)}"${this.settings!.enabledLayers.includes(layer.id) ? ' checked' : ''}></label>`).join('')}</div>
       </section>
       <button type="button" class="text-button model-feature-link" data-page="model-api">返回模型 API 预设 →</button>
-      <div class="model-save-line" data-saved="${this.isSaved()}"><button type="button" class="text-button" data-model-action="save-model"${this.isSaved() || this.savingSettings ? ' disabled' : ''}>保存配置</button><p class="config-status" data-model-status role="status"></p></div>
+      <div class="model-save-line" data-saved="${this.isSaved()}"><p class="config-status" data-model-status role="status"></p></div>
     </div>`;
   }
 
@@ -484,10 +537,9 @@ export class ModelConfig {
     const saved = this.isSaved();
     const line = this.container?.querySelector<HTMLElement>('.model-save-line');
     if (line) line.dataset.saved = String(saved);
-    const button = this.container?.querySelector<HTMLButtonElement>('[data-model-action="save-model"]');
-    if (button) button.disabled = saved || this.savingSettings;
-    const error = this.settings ? this.sizeModeErrors.get(this.settings.presetProvider) : '';
-    this.message(isImageSizeModeSaving() ? '正在保存画幅模式…' : this.saving ? '正在保存…' : error || (saved ? '已保存。' : '当前更改尚未保存。'), !this.savingSettings && Boolean(error));
+    const error = this.autoError || (this.settings ? this.sizeModeErrors.get(this.settings.presetProvider) : '');
+    const pending = this.saving || this.saveTimer !== 0;
+    this.message(isImageSizeModeSaving() ? '正在保存画幅模式…' : pending ? '正在自动保存…' : error || (saved ? '已自动保存。' : ''), !this.savingSettings && !pending && Boolean(error));
   }
 
   private syncFilterStatus(): void {
@@ -559,7 +611,7 @@ export class ModelConfig {
         entry.enabled = input.checked;
       }
     } else return;
-    this.draftRevision++; this.syncSave();
+    this.changed();
   }
 
   private async click(event: MouseEvent): Promise<void> {
@@ -567,7 +619,7 @@ export class ModelConfig {
     const button = event.target.closest<HTMLButtonElement>('[data-model-action]');
     if (!button || button.disabled) return;
     const action = button.dataset.modelAction;
-    if (action?.includes('worldbook') || action === 'save-model') this.flushWorldbookEdits();
+    if (action?.includes('worldbook')) this.flushWorldbookEdits();
     try {
       if (action === 'toggle-key') {
         const key = this.container!.querySelector<HTMLInputElement>('[data-model-field="key"]')!;
@@ -581,7 +633,7 @@ export class ModelConfig {
         if (input) input.value = model;
         const picker = button.closest<HTMLDetailsElement>('[data-model-picker]');
         if (picker) picker.open = false;
-        this.draftRevision++; this.syncSave(); this.renderModelChoices(); input?.focus();
+        this.changed(0); this.renderModelChoices(); input?.focus();
       } else if (action === 'refresh-models') void this.refreshModels();
       else if (action === 'refresh-worldbooks') void this.refreshWorldbooks();
       else if (action === 'toggle-worldbook-picker') {
@@ -596,18 +648,6 @@ export class ModelConfig {
       else if (action === 'refresh-layer') void this.refreshPreview();
       else if (action === 'select-worldbook' || action === 'clear-worldbook') {
         this.setBookSelection(this.worldbook.book, action === 'clear-worldbook' ? [] : this.worldbook.entries.filter(entry => entry.enabled && entry.activation && entry.content.trim()).map(entry => entry.id));
-      } else if (action === 'save-model') {
-        for (const field of Array.from(this.container!.querySelectorAll<HTMLInputElement>('input[type="number"]'))) if (!field.reportValidity()) return;
-        if (this.savingSettings || this.worldbook.busy) return;
-        const snapshot = normalizeSizeProtocolEntries(structuredClone(this.settings));
-        this.saving = true; this.syncSave();
-        try {
-          await saveModelSettings(snapshot);
-          this.sizeModeErrors.delete(snapshot.presetProvider);
-          if (this.settings?.presetProvider === snapshot.presetProvider) this.saved = JSON.stringify(snapshot);
-          else if (this.saved) this.saved = JSON.stringify({ ...JSON.parse(this.saved), ...modelSharedSettings(snapshot) });
-          this.maskKey();
-        } finally { this.saving = false; this.syncSave(); }
       } else if (action === 'preset-page-previous' || action === 'preset-page-next') {
         this.presetPage += action === 'preset-page-next' ? 1 : -1;
         this.renderPresetIndex();
@@ -621,7 +661,7 @@ export class ModelConfig {
         const index = this.settings.promptOrder.indexOf(this.selectedKey);
         this.selectedKey = `prompt:${id}`;
         this.settings.promptOrder.splice(index < 0 ? this.settings.promptOrder.length : index + 1, 0, this.selectedKey);
-        this.showPresetKey(); this.draftRevision++; this.renderPreset(this.selectedKey); this.syncSave();
+        this.showPresetKey(); this.renderPreset(this.selectedKey); this.changed();
         this.container?.querySelector<HTMLElement>('[data-prompt-field="name"]')?.focus();
       } else if (action === 'move-up' || action === 'move-down' || action === 'remove-entry') {
         const key = button.dataset.presetKey!, order = this.settings.promptOrder;
@@ -641,7 +681,7 @@ export class ModelConfig {
           [order[index], order[next]] = [order[next], order[index]];
           this.showPresetKey(key);
         }
-        this.draftRevision++; this.renderPreset(action === 'remove-entry' ? this.selectedKey : key); this.syncSave(); this.loadSelectedSource();
+        this.renderPreset(action === 'remove-entry' ? this.selectedKey : key); this.changed(); this.loadSelectedSource();
       }
     } catch (error) { this.message((error as Error).message, true); }
   }
@@ -651,7 +691,7 @@ export class ModelConfig {
     const books = this.settings.worldbooks, index = books.findIndex(book => book.name === name);
     if (index >= 0) { if (entries.length) books[index].entries = entries; else books.splice(index, 1); }
     else if (entries.length) books.push({ name, entries });
-    this.draftRevision++; this.renderSources(); this.syncSave();
+    this.renderSources(); this.changed(0);
     if (this.page === 'model') void this.refreshPreview();
   }
 
@@ -794,7 +834,7 @@ export class ModelConfig {
       const remaining = files.length - imported.length - failures.length;
       const summary = `${remaining ? '导入已停止' : '导入完成'}：成功 ${imported.length} 本，失败 ${failures.length} 个文件。`
         + (remaining ? `另有 ${remaining} 个文件未导入，可重新选择。` : '')
-        + (imported.length ? `已导入：${imported.map(name => `“${name}”`).join('、')}。选择要挂载的世界书或条目，再保存配置。` : '')
+        + (imported.length ? `已导入：${imported.map(name => `“${name}”`).join('、')}。选择要挂载的世界书或条目，选择会自动保存。` : '')
         + (failures.length ? `失败详情：${failures.join('；')}` : '');
       this.worldbook.busy = false; this.booksLoaded = false;
       this.worldbookMessage(summary, failures.length > 0);
@@ -849,11 +889,10 @@ export class ModelConfig {
       this.settings = normalizeSizeProtocolEntries({ ...settings, presetName: imported.presetName, head: imported.head, tail: imported.tail,
         promptOrder: createPromptOrder(imported.head, imported.tail, layers) });
       this.selectedKey = this.settings.promptOrder[0]; this.presetPage = 0; this.previewRequest?.abort(); this.preview = undefined;
-      this.draftRevision++;
       const warnings = imported.warnings.slice(0, 5).join(' ');
       const warningCount = imported.warnings.length > 5 ? `（共 ${imported.warnings.length} 条提示，以上仅展示前 5 条。）` : '';
-      this.importNotice = `已导入“${imported.presetName || '未命名预设'}”，共 ${imported.head.length + imported.tail.length} 条；点击保存配置才会保留。${warnings}${warningCount}`;
-      this.importError = false; this.render(); this.syncSave(); this.loadSelectedSource();
+      this.importNotice = `已导入“${imported.presetName || '未命名预设'}”，共 ${imported.head.length + imported.tail.length} 条，已自动保存。${warnings}${warningCount}`;
+      this.importError = false; this.render(); this.changed(0); this.loadSelectedSource();
     } catch (error) {
       if (request === this.importRequest && !signal?.aborted) this.presetMessage(`导入失败，原配置已保留：${error instanceof Error ? error.message : '无法读取文件。'}`, true);
     }

@@ -482,6 +482,8 @@ async function mount() {
 
   panel.addEventListener('close', () => {
     modelConfig.flushWorldbookEdits();
+    modelConfig.flushSettings();
+    imageConfig.flushConnection();
     imageReview.unmount();
     imageConfig.maskKey();
     modelConfig.maskKey();

@@ -24,7 +24,7 @@ function processingSettings() {
   const settings = loadModelSettings();
   if (!settings.parseImageMarkers) throw withFault(new Error('请先在模型 API 预设区开启“解析配图标记”。'), 'setup');
   if (![...settings.head, ...settings.tail].some(entry => entry.enabled && !entry.marker && entry.content.trim())) {
-    throw withFault(new Error('请先导入或填写处理正文的预设，并保存配置。'), 'setup');
+    throw withFault(new Error('请先导入或填写处理正文的预设。'), 'setup');
   }
   return settings;
 }

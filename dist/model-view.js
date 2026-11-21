@@ -87,7 +87,7 @@ export function worldbookSettingsView(settings, state, manage = false) {
       ${entries.length || stale.length ? '' : `<p class="config-status">${state?.loading ? '正在读取条目…' : state?.error ? '读取成功后显示条目。' : '这本世界书暂无可用条目。'}</p>`}
     </div>` : ''}
     ${manage && preview ? `<div class="worldbook-preview"><h3 class="subsection-title">${escape(preview.name)}</h3><textarea class="preset-layer-preview" rows="9" data-worldbook-content="${escape(preview.id)}" data-worldbook-name="${escape(book)}" aria-label="世界书条目内容" aria-describedby="worldbook-content-status" spellcheck="false"${state?.busy ? ' disabled' : ''}>${escape(editor?.content ?? preview.content)}</textarea><p id="worldbook-content-status" class="config-status${editor?.error ? ' is-error' : ''}" data-worldbook-content-status role="status">${escape(editor?.status ?? '点击内容即可编辑，离开输入框后自动保存。')}</p></div>` : ''}
-    <p class="config-status">挂载与条目选择的更改，点击“保存配置”后生效。</p>
+    <p class="config-status">挂载与条目选择会自动保存。</p>
   </div>`;
 }
 export function presetIndexView(settings, state) {
@@ -204,11 +204,10 @@ export function modelSettingsView(settings, state) {
         <h2 class="section-title" id="model-prompts-heading">${providerName} 预设编排</h2><p class="section-description">当前为 ${providerName} 生图预设，随生图接口切换并独立保存。左侧调整发送顺序，右侧编辑内容或挂载功能层。</p></header>
       <div class="artist-fields">
         <label class="config-field"><span>导入 JSON 预设</span><input type="file" data-preset-file accept=".json,application/json"></label>
-        <p class="config-status${state.importError ? ' is-error' : ''}" data-preset-status role="status">${escape(state.importNotice ?? `导入后替换当前 ${providerName} 预设草稿，点击保存配置才会保留。`)}</p>
+        <p class="config-status${state.importError ? ' is-error' : ''}" data-preset-status role="status">${escape(state.importNotice ?? `导入后替换当前 ${providerName} 预设并自动保存。`)}</p>
         <div class="model-save-line preset-save-line" data-saved="${state.saved}">
           <label class="config-field"><span>${providerName} 预设名称</span><textarea data-model-field="presetName" rows="1" maxlength="256">${escape(settings.presetName)}</textarea></label>
-          <button type="button" class="text-button" data-model-action="save-model"${state.saved || state.saving ? ' disabled' : ''}>保存配置</button>
-          <p class="config-status" data-model-status role="status">${state.saving ? '正在保存…' : state.saved ? getHostStore() ? '已保存到 TT 扩展数据。' : '已保存在当前浏览器。' : ''}</p>
+          <p class="config-status" data-model-status role="status">${state.saving ? '正在自动保存…' : state.saved ? getHostStore() ? '已自动保存到 TT 扩展数据。' : '已自动保存在当前浏览器。' : ''}</p>
         </div>
       </div>
       <div class="preset-workspace" data-preset-workspace>${presetWorkspaceView(settings, state)}</div>

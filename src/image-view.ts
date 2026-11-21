@@ -110,7 +110,7 @@ export function imageSettingsView(settings: ImageSettings, state: ImageViewState
     ${providerSwitch(kind, state.moreOpen)}
     <section class="config-section" aria-labelledby="connection-heading">
       <header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
-        <h2 class="section-title" id="connection-heading">密钥配置</h2><p class="section-description">选择绘图服务，保存可复用的连接。</p></header>
+        <h2 class="section-title" id="connection-heading">密钥配置</h2><p class="section-description">选择绘图服务，填写后自动保存为可复用的连接。</p></header>
       <div class="connection-fields">
         ${aspect ? `<label class="config-field channel-field"><span>接口协议</span>
           <select data-parameter="protocol">${options(kind === 'gemini'
@@ -142,11 +142,10 @@ export function imageSettingsView(settings: ImageSettings, state: ImageViewState
         </details>
         <label class="key-field"><span>密钥</span><input type="password" data-connection="key" value="${escape(connection.key)}" maxlength="16384" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
         <button type="button" class="text-button key-toggle" data-action="toggle-key" aria-pressed="false">显示</button>
-        <button type="button" class="text-button" data-action="save-connection"${state.connectionSaved ? ' disabled' : ''}>保存</button>
       </div>
       <p class="config-status" data-connection-status role="status">${getHostStore()
-        ? `${state.connectionSaved ? '配置已保存到 TT 扩展数据。' : '点击保存后，配置会写入 TT 扩展数据。'}${getSyncApiKeys() ? '密钥参与同步。' : '密钥仅保存在本机。'}`
-        : state.connectionSaved ? '已保存在当前浏览器。' : '点击保存后，密钥会保存在当前浏览器。'}</p>
+        ? `${state.connectionSaved ? '已自动保存到 TT 扩展数据。' : '填写后自动保存到 TT 扩展数据。'}${getSyncApiKeys() ? '密钥参与同步。' : '密钥仅保存在本机。'}`
+        : state.connectionSaved ? '已自动保存在当前浏览器。' : '填写后自动保存在当前浏览器。'}</p>
     </section>
 
     <section class="config-section" aria-labelledby="parameters-heading">
