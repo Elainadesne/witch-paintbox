@@ -51,7 +51,7 @@ export function defaultModelSettings(presetProvider: ImageProvider = 'novelai'):
   };
 }
 
-function invalid(): never { throw new Error('模型配置格式无效，请检查填写内容。'); }
+function invalid(): never { throw new Error('模型配置这一块格式不对，检查下填的内容。'); }
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
@@ -234,7 +234,7 @@ export async function saveImageSizeMode(provider: ImageProvider, mode: ImageSize
     await settingsStorage.update(current => {
       const preset = current.presets[provider];
       if (snapshot && !sameSizeProtocolEntries(preset, snapshot)) {
-        throw new Error('画幅协议有未保存或已变更的内容，请先保存预设配置。');
+        throw new Error('画幅协议条目刚刚变过还没稳下来，先等预设存好再继续。');
       }
       return {
         ...current,

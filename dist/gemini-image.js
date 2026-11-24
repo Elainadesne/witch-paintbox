@@ -7,7 +7,7 @@ const GEMINI_ORIGIN = 'https://generativelanguage.googleapis.com';
 function cleanKey(connection) {
     const key = typeof connection.key === 'string' ? connection.key.trim().replace(/^Bearer\s+/i, '') : '';
     if (!key || /[^\x21-\x7e]/.test(key))
-        fail('请填写有效的 API 密钥。', 'setup');
+        fail('API 密钥没填，或者里面夹了空格和非法字符。', 'setup');
     return key;
 }
 function customUrl(connection) {
@@ -16,17 +16,17 @@ function customUrl(connection) {
         url = new URL(connection.url.trim());
     }
     catch {
-        return fail('请输入完整的自定义 URL，包含 https:// 或 http://。', 'setup');
+        return fail('自定义地址得写完整，把 https:// 或 http:// 带上。', 'setup');
     }
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
-        fail('生图 URL 仅支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。', 'setup');
+        fail('生图地址只认干净的 HTTP / HTTPS 网址，不能带账号密码、查询参数或 # 锚点。', 'setup');
     }
     return url;
 }
 function modelPath(model) {
     const name = model.trim().replace(/^models\//, '');
     if (!/^[A-Za-z0-9._-]+$/.test(name))
-        fail('Gemini 模型名称只能包含字母、数字、点、下划线和连字符。', 'setup');
+        fail('Gemini 模型名里只能放字母、数字、点、下划线和连字符。', 'setup');
     return name;
 }
 /** Resolve the request URL for one protocol; custom paths are kept when suffixing is off. */
@@ -115,20 +115,20 @@ export function geminiImagePayload(payload) {
     if (Array.isArray(payload.data) && payload.data.length === 1)
         return object(payload.data[0]);
     const reason = typeof object(candidates[0]).finishReason === 'string' ? `（${object(candidates[0]).finishReason}）` : '';
-    return fail(`Gemini 没有返回图片${reason}，可能被安全策略拦截或模型不支持出图。`);
+    return fail(`Gemini 没吐出图片来${reason}，可能是撞到安全拦截了，或者这个模型本来就不能画图。`);
 }
 export async function generateGeminiImage(connection, parameters, prompt, signal, onProgress) {
     signal.throwIfAborted();
     if (!connection || !['official', 'custom'].includes(connection.channel))
-        fail('请选择官方或自定义渠道。', 'setup');
-    const params = validateGeminiImageParameters(parameters, () => fail('Gemini 生图参数无效，请检查协议、模型、比例和分辨率。', 'setup'));
+        fail('先选一下用官方渠道还是自定义接口。', 'setup');
+    const params = validateGeminiImageParameters(parameters, () => fail('Gemini 这套参数没填对，核对下协议、模型、比例和分辨率。', 'setup'));
     if (!params.model)
-        fail('请先填写或选择生图模型名称。', 'setup');
+        fail('先填一个或者选好 Gemini 的生图模型名吧。', 'setup');
     if (typeof prompt !== 'string' || !prompt.trim())
-        fail('请填写正面提示词。', 'setup');
+        fail('正面提示词还是空的，写点东西再画。', 'setup');
     if (params.protocol === 'openai') {
         if (connection.channel === 'official')
-            fail('Google 官方接口不提供 OpenAI 兼容出图，请改选 Interactions 或 generateContent 协议。', 'setup');
+            fail('Google 官方接口不走 OpenAI 兼容格式出图，把协议换成 Interactions 或 generateContent 吧。', 'setup');
         const configured = validateOpenAIImageConnection(connection);
         const image = await postImagesGeneration(configured, geminiRequestBody(params, prompt), signal, onProgress);
         return { blob: image.blob, parameters: params, width: image.width, height: image.height };
@@ -175,7 +175,7 @@ export async function fetchGeminiImageModels(connection, params, signal) {
         const payload = await readJson(response, 8 * 1024 * 1024, requestSignal);
         const list = Array.isArray(payload.models) ? payload.models : Array.isArray(payload.data) ? payload.data : null;
         if (!list || list.length > 10_000)
-            fail('模型列表格式无效或超过 10,000 项，请手动填写模型。');
+            fail('模型列表格式不对（或者超过 10,000 个了），自己手填模型名吧。');
         const names = list.map(item => { const entry = object(item); return String(entry.name ?? entry.id ?? '').replace(/^models\//, ''); })
             .filter(name => /image|banana|imagen/i.test(name) && name.length <= 512 && !/[\x00-\x1f\x7f]/.test(name));
         return [...new Set(names)].sort((a, b) => a.localeCompare(b));

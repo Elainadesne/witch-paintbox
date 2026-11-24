@@ -68,7 +68,7 @@ function database() {
             request = window.indexedDB.open(databaseName, 1);
         }
         catch {
-            reject(new Error('浏览器无法打开氛围参考存储，请检查站点存储权限。'));
+            reject(new Error('浏览器打不开氛围参考库，看看是不是站点存储权限被拦住了。'));
             return;
         }
         request.onupgradeneeded = () => {
@@ -78,8 +78,8 @@ function database() {
             if (!db.objectStoreNames.contains('meta'))
                 db.createObjectStore('meta');
         };
-        request.onblocked = () => reject(new Error('氛围参考存储被其他页面占用，请关闭其他酒馆页面后重试。'));
-        request.onerror = () => reject(new Error('浏览器未能打开氛围参考存储，请检查存储权限或剩余空间。'));
+        request.onblocked = () => reject(new Error('氛围参考库正被别的页面占着，关掉多余的酒馆页再试试。'));
+        request.onerror = () => reject(new Error('浏览器没打开氛围参考库，查一下存储权限或硬盘还够不够地方。'));
         request.onsuccess = () => {
             const db = request.result;
             db.onversionchange = () => { db.close(); if (connection === pending)
@@ -95,7 +95,7 @@ function database() {
 function done(transaction) {
     return new Promise((resolve, reject) => {
         transaction.oncomplete = () => resolve();
-        transaction.onabort = transaction.onerror = () => reject(new Error('氛围参考保存失败，可能是存储空间不足。'));
+        transaction.onabort = transaction.onerror = () => reject(new Error('氛围参考没存进去，八成是浏览器存储空间不够了。'));
     });
 }
 const listeners = new Set();
@@ -132,7 +132,7 @@ async function putPicture(blob, prefix) {
     const buffer = await blob.arrayBuffer();
     const extension = pictureExtension(new Uint8Array(buffer, 0, Math.min(12, buffer.byteLength)));
     if (!extension)
-        fail('氛围参考只支持 PNG、JPEG 或 WebP 图片。');
+        fail('氛围参考只认 PNG、JPEG 或 WebP 格式的图片。');
     // Same picture, same key: metadata edits never duplicate blobs.
     const key = `${prefix}-${await sha256(buffer)}.${extension}`;
     await getHostStore().setBlob({ namespace: HOST_NAMESPACE, table: hostTable, key, data: blob });
@@ -147,7 +147,7 @@ async function getPicture(key, name) {
         return blob.slice(0, blob.size, type);
     }
     catch {
-        throw new Error(`氛围图“${name}”的同步图片暂不可读，请等待同步完成后重试。`);
+        throw new Error(`氛围图“${name}”的图片还在同步呢，等同步完了再试。`);
     }
 }
 async function toNative(item) {
@@ -168,12 +168,12 @@ async function nativeManifest() {
     }
     const value = stored.value;
     if (!value || value.version !== 1 || !Array.isArray(value.items))
-        fail('同步的氛围参考格式无效，未用本机记录覆盖，请检查同步状态。');
+        fail('同步过来的氛围参考格式不对，没盖掉本机记录，先去看看同步状态吧。');
     const keyPattern = /^(?:vibe|thumb)-[a-f0-9]{64}\.(?:png|jpg|webp)$/;
     for (const item of value.items) {
         if (!item || typeof item.id !== 'string' || typeof item.hash !== 'string'
             || [item.imageKey, item.thumbnailKey].some(key => key !== null && (typeof key !== 'string' || !keyPattern.test(key)))) {
-            fail('同步的氛围参考记录无效，请检查同步状态。');
+            fail('同步过来的氛围参考有一条格式不对，看看同步状态。');
         }
     }
     return { version: 1, normalize: value.normalize !== false, items: value.items };
@@ -249,9 +249,9 @@ export async function saveVibeNormalize(value) {
 // ── Adding pictures and .naiv4vibe files ──
 export async function vibeFromImage(file, name) {
     if (!/^image\/(png|jpeg|webp)$/.test(file.type))
-        fail('氛围参考只支持 PNG、JPEG 或 WebP 图片。');
+        fail('氛围参考只认 PNG、JPEG 或 WebP 图片。');
     if (!file.size || file.size > VIBE_IMAGE_LIMIT)
-        fail('氛围参考图片须小于 8 MiB。');
+        fail('氛围参考图太大了，得在 8 MiB 以内。');
     const hash = await sha256(await file.arrayBuffer());
     return {
         id: newId(), name: name.replace(/\.[^.]+$/, '').slice(0, 120) || '氛围图', enabled: true,
@@ -266,7 +266,7 @@ function unit(value, fallback) {
 }
 async function vibeFromJson(source, offset) {
     if (source.identifier !== 'novelai-vibe-transfer')
-        fail('文件不是 NovelAI 氛围参考（.naiv4vibe）。');
+        fail('这个文件看着不是正经的 NovelAI 氛围参考（.naiv4vibe）。');
     const encodings = {};
     for (const [model, entries] of Object.entries(record(source.encodings))) {
         if (!LONG_NAMES[model])
@@ -292,9 +292,9 @@ async function vibeFromJson(source, offset) {
     const image = imageText ? toBlob(imageText) : null;
     const thumbnail = thumbText ? toBlob(thumbText) : null;
     if (!image && !Object.keys(encodings).length)
-        fail('氛围参考文件既没有原图也没有可用编码。');
+        fail('这个氛围参考文件里既没带原图，也没有现成编码。');
     if (image && image.size > VIBE_IMAGE_LIMIT)
-        fail('氛围参考原图须小于 8 MiB。');
+        fail('氛围参考里的原图太大了，得小于 8 MiB。');
     const info = record(source.importInfo);
     const hash = image ? await sha256(await image.arrayBuffer()) : await sha256(new TextEncoder().encode(JSON.stringify(encodings)));
     return {
@@ -310,15 +310,15 @@ export async function vibesFromFile(text) {
         parsed = JSON.parse(text);
     }
     catch {
-        return fail('氛围参考文件不是有效的 JSON。');
+        return fail('这个氛围文件不是合法的 JSON，是不是下坏了？');
     }
     const source = record(parsed);
     if (source.identifier === 'novelai-vibe-transfer-bundle' || Array.isArray(source.vibes)) {
         const vibes = Array.isArray(source.vibes) ? source.vibes : [];
         if (!vibes.length)
-            fail('氛围参考合集是空的。');
+            fail('这个氛围参考合集里是空的，一张图也没有。');
         if (vibes.length > VIBE_LIMIT)
-            fail(`氛围参考合集超过 ${VIBE_LIMIT} 张。`);
+            fail(`合集里的图超过了 ${VIBE_LIMIT} 张上限，装不下。`);
         return Promise.all(vibes.map((vibe, index) => vibeFromJson(record(vibe), index)));
     }
     return [await vibeFromJson(source, 0)];
@@ -353,7 +353,7 @@ export function encodeEndpoint(connection) {
         url = new URL(connection.url.trim());
     }
     catch {
-        return fail('请输入完整的自定义 URL。');
+        return fail('把自定义接口地址填完整再来。');
     }
     const path = url.pathname.replace(/\/+$/, '');
     if (connection.appendSuffix) {
@@ -361,7 +361,7 @@ export function encodeEndpoint(connection) {
         return url.href;
     }
     if (!path.endsWith('/ai/generate-image')) {
-        fail('自定义地址不以 /ai/generate-image 结尾，无法推算氛围编码地址。请开启自动拼接后缀，或导入自带编码的 .naiv4vibe 文件。');
+        fail('这个自定义地址不是以 /ai/generate-image 结尾，画匣推不出该往哪发编码请求。把“自动拼接接口后缀”打开，或者直接导入带现成编码的 .naiv4vibe 文件吧。');
     }
     url.pathname = path.replace(/\/ai\/generate-image$/, '/ai/encode-vibe');
     return url.href;
@@ -369,7 +369,7 @@ export function encodeEndpoint(connection) {
 export async function encodeVibe(connection, image, model, informationExtracted, signal) {
     const key = connection.key.trim().replace(/^Bearer\s+/i, '');
     if (!key)
-        fail('请填写有效的 API 密钥。');
+        fail('先把 API 密钥填上。');
     const body = JSON.stringify({ image: await blobToBase64(image), model, information_extracted: clampUnit(informationExtracted) });
     let response;
     try {
@@ -381,21 +381,21 @@ export async function encodeVibe(connection, image, model, informationExtracted,
     catch (error) {
         if (signal.aborted)
             throw error;
-        return fail('氛围编码请求未完成，请检查网络、跨域或反代是否转发 /ai/encode-vibe。', 'network');
+        return fail('氛围编码请求中途断了，查查网络、跨域，或者反代有没有顺带转发 /ai/encode-vibe。', 'network');
     }
     if (!response.ok) {
         void response.body?.cancel().catch(() => { });
         if (response.status === 401 || response.status === 403)
-            fail('氛围编码失败：密钥无效或没有权限。', 'auth');
+            fail('氛围编码被拒了：密钥不对或者没权限。', 'auth');
         if (response.status === 402)
-            fail('氛围编码失败：Anlas 不足（每张编码 2 Anlas）。', 'quota');
+            fail('氛围编码失败：Anlas 点数不够啦（每张要 2 Anlas）。', 'quota');
         if (response.status === 429)
-            fail('氛围编码请求过多，请稍后重试。', 'busy');
-        fail(`氛围编码失败（HTTP ${response.status}）。所选模型可能不支持氛围参考。`, 'unknown');
+            fail('编码请求发太密了，等两秒再试。', 'busy');
+        fail(`氛围编码没过（HTTP ${response.status}），也可能是你选的模型还不支持氛围参考。`, 'unknown');
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (!bytes.length)
-        fail('氛围编码接口返回了空数据。', 'unknown');
+        fail('编码接口回了个空包，没拿到编码。', 'unknown');
     return bytesToBase64(bytes);
 }
 /**
@@ -417,7 +417,7 @@ export async function prepareVibeReferences(connection, model, signal) {
     if (!enabled.length)
         return null;
     if (enabled.length > VIBE_LIMIT)
-        fail(`同时启用的氛围参考最多 ${VIBE_LIMIT} 张。`);
+        fail(`一次最多只能同时启用 ${VIBE_LIMIT} 张氛围图。`);
     const result = { images: [], strengths: [], informationExtracted: [], normalize: state.normalize, encoded: 0 };
     const short = SHORT_NAMES[model];
     for (const item of enabled) {
@@ -425,7 +425,7 @@ export async function prepareVibeReferences(connection, model, signal) {
         const ie = clampUnit(item.informationExtracted);
         if (support === 'raw') {
             if (!item.image)
-                fail(`氛围图“${item.name}”没有原图，V3 需要原图；请换一张或改用 V4 / V4.5。`);
+                fail(`氛围图“${item.name}”只有编码没带原图，偏偏 V3 得用原图；换张有原图的或者切到 V4 / V4.5 吧。`);
             result.images.push(await blobToBase64(item.image));
         }
         else {
@@ -433,7 +433,7 @@ export async function prepareVibeReferences(connection, model, signal) {
             if (!encoding) {
                 if (!item.image) {
                     const have = Object.keys(item.encodings).map(name => LONG_NAMES[name] ?? name).join('、') || '无';
-                    fail(`氛围图“${item.name}”没有原图，也没有当前模型与信息提取度 ${ieKey(ie)} 的编码（已有：${have}）。请切换模型或调回原来的信息提取度。`);
+                    fail(`氛围图“${item.name}”没有原图，手头又缺当前模型、提取度 ${ieKey(ie)} 的编码（目前只存了：${have}）。换回原来的模型或提取度就能用了。`);
                 }
                 encoding = await encodeVibe(connection, item.image, model, ie, signal);
                 result.encoded++;

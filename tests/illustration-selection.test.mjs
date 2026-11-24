@@ -82,7 +82,7 @@ test('protected code, image and opaque HTML rows cannot be included in manual gr
       .map(tag => `<${tag}>\nopaque content\n</${tag}>`)]) {
     const value = prepare(`前方正文。\n${barrier}\n后方正文。`);
     assert.ok(value.units.slice(1, -1).every(unit => unit.blocked && !unit.pointIds.length), barrier);
-    assert.throws(() => group(value, 1, value.units.length), /跨过/, barrier);
+    assert.throws(() => group(value, 1, value.units.length), /夹了/, barrier);
     assert.ok(group(value, 1, 1).pointIds.length);
     assert.ok(group(value, value.units.length, value.units.length).pointIds.length);
   }
@@ -94,7 +94,7 @@ test('inline exclusions block their whole source row and folded exclusions remai
     const text = `第一行。\n${block}\n最后一行。`;
     const value = prepare(text, ['think', 'nailong~', '思考']);
     assert.ok(value.units.slice(1, -1).every(unit => unit.blocked && !unit.pointIds.length));
-    assert.throws(() => group(value, 1, value.units.length), /跨过/);
+    assert.throws(() => group(value, 1, value.units.length), /夹了/);
     assert.equal(value.units.map(unit => unit.text).join(''), text);
   }
 });
@@ -162,9 +162,9 @@ test('one manual range produces one image without rewriting any original charact
     expected = expected.slice(0, offset) + insertion + expected.slice(offset);
   }
   assert.equal(result.text, expected);
-  assert.throws(() => applyImageInsertions(selectedPlan, JSON.stringify(response.slice(0, 1)), items), /遗漏/);
-  assert.throws(() => applyImageInsertions(selectedPlan, JSON.stringify([...response, row(items[0].pointIds[0])]), items), /多条/);
+  assert.throws(() => applyImageInsertions(selectedPlan, JSON.stringify(response.slice(0, 1)), items), /漏掉/);
+  assert.throws(() => applyImageInsertions(selectedPlan, JSON.stringify([...response, row(items[0].pointIds[0])]), items), /好几条/);
   const unselected = value.plan.points.find(point => !selectedPlan.points.includes(point));
-  assert.throws(() => applyImageInsertions(value.plan, JSON.stringify([row(unselected.id)]), items), /未选择/);
+  assert.throws(() => applyImageInsertions(value.plan, JSON.stringify([row(unselected.id)]), items), /没选过/);
   assert.equal(value.plan.original, html);
 });

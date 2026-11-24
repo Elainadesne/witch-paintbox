@@ -97,7 +97,7 @@ export function createSelectedImageInsertionPlan(original: string, excludedTags:
 }
 
 function insertionPlan(original: string, includeSentences: boolean, excludedTags: readonly string[]): ImageInsertionPlan {
-  if (typeof original !== 'string' || original.length > MAX_ORIGINAL_LENGTH) throw withFault(new Error('正文过长或格式无效，无法建立插入位置。'), 'format');
+  if (typeof original !== 'string' || original.length > MAX_ORIGINAL_LENGTH) throw withFault(new Error('这段正文太长或者格式不对，排不出来插入空位。'), 'format');
   const regions = imageTextRegions(original, excludedTags);
   const spans = narrativeSpans(original, regions);
   const bounds: NarrativeSpan[] = spans.length ? spans : [{ start: 0, end: original.length }];
@@ -142,7 +142,7 @@ function annotateInsertionPoints(original: string, points: readonly ImageInserti
     const separator = point.offset > 0 && /[\r\n]/.test(original[point.offset - 1]) ? '' : eol;
     const annotation = `${separator}【插入点 ${point.id}】${eol}`;
     length += annotation.length;
-    if (length > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('正文可插入位置过多，标注后超过长度限制。'), 'format');
+    if (length > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('这一楼段落太碎、插入点太多，标完超出长度限制了。'), 'format');
     pieces.push(original.slice(cursor, point.offset), annotation);
     cursor = point.offset;
   }
@@ -153,10 +153,10 @@ function annotateInsertionPoints(original: string, points: readonly ImageInserti
 /** Keep the full source, annotating only the positions explicitly selected by the user. */
 export function selectImageInsertionPoints(plan: ImageInsertionPlan, pointIds: readonly string[]): ImageInsertionPlan {
   const selected = new Set(pointIds);
-  if (!selected.size) throw withFault(new Error('请至少选择一处插图位置。'), 'format');
-  if (selected.size !== pointIds.length) throw withFault(new Error('同一个插图位置不能重复选择。'), 'format');
+  if (!selected.size) throw withFault(new Error('至少挑一个想插图的位置吧。'), 'format');
+  if (selected.size !== pointIds.length) throw withFault(new Error('同一个插入位置别重复选两次。'), 'format');
   const points = plan.points.filter(point => selected.has(point.id));
-  if (points.length !== selected.size) throw withFault(new Error('所选插图位置已失效，请重新打开指定插图。'), 'format');
+  if (points.length !== selected.size) throw withFault(new Error('刚才挑的位置失效了，重新打开“指定插图”再选一次吧。'), 'format');
   return annotateInsertionPoints(plan.original, points);
 }
 
@@ -174,23 +174,23 @@ export interface ImageInsertionResult {
 }
 
 export function applyImageInsertions(plan: ImageInsertionPlan, response: string, requiredItems?: readonly IllustrationItem[]): ImageInsertionResult {
-  if (typeof response !== 'string' || response.length > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('AI 返回内容过长或格式无效。'), 'format');
+  if (typeof response !== 'string' || response.length > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('AI 吐回来的内容太长或者格式不对劲。'), 'format');
   let source = response.trim();
   const fence = /^```(?:json)?[ \t]*(?:\r\n|\r|\n)([\s\S]*?)(?:\r\n|\r|\n)```$/i.exec(source);
   if (fence) source = fence[1];
   let decoded: unknown;
   try { decoded = JSON.parse(source); }
-  catch { throw withFault(new Error('AI 需要返回配图 JSON 数组，原文未修改。'), 'format'); }
-  if (!Array.isArray(decoded)) throw withFault(new Error('AI 需要返回配图 JSON 数组，不能返回改写后的正文。'), 'format');
+  catch { throw withFault(new Error('AI 得返回标准的配图 JSON 数组才行，楼层原文没动。'), 'format'); }
+  if (!Array.isArray(decoded)) throw withFault(new Error('AI 需要返回 JSON 数组，不能自己把正文重写吐回来。'), 'format');
   const existing = parseImageMarkers(plan.original);
-  if (decoded.length + existing.length > MAX_IMAGE_MARKERS) throw withFault(new Error('图片标记总数不能超过 64 处。'), 'format');
+  if (decoded.length + existing.length > MAX_IMAGE_MARKERS) throw withFault(new Error('一楼里的配图加起来不能超过 64 处。'), 'format');
   const positions = new Map(plan.points.map(point => [point.id, point.offset]));
   const groups = new Map<number, { summary: string; prompt: string; size?: ImageSize }[]>();
   const itemByPoint = new Map<string, number>();
   requiredItems?.forEach((item, index) => {
-    if (!item.pointIds.length) throw withFault(new Error('指定插图清单存在空项，原文未修改。'), 'format');
+    if (!item.pointIds.length) throw withFault(new Error('清单里有项没圈出位置，楼层原文没动。'), 'format');
     for (const id of item.pointIds) {
-      if (!positions.has(id) || itemByPoint.has(id)) throw withFault(new Error('指定插图清单的位置无效或重叠，原文未修改。'), 'format');
+      if (!positions.has(id) || itemByPoint.has(id)) throw withFault(new Error('清单里有位置无效或者跟别的项撞重了，楼层原文没动。'), 'format');
       itemByPoint.set(id, index);
     }
   });
@@ -200,22 +200,22 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string,
     if (!row || typeof row !== 'object' || Array.isArray(row)
       || Object.keys(row).some(key => !['at', 'summary', 'prompt', 'size'].includes(key)) || typeof row.at !== 'string'
       || typeof row.summary !== 'string' || typeof row.prompt !== 'string') {
-      throw withFault(new Error('每处配图需包含 at、summary、prompt，可选 size；不能包含其他字段。'), 'format');
+      throw withFault(new Error('每项里面只能放 at、summary、prompt（顶多加个 size），别夹多余字段。'), 'format');
     }
     const offset = positions.get(row.at);
     const itemIndex = itemByPoint.get(row.at);
     if (offset === undefined || (requiredItems && itemIndex === undefined)) throw withFault(new Error(requiredItems
-      ? 'AI 返回了未选择的插入点，原文未修改。' : 'AI 返回了不存在的插入点，原文未修改。'), 'format');
+      ? 'AI 挑中了你没选过的插入点，这次没往里写，原文没动。' : 'AI 编了一个压根不存在的插入点，楼层原文没动。'), 'format');
     if (itemIndex !== undefined && returnedItems.has(itemIndex)) {
-      throw withFault(new Error(`AI 为配图 ${itemIndex + 1} 返回了多条数据，每项只能生成一张，原文未修改。`), 'format');
+      throw withFault(new Error(`AI 给第 ${itemIndex + 1} 项塞了好几条配图，每项只能画一张，所以原文没动。`), 'format');
     }
     if (!row.summary.trim() || !row.prompt.trim() || /[\[\]<>\r\n]/.test(row.summary)
       || /<\s*\/?\s*img\b/i.test(row.prompt)) {
-      throw withFault(new Error('配图概括或提示词无效，不能为空或嵌入图片标记。'), 'format');
+      throw withFault(new Error('配图的 summary 或 prompt 写岔了，不能为空，里面也不能再嵌图片标签。'), 'format');
     }
     const size = parseImageSize(row.size);
     if (Object.hasOwn(row, 'size') && !size) {
-      warnings.push(`${row.at} 的画幅不在支持的七种尺寸中，将使用设置中的画幅。`);
+      warnings.push(`${row.at} 给的画幅不在那七种尺寸里，画的时候就按设置里的兜底画幅走。`);
     }
     const group = groups.get(offset) ?? [];
     group.push({ summary: row.summary, prompt: row.prompt, ...(size ? { size } : {}) });
@@ -224,7 +224,7 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string,
   }
   if (requiredItems && returnedItems.size !== requiredItems.length) {
     const missing = requiredItems.flatMap((_, index) => returnedItems.has(index) ? [] : [index + 1]);
-    throw withFault(new Error(`AI 遗漏了清单中的配图 ${missing.join('、')}，原文未修改。`), 'format');
+    throw withFault(new Error(`AI 漏掉了清单里的第 ${missing.join('、')} 项，这次没保存，原文没动。`), 'format');
   }
   const eol = newline(plan.original);
   const insertions: Insertion[] = [];
@@ -241,7 +241,7 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string,
       content += raw + eol + eol;
     }
     totalLength += content.length;
-    if (totalLength > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('插入后的正文超过长度限制，原文未修改。'), 'format');
+    if (totalLength > MAX_MARKER_TEXT_LENGTH) throw withFault(new Error('把配图塞进去之后整楼超字数上限了，原文没动。'), 'format');
     insertions.push({ offset, content, markers });
   }
   // Validate every row before constructing the new text; original slices are never rewritten.
@@ -260,6 +260,6 @@ export function applyImageInsertions(plan: ImageInsertionPlan, response: string,
     shift += insertion.content.length;
   }
   const parsed = new Map(parseImageMarkers(text).map(marker => [marker.start, marker]));
-  if (added.some(marker => parsed.get(marker.start)?.raw !== marker.raw)) throw withFault(new Error('配图未能形成独立的完整标记，原文未修改。'), 'format');
+  if (added.some(marker => parsed.get(marker.start)?.raw !== marker.raw)) throw withFault(new Error('配图标记写进去之后跟原正文粘连破损了，已撤回，原文没动。'), 'format');
   return { text, added, warnings };
 }

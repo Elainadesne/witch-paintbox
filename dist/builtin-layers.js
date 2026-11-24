@@ -17,7 +17,7 @@ export function registerBuiltinLayers() {
                     const entries = await readWorldbook(selected.name, context.signal);
                     context.signal?.throwIfAborted();
                     if (selected.entries.some(id => !entries.some(entry => entry.id === id))) {
-                        throw new Error(`世界书“${selected.name}”中有已挂载条目被删除，请重新选择。`);
+                        throw new Error(`“${selected.name}”里原本挂着的条目有几条被删掉了，再去重新挑一下吧。`);
                     }
                     const content = entries.filter(entry => selected.entries.includes(entry.id) && entry.enabled && entry.content.trim())
                         .filter(entry => isWorldbookEntryActive(entry, context.sourceText ?? ''))

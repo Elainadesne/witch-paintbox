@@ -141,11 +141,11 @@ export function groupIllustrationLines(plan, units, first, last) {
     const startIndex = Math.min(first, last), endIndex = Math.max(first, last);
     if (!Number.isInteger(first) || !Number.isInteger(last) || startIndex < 0 || endIndex >= units.length
         || !units[first]?.pointIds.length || !units[last]?.pointIds.length) {
-        throw withFault(new Error('请选择有正文和可用插入点的首尾行。'), 'format');
+        throw withFault(new Error('挑的首尾行里得有正文和能插图的空位才行。'), 'format');
     }
     const selected = units.slice(startIndex, endIndex + 1);
     if (selected.some(unit => unit.blocked)) {
-        throw withFault(new Error('所选范围跨过了代码、已有配图或排除内容，请分开选择。'), 'format');
+        throw withFault(new Error('你圈的那段中间夹了代码块、老配图或者排除标签，拆开来选吧。'), 'format');
     }
     const from = selected[0], to = selected.at(-1);
     const pointIds = Object.freeze(selected.flatMap(unit => [...unit.pointIds]));
@@ -155,20 +155,20 @@ export function groupIllustrationLines(plan, units, first, last) {
 /** Validate the entire list before a request, preserving its order and sorting each range by source offset. */
 export function normalizeIllustrationItems(plan, items) {
     if (!Array.isArray(items) || !items.length)
-        throw withFault(new Error('请至少加入一项指定插图。'), 'format');
+        throw withFault(new Error('至少加一项到清单里再提交吧。'), 'format');
     if (items.length + parseImageMarkers(plan.original).length > MAX_IMAGE_MARKERS) {
-        throw withFault(new Error('指定插图清单与已有图片标记合计不能超过 64 处。'), 'format');
+        throw withFault(new Error('加上这楼原本就有的图，一楼里最多只能留 64 张配图。'), 'format');
     }
     const offsets = new Map(plan.points.map(point => [point.id, point.offset]));
     const ranges = [];
     const normalized = items.map((item, index) => {
         if (!item || !Array.isArray(item.pointIds) || !item.pointIds.length) {
-            throw withFault(new Error(`配图 ${index + 1} 没有可用插入点，请重新选择。`), 'format');
+            throw withFault(new Error(`第 ${index + 1} 项里面找不着能插图的地方，换一段再选吧。`), 'format');
         }
         const selected = item.pointIds;
         const unique = new Set(selected);
         if (unique.size !== selected.length || selected.some(id => !offsets.has(id))) {
-            throw withFault(new Error(`配图 ${index + 1} 的插入点无效或重复，请重新选择。`), 'format');
+            throw withFault(new Error(`第 ${index + 1} 项的插入位置不对或者和前面撞重了，重选一下。`), 'format');
         }
         const pointIds = [...selected].sort((left, right) => offsets.get(left) - offsets.get(right));
         ranges.push({ start: offsets.get(pointIds[0]), end: offsets.get(pointIds[pointIds.length - 1]), index });
@@ -177,7 +177,7 @@ export function normalizeIllustrationItems(plan, items) {
     ranges.sort((left, right) => left.start - right.start);
     for (let index = 1; index < ranges.length; index++) {
         if (ranges[index].start <= ranges[index - 1].end) {
-            throw withFault(new Error(`配图 ${ranges[index - 1].index + 1} 与配图 ${ranges[index].index + 1} 的位置重叠，请移除重复项。`), 'format');
+            throw withFault(new Error(`第 ${ranges[index - 1].index + 1} 项和第 ${ranges[index].index + 1} 项的位置叠在一块了，删掉一个重来。`), 'format');
         }
     }
     return Object.freeze(normalized);

@@ -17,7 +17,7 @@ export const MAX_IMAGE_MARKERS = 64;
 
 /** Only complete literal markers outside code and HTML declarations are executable. */
 export function parseImageMarkers(text: string): ImageMarker[] {
-  if (typeof text !== 'string' || text.length > MAX_MARKER_TEXT_LENGTH) throw new Error('图片标记正文过长或格式无效。');
+  if (typeof text !== 'string' || text.length > MAX_MARKER_TEXT_LENGTH) throw new Error('这段正文太长或者格式不对，解析不出配图标记。');
   const markers: ImageMarker[] = [];
   for (const region of imageTextRegions(text)) {
     if (region.kind !== 'image' || !region.closed || region.nested) continue;
@@ -27,7 +27,7 @@ export function parseImageMarkers(text: string): ImageMarker[] {
     const metadata = readImageSizeMetadata(parts[2]);
     if (!metadata.prompt) continue;
     markers.push({ start: region.start, end: region.end, raw, summary: parts[1].trim(), ...metadata });
-    if (markers.length > MAX_IMAGE_MARKERS) throw new Error('图片标记最多保留 64 处。');
+    if (markers.length > MAX_IMAGE_MARKERS) throw new Error('一楼里最多只能留 64 处配图标记。');
   }
   return markers;
 }

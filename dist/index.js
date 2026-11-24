@@ -87,7 +87,7 @@ async function mount() {
             // applyArchive emits before this callback reloads the live preferences.
             window.dispatchEvent(new Event('witch-paintbox:preferences-changed'));
         }
-    }, () => imageConfig.hasPendingWrites || modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites || changingSyncKeys ? '配置仍在保存或角色图仍在生成，请完成后再导入或导出。' : undefined);
+    }, () => imageConfig.hasPendingWrites || modelConfig.hasPendingWrites || anchorConfig.hasPendingWrites || changingSyncKeys ? '还有配置没存完或角色图正在画，等手头忙完再导入或导出吧。' : undefined);
     const controller = new AbortController();
     const { signal } = controller;
     let nativeReady = false;
@@ -99,7 +99,7 @@ async function mount() {
             nativeReady = true;
         }
         catch (error) {
-            nativeError = error instanceof Error ? error.message : '独立前端接口未能初始化，请检查前端与画匣版本。';
+            nativeError = error instanceof Error ? error.message : '独立前端的接口没接上，核对一下前端和画匣两边是不是都升到新版了。';
         }
     }
     bindImageQueuePreferences(signal);
@@ -194,7 +194,7 @@ async function mount() {
         const status = content.querySelector('[data-image-queue-status]');
         if (status && queueState)
             status.textContent = queueState.active || queueState.queued
-                ? `正在生成 ${queueState.active} 张 · 等待 ${queueState.queued} 张 · 同时最多 ${queueState.limit} 张。` : '队列空闲。';
+                ? `正在画 ${queueState.active} 张 · 还有 ${queueState.queued} 张在排队 · 最多同时画 ${queueState.limit} 张。` : '现在空闲着，随时可以起笔。';
     }
     const stopQueue = onImageQueueChanged(state => { queueState = state; showQueueStatus(); });
     signal.addEventListener('abort', stopQueue, { once: true });
@@ -430,7 +430,7 @@ async function mount() {
                 }
                 persist();
                 navigate('image-workflow', false);
-                content.querySelector('[data-feedback]').textContent = '已恢复默认生图设置。';
+                content.querySelector('[data-feedback]').textContent = '出图与生图设置已经恢复成默认了。';
                 content.querySelector('[data-action="reset-image-workflow"]').focus();
             }
             if (button.dataset.action === 'reset-preferences') {
@@ -442,7 +442,7 @@ async function mount() {
                 persist();
                 refreshTheme();
                 navigate('preferences', false);
-                content.querySelector('[data-feedback]').textContent = '已恢复默认偏好。';
+                content.querySelector('[data-feedback]').textContent = '使用偏好已经恢复成默认了。';
                 content.querySelector('[data-action="reset-preferences"]').focus();
             }
         }, { signal });
@@ -475,7 +475,7 @@ async function mount() {
                         status.textContent = enabled ? '已开启：API 密钥会随 TT 扩展数据同步。' : '已关闭：API 密钥仅保留在本机。';
                 }).catch(error => {
                     if (status) {
-                        status.textContent = error instanceof Error ? error.message : '同步设置未能保存，请重试。';
+                        status.textContent = error instanceof Error ? error.message : '同步开关没存上，再试一次看看。';
                         status.classList.add('is-error');
                     }
                 }).finally(() => {
@@ -503,7 +503,7 @@ async function mount() {
                 }
                 settings.imageConcurrency = value;
                 persist();
-                content.querySelector('[data-feedback]').textContent = `最大同时生图数已设为 ${value} 张。`;
+                content.querySelector('[data-feedback]').textContent = `现在最多同时画 ${value} 张。`;
                 return;
             }
             if (input instanceof HTMLInputElement && input.name === 'autoImageDelay') {
@@ -515,7 +515,7 @@ async function mount() {
                 settings.autoImageDelay = delay;
                 input.value = String(delay);
                 persist();
-                content.querySelector('[data-feedback]').textContent = delay ? `自动出图等待与间隔已设为 ${delay} 秒。` : '自动出图改为立即接上。';
+                content.querySelector('[data-feedback]').textContent = delay ? `自动出图现在会等 ${delay} 秒再接着画。` : '自动出图改成不等待，直接接上。';
                 return;
             }
             if (input instanceof HTMLSelectElement && input.name === 'imageRetentionDays') {
@@ -555,7 +555,7 @@ async function mount() {
                 settings.petMotion = input.checked;
             persist();
             showWorkflowStatus();
-            content.querySelector('[data-feedback]').textContent = '更改会自动保存。';
+            content.querySelector('[data-feedback]').textContent = '改完就会自动存好，不用另找保存键。';
         }, { signal });
     }, { once: true, signal });
     panel.addEventListener('close', () => {
@@ -600,7 +600,7 @@ async function mount() {
 }
 $(() => {
     void mount().catch(() => {
-        const message = '魔女画匣未能读取或迁移配置，原有记录已保留。请检查 TT 扩展数据或浏览器存储后重新打开。';
+        const message = '魔女画匣这次没能把配置读出来或完成迁移，原本的记录都还完整留着。去看看 TT 扩展数据或浏览器存储空间，再重新打开试一次。';
         console.error(message);
         const toast = window.toastr;
         if (toast)

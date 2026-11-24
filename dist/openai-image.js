@@ -13,8 +13,8 @@ export function openAIImageComplexityLabel(value) {
 }
 export function openAIImageComplexityHint(model) {
     return supportsOpenAIImageComplexity(model)
-        ? 'complexity 控制渲染前的规划深度，与生成质量独立。跟随模型时不指定此参数，GPT Image 2.6 官方默认高；更高的规划深度可能增加等待时间。'
-        : '选择 GPT Image 2.6 Flare 或 Sunburst 后可设置规划深度。当前模型不发送 complexity；选值保留，切回 2.6 后生效。';
+        ? 'complexity 用来定画前构思有多细，和画质分开算。选“跟随模型”就不额外传它，GPT Image 2.6 官方默认是高；开得越高画前想得越久。'
+        : '选了 GPT Image 2.6 Flare 或 Sunburst 才能调这一档。现在这个模型不会发 complexity 过去；选好的值会留着，以后切回 2.6 马上生效。';
 }
 const OFFICIAL_ENDPOINT = 'https://api.openai.com/v1/images/generations';
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
@@ -30,7 +30,7 @@ export function validateOpenAIImageParameters(value, dimensions = 'request') {
             && size <= 4096 && (dimensions === 'image' || size % 16 === 0))
         || !OPENAI_IMAGE_QUALITIES.includes(params.quality)
         || params.complexity !== undefined && !OPENAI_IMAGE_COMPLEXITIES.includes(params.complexity)) {
-        fail('GPT 生图参数无效，请检查模型、尺寸、质量和规划深度设置。', 'setup');
+        fail('GPT 这套生图参数没填对，核对一下模型名、尺寸、画质和规划深度。', 'setup');
     }
     return { model: params.model.trim(), width: params.width, height: params.height, quality: params.quality,
         complexity: params.complexity ?? 'default' };
@@ -38,10 +38,10 @@ export function validateOpenAIImageParameters(value, dimensions = 'request') {
 /** Accept an API base or a complete generations endpoint without guessing other protocols. */
 export function validateOpenAIImageConnection(connection, officialEndpoint = OFFICIAL_ENDPOINT) {
     if (!connection || !['official', 'custom'].includes(connection.channel))
-        fail('请选择官方或自定义渠道。', 'setup');
+        fail('先选一下用官方渠道还是自定义接口。', 'setup');
     const key = typeof connection.key === 'string' ? connection.key.trim().replace(/^Bearer\s+/i, '') : '';
     if (!key || /[^\x21-\x7e]/.test(key))
-        fail('请填写有效的 API 密钥。', 'setup');
+        fail('API 密钥没填，或者里面夹了空格和非法字符。', 'setup');
     const { appendSuffix } = connection;
     if (connection.channel === 'official')
         return { channel: 'official', url: officialEndpoint, key, appendSuffix };
@@ -50,10 +50,10 @@ export function validateOpenAIImageConnection(connection, officialEndpoint = OFF
         url = new URL(connection.url.trim());
     }
     catch {
-        return fail('请输入完整的自定义 URL，包含 https:// 或 http://。', 'setup');
+        return fail('自定义地址得写完整，把 https:// 或 http:// 带上。', 'setup');
     }
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
-        fail('生图 URL 仅支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。', 'setup');
+        fail('生图地址只认干净的 HTTP / HTTPS 网址，不能带账号密码、查询参数或 # 锚点。', 'setup');
     }
     if (appendSuffix) {
         const path = url.pathname.replace(/\/+$/, '');
@@ -79,10 +79,10 @@ export async function withRequest(signal, timeout, operation) {
         if (signal.aborted)
             throw new DOMException('本次请求已取消。', 'AbortError');
         if (timedOut)
-            fail('接口响应超时，请确认服务端任务状态后再操作；没有自动重试。', 'timeout');
+            fail('等太久接口没回话，免得重复扣费先停下了；确认下对面服务端状况再重发吧。', 'timeout');
         if (error instanceof ImageResponseError)
             throw error;
-        return fail('接口请求未完成，请检查网络、浏览器跨域限制和服务设置；没有自动重试。', 'network');
+        return fail('请求中途断了，看看网络、服务地址或者是不是被浏览器跨域拦了；没有自动重试。', 'network');
     }
     finally {
         clearTimeout(timer);
@@ -95,22 +95,22 @@ function requireSuccess(response) {
         return;
     void response.body?.cancel().catch(() => { });
     if (response.status === 401 || response.status === 403)
-        fail('密钥无效、已过期或没有接口权限。', 'auth');
+        fail('密钥不对、过期了，或者没开通这个接口权限。', 'auth');
     if (response.status === 402)
-        fail('接口额度不足，请检查账号。', 'quota');
+        fail('账号额度不够啦，看一眼余额吧。', 'quota');
     if (response.status === 429)
-        fail('接口请求过多或额度受限，请稍后手动重试。', 'busy');
-    fail(`接口请求失败（HTTP ${response.status}），请检查模型和参数；没有自动重试。`, 'unknown');
+        fail('请求太密或者额度卡住了，稍等一会儿再自己重试。', 'busy');
+    fail(`请求没过（HTTP ${response.status}），看看模型名和参数写对没；为了省额度没自动重试。`, 'unknown');
 }
 export async function readBytes(response, limit, signal) {
     requireSuccess(response);
     const length = Number(response.headers.get('content-length'));
     if (Number.isFinite(length) && length > limit) {
         void response.body?.cancel().catch(() => { });
-        fail('接口返回的数据超过允许大小。');
+        fail('对面传回来的数据太大了，没敢接着收。');
     }
     if (!response.body)
-        fail('接口没有返回数据。');
+        fail('接口回了个空响应，什么数据都没给。');
     const reader = response.body.getReader();
     const chunks = [];
     let bytes = 0;
@@ -125,7 +125,7 @@ export async function readBytes(response, limit, signal) {
                 break;
             bytes += chunk.value.byteLength;
             if (bytes > limit)
-                fail('接口返回的数据超过允许大小。');
+                fail('对面传回来的数据太大了，停下读取。');
             chunks.push(chunk.value);
         }
         const result = new Uint8Array(bytes);
@@ -152,10 +152,10 @@ export async function readJson(response, limit, signal) {
         payload = object(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
     }
     catch {
-        return fail('接口没有返回有效 JSON，请检查 URL 是否为 API 地址。');
+        return fail('接口回的不是合法 JSON，核对下填的 URL 对不对。');
     }
     if (!Object.keys(payload).length || payload.error)
-        fail('接口返回了错误数据，请检查模型、额度和权限。');
+        fail('接口报了错，看看模型名、额度和权限都有没有问题。');
     return payload;
 }
 export async function fetchOpenAIImageModels(connection, signal, officialEndpoint = OFFICIAL_ENDPOINT) {
@@ -163,7 +163,7 @@ export async function fetchOpenAIImageModels(connection, signal, officialEndpoin
     const url = new URL(configured.url);
     const path = url.pathname.replace(/\/+$/, '');
     if (!path.endsWith('/images/generations')) {
-        fail('无法从当前完整接口地址确定模型列表地址，请手动填写模型名称。', 'setup');
+        fail('按现在填的完整地址推不出模型列表入口，直接手填模型名吧。', 'setup');
     }
     url.pathname = path.replace(/\/images\/generations$/, '/models');
     return withRequest(signal, 20_000, async (requestSignal) => {
@@ -173,7 +173,7 @@ export async function fetchOpenAIImageModels(connection, signal, officialEndpoin
         });
         const payload = await readJson(response, 8 * 1024 * 1024, requestSignal);
         if (!Array.isArray(payload.data) || payload.data.length > 10_000)
-            fail('模型列表格式无效或超过 10,000 项，请手动填写模型。');
+            fail('拉回来的模型列表格式不对（或者超过 10,000 个了），自己手填模型名吧。');
         const models = payload.data.map(item => object(item).id)
             .filter((id) => typeof id === 'string' && Boolean(id.trim()) && id.length <= 512 && !/[\x00-\x1f\x7f]/.test(id));
         return [...new Set(models)].sort((a, b) => a.localeCompare(b));
@@ -183,7 +183,7 @@ export async function imageBytes(item, signal) {
     if (typeof item.b64_json === 'string' && item.b64_json.trim())
         return decodeImageBase64(item.b64_json, signal);
     if (typeof item.url !== 'string' || !item.url)
-        fail('接口没有返回 b64_json 或图片 URL。');
+        fail('响应里既没带 b64_json 图片数据，也没有图片链接。');
     if (/^data:/i.test(item.url.trim()))
         return decodeImageBase64(item.url, signal);
     let url;
@@ -191,10 +191,10 @@ export async function imageBytes(item, signal) {
         url = new URL(item.url);
     }
     catch {
-        return fail('接口返回的图片 URL 无效。');
+        return fail('对面给的图片链接不对劲，打不开。');
     }
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash)
-        fail('接口返回的图片 URL 不受支持。');
+        fail('对面传回来的图片地址带了不支持的协议或账号参数。');
     // Never forward the API credential, cookies or referrer to a returned image host.
     const response = await fetch(url.href, {
         signal, mode: 'cors', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
@@ -211,7 +211,7 @@ export async function postImagesGeneration(configured, body, signal, onProgress)
         });
         const payload = await readJson(response, MAX_JSON_BYTES, requestSignal);
         if (!Array.isArray(payload.data) || payload.data.length !== 1)
-            fail('生图接口应返回且仅返回一张图片。');
+            fail('每次请求需要正好返回一张图，这次的数量对不上。');
         const bytes = await imageBytes(object(payload.data[0]), requestSignal);
         const image = await readRasterImage(bytes, requestSignal);
         return { blob: image.blob, width: image.width, height: image.height };
@@ -222,16 +222,16 @@ export async function generateOpenAIImage(connection, parameters, prompt, signal
     const configured = validateOpenAIImageConnection(connection);
     const params = validateOpenAIImageParameters(parameters);
     if (!params.model)
-        fail('请先填写或拉取生图模型名称。', 'setup');
+        fail('先填一个或者刷新拉取一个生图模型名吧。', 'setup');
     if (/^gpt-image-2(?:\.[56]-(?:sunburst|flare))?(?:-|$)/.test(params.model)) {
         const area = params.width * params.height;
         if (Math.max(params.width, params.height) > 3840 || area < 655_360 || area > 8_294_400
             || params.width > params.height * 3 || params.height > params.width * 3) {
-            fail('该 GPT Image 模型要求最长边不超过 3840、宽高比在 1:3 至 3:1 之间、总像素在 655,360 至 8,294,400 之间。', 'setup');
+            fail('这个 GPT Image 模型的尺寸有限制：最长边不能过 3840，比例得在 1:3 到 3:1 之间，总像素要在 655,360 到 8,294,400 之间。', 'setup');
         }
     }
     if (typeof prompt !== 'string' || !prompt.trim())
-        fail('请填写正面提示词。', 'setup');
+        fail('正面提示词还是空的，写点东西再画。', 'setup');
     // Keep a saved 2.6 choice when switching models, but record only what this request can send.
     if (!supportsOpenAIImageComplexity(params.model))
         params.complexity = 'default';

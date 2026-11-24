@@ -64,7 +64,7 @@ export function aspectParameters(settings: ImageSettings): string {
         <label class="config-field"><span data-size-selection-label>画面比例</span><select data-parameter="aspectRatio">${options(ratioOptions(GEMINI_ASPECT_RATIOS), p.aspectRatio)}</select></label>
         <label class="config-field"><span>分辨率</span><select data-parameter="imageSize"${tier ? ' disabled' : ''}>${options(GEMINI_IMAGE_SIZES.map(value => ({ value, label: value })), tier === 'omit' ? '1K' : tier ?? p.imageSize)}</select></label>
       </div>
-      <p class="config-status" data-aspect-hint>预计约 ${size.width} × ${size.height}${tier ? '；该模型只出默认档位' : ''}。实际尺寸以返回图片为准。</p>`;
+      <p class="config-status" data-aspect-hint>大概会出 ${size.width} × ${size.height}${tier ? '（这个模型只认默认档位）' : ''}，具体大小看接口传回来的成图。</p>`;
   }
   const p = settings.grokParameters;
   const size = grokExpectedSize(p.aspectRatio, p.resolution);
@@ -73,7 +73,7 @@ export function aspectParameters(settings: ImageSettings): string {
         <label class="config-field"><span>分辨率</span><select data-parameter="resolution">${options(GROK_RESOLUTIONS.map(value => ({ value, label: value.toUpperCase() })), p.resolution)}</select></label>
         <label class="config-field"><span>生成质量</span><select data-parameter="quality">${options(GROK_QUALITIES.map(value => ({ value, label: value === 'auto' ? '自动 · auto' : value })), p.quality)}</select></label>
       </div>
-      <p class="config-status" data-aspect-hint>预计长边约 ${Math.max(size.width, size.height)} 像素${p.protocol === 'openai' ? '；兼容协议会把比例换成 size 发送' : ''}。实际尺寸以返回图片为准。</p>`;
+      <p class="config-status" data-aspect-hint>长边大概 ${Math.max(size.width, size.height)} 像素${p.protocol === 'openai' ? '（走兼容协议时会自动把比例换算成 size 发过去）' : ''}，具体大小看返回成图。</p>`;
 }
 
 function escape(value: string | number): string {
@@ -110,7 +110,7 @@ export function imageSettingsView(settings: ImageSettings, state: ImageViewState
     ${providerSwitch(kind, state.moreOpen)}
     <section class="config-section" aria-labelledby="connection-heading">
       <header class="section-heading"><span class="section-index" aria-hidden="true">01</span>
-        <h2 class="section-title" id="connection-heading">密钥配置</h2><p class="section-description">选择绘图服务，填写后自动保存为可复用的连接。</p></header>
+        <h2 class="section-title" id="connection-heading">密钥配置</h2><p class="section-description">选一家你要用的生图服务，填完会自动存成一条连接。</p></header>
       <div class="connection-fields">
         ${aspect ? `<label class="config-field channel-field"><span>接口协议</span>
           <select data-parameter="protocol">${options(kind === 'gemini'
@@ -125,7 +125,7 @@ export function imageSettingsView(settings: ImageSettings, state: ImageViewState
             <input type="url" data-connection="url" value="${escape(connection.url)}" placeholder="请输入 URL" maxlength="8192" autocomplete="off" spellcheck="false">
           </label>
           <div class="parameter-toggles"><label><input type="checkbox" data-connection="appendSuffix" aria-describedby="image-url-hint"${connection.appendSuffix ? ' checked' : ''}>自动拼接接口后缀</label></div>
-          <p class="config-status" id="image-url-hint">开启后补齐 ${suffixHint(kind, protocol)}，已有后缀不重复添加；关闭后按填写的完整 URL 请求。</p>
+          <p class="config-status" id="image-url-hint">勾上的话会自动补全 ${suffixHint(kind, protocol)}（填过就不重复加）；关掉就会一字不改按你写的完整 URL 去请求。</p>
         </div>
       </div>
       <div class="credential-line" data-saved="${state.connectionSaved}">
@@ -144,22 +144,22 @@ export function imageSettingsView(settings: ImageSettings, state: ImageViewState
         <button type="button" class="text-button key-toggle" data-action="toggle-key" aria-pressed="false">显示</button>
       </div>
       <p class="config-status" data-connection-status role="status">${getHostStore()
-        ? `${state.connectionSaved ? '已自动保存到 TT 扩展数据。' : '填写后自动保存到 TT 扩展数据。'}${getSyncApiKeys() ? '密钥参与同步。' : '密钥仅保存在本机。'}`
-        : state.connectionSaved ? '已自动保存在当前浏览器。' : '填写后自动保存在当前浏览器。'}</p>
+        ? `${state.connectionSaved ? '已经自动存进 TT 扩展数据里了。' : '填完就会自动存进 TT 扩展数据。'}${getSyncApiKeys() ? '（密钥也会同步）' : '（密钥只留在这台设备上）'}`
+        : state.connectionSaved ? '已经自动存在这台浏览器里了。' : '填完就会自动存在这台浏览器里。'}</p>
     </section>
 
     <section class="config-section" aria-labelledby="parameters-heading">
       <header class="section-heading"><span class="section-index" aria-hidden="true">02</span>
-        <h2 class="section-title" id="parameters-heading">生图配置</h2><p class="section-description">${aspect ? '填写或获取模型，再定比例与分辨率。' : openai ? '填写或获取模型，再调整画幅与质量。' : '选定模型，再调整画幅与采样。'}</p></header>
+        <h2 class="section-title" id="parameters-heading">生图配置</h2><p class="section-description">${aspect ? '挑好或填上模型名，再定画面比例和分辨率。' : openai ? '挑好或填上模型名，再定画幅和出图质量。' : '选好要用的模型，再定画幅和采样参数。'}</p></header>
       ${natural ? `<div class="model-choice-line">
         <label class="config-field prominent-field"><span>生图模型</span>
           <input type="text" data-parameter="model" value="${escape(modelValue)}" list="witch-image-model-options" maxlength="512" placeholder="选择或填写生图模型名称" autocomplete="off" spellcheck="false">
           <datalist id="witch-image-model-options">${modelList.map(model => `<option value="${escape(model)}"></option>`).join('')}</datalist>
         </label>
         <button type="button" class="text-button" data-action="refresh-models"${state.refreshing ? ' disabled' : ''}>${state.refreshing ? '刷新中…' : '刷新列表'}</button>
-      </div><p class="config-status" data-model-list-status role="status"></p>${openai ? '<p class="config-status">支持手填 GPT Image 2.6 Flare / Sunburst；列表建议不代表当前渠道已开通，实际可用模型以服务端为准。</p>' : ''}`
+      </div><p class="config-status" data-model-list-status role="status"></p>${openai ? '<p class="config-status">GPT Image 2.6 Flare / Sunburst 可以直接手填。列表里列出来的未必你这个渠道都开通了，真能用哪个看对面接口。</p>' : ''}`
         : `<label class="config-field prominent-field"><span>生图模型</span><select data-parameter="model">${options(NAI_MODELS, parameters.model)}</select></label>
-        <p class="config-status" data-medium-effort-hint${parameters.model === 'nai-diffusion-5-full-medium' ? '' : ' hidden'}>性能版约省 42% 点数：步数固定 14、采样器固定 Euler Ancestral、不支持引导重缩放；负面提示词改用官方 Heavy 预设，自定义负面（含角色负面）不会发送。要排除内容，可在正面提示词里用负强调，如 -3::hat::。</p>`}
+        <p class="config-status" data-medium-effort-hint${parameters.model === 'nai-diffusion-5-full-medium' ? '' : ' hidden'}>性能版能省大概 42% 点数：步数锁 14、采样器锁 Euler Ancestral，不吃引导重缩放；负面词统一走官方 Heavy 预设，你写的自定义负面（含角色负面）不会发出去。真想避开某些元素，可以在正面提示词里用负权重，比如 -3::hat::。</p>`}
       <div class="parameter-group"><h3 class="subsection-title">画幅</h3>
         <div class="feature-tabs image-size-switch" aria-label="画幅选择方式">
           <button type="button" data-action="select-size-mode" data-size-mode="fixed" aria-pressed="true">固定画幅</button>
@@ -168,25 +168,25 @@ export function imageSettingsView(settings: ImageSettings, state: ImageViewState
         <p class="config-status" data-size-mode-status role="status"></p>
         ${aspect ? `<div data-aspect-block>${aspectParameters(settings)}</div>` : `<div class="parameter-grid">
         <label class="config-field"><span data-size-selection-label>预设尺寸</span><select data-field="sizePreset">${options([...sizePresets, { value: 'custom', label: '自定义' }], sizePreset)}</select></label>
-        ${numberField('width', '宽度', dimensions.width, 64, 4096, openai ? 16 : 64, `图片宽度，单位为像素，使用 ${openai ? 16 : 64} 的倍数。`)}
-        ${numberField('height', '高度', dimensions.height, 64, 4096, openai ? 16 : 64, `图片高度，单位为像素，使用 ${openai ? 16 : 64} 的倍数。`)}
+        ${numberField('width', '宽度', dimensions.width, 64, 4096, openai ? 16 : 64, `画面宽度（像素），得是 ${openai ? 16 : 64} 的倍数。`)}
+        ${numberField('height', '高度', dimensions.height, 64, 4096, openai ? 16 : 64, `画面高度（像素），得是 ${openai ? 16 : 64} 的倍数。`)}
       </div>`}</div>
       ${aspect ? '' : openai ? `<div class="parameter-group"><h3 class="subsection-title">质量与规划</h3>
         <label class="config-field"><span>生成质量</span><select data-parameter="quality">${options(OPENAI_IMAGE_QUALITIES.map(value => ({ value, label: value === 'auto' ? '自动 · auto' : value })), settings.openaiParameters.quality)}</select></label>
         <label class="config-field"><span>规划深度 · complexity</span><select data-parameter="complexity" aria-describedby="image-complexity-hint"${supportsOpenAIImageComplexity(modelValue) ? '' : ' disabled'}>${options(OPENAI_IMAGE_COMPLEXITIES.map(value => ({ value, label: openAIImageComplexityLabel(value) })), settings.openaiParameters.complexity)}</select></label>
         <p class="config-status" id="image-complexity-hint" data-complexity-hint>${openAIImageComplexityHint(modelValue)}</p>
-        <p class="config-status">可用尺寸和质量由所选模型与服务决定；当前生成单张静态 PNG。</p>
+        <p class="config-status">能用什么尺寸和质量档位，看你选的模型和对面接口支不支持；这里每次出一张静态 PNG。</p>
       </div>` : `<div class="parameter-group"><h3 class="subsection-title">采样</h3><div class="parameter-grid sampling-grid">
-        ${numberField('steps', '步数', parameters.steps, 1, 50, 1, '生成时的采样步数。')}
-        ${numberField('scale', '提示词引导强度', parameters.scale, 0, 100, 0.1, '控制生成结果遵循提示词的程度。')}
+        ${numberField('steps', '步数', parameters.steps, 1, 50, 1, '绘制时的采样步数。')}
+        ${numberField('scale', '提示词引导强度', parameters.scale, 0, 100, 0.1, '控制成图有多听提示词的话（CFG Scale）。')}
         <label class="config-field"><span>采样器</span><select data-parameter="sampler">${options(NAI_SAMPLERS, parameters.sampler)}</select></label>
-        ${numberField('seed', '随机种子', parameters.seed, -1, 4294967295, 1, '填 -1 时每次使用新的随机种子。')}
+        ${numberField('seed', '随机种子', parameters.seed, -1, 4294967295, 1, '填 -1 就是每次随缘开新种子。')}
       </div></div>
       <details class="advanced-parameters">
         <summary>更多参数</summary>
         <div class="parameter-grid">
           <label class="config-field"><span>噪声调度</span><select data-parameter="noiseSchedule">${options(NAI_SCHEDULES, parameters.noiseSchedule)}</select></label>
-          ${numberField('cfgRescale', '引导重缩放', parameters.cfgRescale, 0, 1, 0.01, 'CFG Rescale，用于调整高引导强度带来的变化。')}
+          ${numberField('cfgRescale', '引导重缩放', parameters.cfgRescale, 0, 1, 0.01, 'CFG Rescale，拉高引导强度后用来压过曝和色彩炸裂的。')}
           <div class="parameter-toggles">
             <label><input type="checkbox" data-parameter="sm"${parameters.sm ? ' checked' : ''}>SMEA</label>
             <label><input type="checkbox" data-parameter="smDyn"${parameters.smDyn ? ' checked' : ''}>SMEA DYN</label>
@@ -201,16 +201,16 @@ export function imageSettingsView(settings: ImageSettings, state: ImageViewState
         <span>高级功能</span><span class="advanced-chevron" aria-hidden="true"></span></button></div>
       <section class="config-section advanced-panel" id="witch-advanced-panel" aria-labelledby="vibe-heading"${state.advancedOpen ? '' : ' hidden'}>
         <header class="section-heading"><span class="section-index" aria-hidden="true">✦</span>
-          <h2 class="section-title" id="vibe-heading">氛围参考</h2><p class="section-description">上传参考图，让画风、色调和笔触向它靠拢（NAI Vibe Transfer）。</p></header>
+          <h2 class="section-title" id="vibe-heading">氛围参考</h2><p class="section-description">塞几张参考图进来，让成图的画风、色调和笔触往它那儿靠（NAI Vibe Transfer）。</p></header>
         <div data-vibe-host></div>
       </section>
     </div>`}
     <section class="config-section" aria-labelledby="artist-heading">
       <header class="section-heading"><span class="section-index" aria-hidden="true">03</span>
-        <h2 class="section-title" id="artist-heading">画师工坊</h2><p class="section-description">${natural ? '保存常用的画风描述，和每个场景的提示词一起使用。' : '统一画风与排除内容，和每个场景的提示词一起使用。'}</p></header>
+        <h2 class="section-title" id="artist-heading">画师工坊</h2><p class="section-description">${natural ? '存几套常用的画风描述，出图时自动拼到每个场景前面。' : '定好常用的画师串和底线负面词，每次画图都会自动拼上去。'}</p></header>
       <div class="artist-fields">
         <label class="config-field"><span>正面提示词</span><textarea data-field="positive" rows="3" maxlength="65536" spellcheck="false">${escape(settings.positive)}</textarea></label>
-        ${natural ? `<p class="config-status">${serviceName.replace(' 生图服务', '')} 生图不提供独立负面栏；需要排除的内容请在预设或正面描述里用自然语言写明。</p>`
+        ${natural ? `<p class="config-status">${serviceName.replace(' 生图服务', '')} 这边没有单独的负面框，不想画出来的东西直接用自然语言写在预设或正面词里就行。</p>`
           : `<label class="config-field"><span>负面提示词</span><textarea data-field="negative" rows="3" maxlength="65536" spellcheck="false">${escape(settings.negative)}</textarea></label>`}
       </div>
       <div class="artist-presets">

@@ -249,7 +249,7 @@ export class ModelConfig {
     if (this.savingSettings || this.worldbook.busy) { this.queueSave(400); return; }
     const invalid = Array.from(this.container?.querySelectorAll<HTMLInputElement>('input[type="number"]') ?? []).find(field => !field.checkValidity());
     if (invalid) {
-      this.autoError = `“${invalid.closest('label')?.querySelector('span')?.textContent ?? '数值'}”超出范围，改正后自动保存。`;
+      this.autoError = `“${invalid.closest('label')?.querySelector('span')?.textContent ?? '数值'}”填超范围了，改回来就会自动保存。`;
       this.syncSave(); return;
     }
     const snapshot = normalizeSizeProtocolEntries(structuredClone(this.settings));
@@ -260,7 +260,7 @@ export class ModelConfig {
       if (this.settings?.presetProvider === snapshot.presetProvider) this.saved = JSON.stringify(snapshot);
       else if (this.saved) this.saved = JSON.stringify({ ...JSON.parse(this.saved), ...modelSharedSettings(snapshot) });
     } catch (error) {
-      this.autoError = `自动保存失败，改动仍保留在页面上：${error instanceof Error ? error.message : '存储不可用。'}`;
+      this.autoError = `刚才没自动存上，好在页面上改的都还在：${error instanceof Error ? error.message : '存储这会儿写不进去。'}`;
     } finally { this.saving = false; this.syncSave(); }
   }
 
@@ -286,7 +286,7 @@ export class ModelConfig {
       checkbox.checked = entry.enabled;
       checkbox.disabled = !!entry.marker || (!!protocol && this.savingSettings);
       const label = checkbox.closest('label');
-      if (label) label.title = `${entry.enabled ? '关闭' : '启用'}${entry.name}${protocol ? '；立即同步画幅模式并保存' : ''}`;
+      if (label) label.title = `${entry.enabled ? '关掉' : '打开'}${entry.name}${protocol ? '（切了会立刻同步画幅模式并保存）' : ''}`;
     }
   }
 
@@ -312,7 +312,7 @@ export class ModelConfig {
       const draft = this.presetDrafts.get(provider);
       if (draft) draft.preset = restore(draft.preset);
       if (this.settings?.presetProvider === provider) { this.settings = restore(this.settings); this.draftRevision++; }
-      this.sizeModeErrors.set(provider, error instanceof Error ? error.message : '画幅模式未能保存，已恢复之前的选择。');
+      this.sizeModeErrors.set(provider, error instanceof Error ? error.message : '画幅模式没存进去，先给你退回原来的选项了。');
       this.syncSave();
     }
   }
@@ -341,8 +341,8 @@ export class ModelConfig {
       status: '', error: false, saving: false, queued: false };
     draft.content = input.value;
     draft.error = false;
-    draft.status = draft.saving ? '正在保存…新输入将在离开输入框后保存。'
-      : draft.content === draft.savedContent ? '内容未改动。' : '尚未保存，离开输入框后自动保存。';
+    draft.status = draft.saving ? '正存着呢，刚新改的等鼠标点到框外就会存上。'
+      : draft.content === draft.savedContent ? '内容没改动。' : '还没保存，鼠标点到框外就自动存上。';
     this.worldbookDrafts.set(key, draft);
     this.syncWorldbookContentStatus(draft);
   }
@@ -363,13 +363,13 @@ export class ModelConfig {
     if (draft.saving) { draft.queued = true; return; }
     if (draft.content === draft.savedContent) return;
     const content = draft.content;
-    draft.saving = true; draft.queued = false; draft.error = false; draft.status = '正在自动保存…';
+    draft.saving = true; draft.queued = false; draft.error = false; draft.status = '正在自动存进去…';
     // Do not redraw here: focusout precedes the click that may be switching to another entry.
     this.syncWorldbookContentStatus(draft);
     try {
       const saved = await updateWorldbookEntryContent(draft.book, draft.id, content, draft.savedContent);
       draft.savedContent = content;
-      draft.status = draft.content === content ? '内容已自动保存。' : '尚有新修改，离开输入框后自动保存。';
+      draft.status = draft.content === content ? '已经自动存好了。' : '刚又改了几笔，点到框外会自动接着存。';
       if (this.worldbook.book === draft.book) {
         const entry = this.worldbook.entries.find(entry => entry.id === draft.id);
         if (entry) entry.content = saved.content;
@@ -378,7 +378,7 @@ export class ModelConfig {
       if (this.page === 'model' && this.selectedKey === 'layer:worldbook') void this.refreshPreview();
     } catch (error) {
       draft.error = true;
-      draft.status = `保存失败，输入内容已保留：${error instanceof Error ? error.message : '请检查存储后再次离开输入框重试。'}`;
+      draft.status = `没存进去，放心你写的内容还留着：${error instanceof Error ? error.message : '查一下存储空间后点到框外再试。'}`;
     } finally {
       draft.saving = false;
       this.syncWorldbookContentStatus(draft);
@@ -395,7 +395,7 @@ export class ModelConfig {
       input.disabled = Boolean(this.worldbook.loading || this.worldbook.busy || ((!entry.enabled || !entry.activation || !entry.content.trim()) && !input.checked));
       const status = input.closest('.worldbook-entry')?.querySelector<HTMLElement>('[data-worldbook-entry-status]');
       if (status) {
-        status.textContent = !entry.enabled ? '已禁用，不会发送' : !entry.content.trim() ? '内容为空，不会发送' : '';
+        status.textContent = !entry.enabled ? '关着，不会发给模型' : !entry.content.trim() ? '里头是空的，不会发' : '';
         status.hidden = !status.textContent;
       }
     }
@@ -427,7 +427,7 @@ export class ModelConfig {
       this.container.innerHTML = `<div class="image-settings model-settings worldbook-library">
         <section class="config-section">
           <label class="config-field"><span>上传世界书 · JSON · 可多选</span><input type="file" data-worldbook-file accept=".json,application/json" multiple${this.worldbook.busy ? ' disabled' : ''}></label>
-          <p class="config-status">可一次选择多个世界书 JSON，支持 character_book 条目，每个文件最大 20 MiB。上传后保存在${getHostStore() ? 'TT 扩展数据中' : '当前浏览器'}，同名书另存一份。</p>
+          <p class="config-status">一次可以多选好几个世界书 JSON（character_book 格式也认），单本最大 20 MiB。传上来就存在${getHostStore() ? ' TT 扩展数据里' : '这台浏览器里'}，名字撞了会自动另存一份。</p>
           <p class="config-status${this.worldbookError ? ' is-error' : ''}" data-worldbook-status role="status">${escape(this.worldbookNotice)}</p>
         </section>
         <section class="config-section" data-worldbook-mount>${worldbookSettingsView(this.settings, this.worldbookState(), true)}</section>
@@ -440,11 +440,11 @@ export class ModelConfig {
     const registered = listFeatureLayers();
     const layers = this.settings.promptOrder.filter(key => key.startsWith('layer:')).map(key => {
       const id = key.slice(6);
-      return { id, title: registered.find(layer => layer.id === id)?.title ?? `${id}（当前不可用）` };
+      return { id, title: registered.find(layer => layer.id === id)?.title ?? `${id}（眼下用不了）` };
     });
     this.container.innerHTML = `<div class="image-settings model-settings">
       <section class="config-section"><header class="section-heading"><span class="section-index" aria-hidden="true">02</span>
-        <h2 class="section-title">预设功能接入</h2><p class="section-description">启用后按预设左侧条目的位置发送内容。</p></header>
+        <h2 class="section-title">预设功能接入</h2><p class="section-description">打开之后，这一层就会按预设左边排好的位子一起发给模型。</p></header>
         <div class="feature-layer-list">${layers.map(layer => `<label class="feature-layer-row"><span>${escape(layer.title)}</span><input type="checkbox" data-layer-id="${escape(layer.id)}"${this.settings!.enabledLayers.includes(layer.id) ? ' checked' : ''}></label>`).join('')}</div>
       </section>
       <button type="button" class="text-button model-feature-link" data-page="model-api">返回模型 API 预设 →</button>
@@ -539,7 +539,7 @@ export class ModelConfig {
     if (line) line.dataset.saved = String(saved);
     const error = this.autoError || (this.settings ? this.sizeModeErrors.get(this.settings.presetProvider) : '');
     const pending = this.saving || this.saveTimer !== 0;
-    this.message(isImageSizeModeSaving() ? '正在保存画幅模式…' : pending ? '正在自动保存…' : error || (saved ? '已自动保存。' : ''), !this.savingSettings && !pending && Boolean(error));
+    this.message(isImageSizeModeSaving() ? '正在保存画幅模式…' : pending ? '正在存进去…' : error || (saved ? '已经自动存好了。' : ''), !this.savingSettings && !pending && Boolean(error));
   }
 
   private syncFilterStatus(): void {
@@ -547,7 +547,7 @@ export class ModelConfig {
     if (!node) return;
     const status = getContextFilterStatus();
     node.classList.toggle('is-error', Boolean(status.error));
-    node.textContent = status.error || (status.active ? '已接入酒馆主 API 上下文隐藏。' : '酒馆主 API 上下文隐藏已关闭。');
+    node.textContent = status.error || (status.active ? '已经接到酒馆主 API 里遮蔽图片标记了。' : '酒馆主 API 的图片遮蔽现在关着。');
   }
 
   private edit(event: Event): void {
@@ -655,7 +655,7 @@ export class ModelConfig {
         this.selectedKey = button.dataset.presetKey!; this.previewRequest?.abort(); this.preview = undefined;
         this.showPresetKey(); this.renderPreset(this.selectedKey); this.loadSelectedSource();
       } else if (action === 'add-entry') {
-        if (this.settings.head.length + this.settings.tail.length >= MAX_PRESET_ENTRIES) throw new Error(`最多保留 ${MAX_PRESET_ENTRIES} 条预设。`);
+        if (this.settings.head.length + this.settings.tail.length >= MAX_PRESET_ENTRIES) throw new Error(`预设最多装 ${MAX_PRESET_ENTRIES} 条，再多塞不下了。`);
         const id = `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
         this.settings.head.push({ id, name: '新条目', role: 'system', content: '', enabled: true });
         const index = this.settings.promptOrder.indexOf(this.selectedKey);
@@ -699,7 +699,7 @@ export class ModelConfig {
     if (!this.settings || this.worldbook.busy || !name || (attach && this.worldbook.loading)) return;
     const mounted = this.settings.worldbooks.some(book => book.name === name && book.entries.length);
     if (!this.worldbook.names.includes(name) && !mounted) return;
-    if (attach && !mounted && this.settings.worldbooks.length >= 100) throw new Error('最多同时挂载 100 本世界书。');
+    if (attach && !mounted && this.settings.worldbooks.length >= 100) throw new Error('一次最多挂 100 本世界书，实在挂不下啦。');
     this.worldbook.book = name; this.worldbook.previewId = undefined;
     this.worldbook.pickerOpen = false;
     void this.refreshWorldbooks(false, attach && !mounted);
@@ -749,11 +749,11 @@ export class ModelConfig {
       if (attach && !settings.worldbooks.some(book => book.name === name && book.entries.length)) {
         const ids = entries.filter(entry => entry.enabled && entry.activation && entry.content.trim()).map(entry => entry.id);
         if (!ids.length) throw new Error(entries.some(entry => !entry.activation)
-          ? '这本世界书缺少激活规则，请重新导入原文件后挂载。' : '这本世界书没有可挂载的条目。');
+          ? '这本书缺了激活规则，找回原文件再导一遍试试。' : '这本书里头是空的，找不到能挂的条目。');
         this.setBookSelection(name, ids);
       }
     } catch (error) {
-      if (!controller.signal.aborted) this.worldbook.error = error instanceof Error ? error.message : '世界书读取失败。';
+      if (!controller.signal.aborted) this.worldbook.error = error instanceof Error ? error.message : '世界书没读出来。';
     } finally {
       if (this.bookRequest === controller && !controller.signal.aborted) {
         this.bookRequest = null; this.worldbook.loading = false; this.renderSources();
@@ -773,12 +773,12 @@ export class ModelConfig {
       const messages = await featureLayerMessages(key.slice(6), settings, { messages: [], sourceText: snapshot?.text ?? '', signal: controller.signal });
       if (snapshot) {
         try { await assertChatSnapshot(snapshot); }
-        catch { throw new Error('聊天或正文状态已变化，请刷新世界书预览。'); }
+        catch { throw new Error('刚才聊天翻页或正文变了，点一下刷新重新看世界书预览吧。'); }
       }
       controller.signal.throwIfAborted();
       this.preview = { key, text: messages.map(message => message.content).join('\n\n'), loading: false };
     } catch (error) {
-      if (!controller.signal.aborted) this.preview = { key, text: '', loading: false, error: error instanceof Error ? error.message : '内容读取失败。' };
+      if (!controller.signal.aborted) this.preview = { key, text: '', loading: false, error: error instanceof Error ? error.message : '这段内容没读出来。' };
     } finally {
       if (this.previewRequest === controller && !controller.signal.aborted) {
         this.previewRequest = null; if (this.selectedKey === key) this.renderPreset();
@@ -815,16 +815,16 @@ export class ModelConfig {
         if (signal?.aborted) break;
         this.worldbookMessage(`正在导入 ${index + 1}/${files.length}：“${file.name}”…`);
         try {
-          if (file.size > 20 * 1024 * 1024) throw new Error('世界书文件不能超过 20 MiB。');
+          if (file.size > 20 * 1024 * 1024) throw new Error('这本世界书太大了，得控制在 20 MiB 以内。');
           const source = await file.text();
           if (signal?.aborted) break;
           let value: unknown;
           try { value = JSON.parse(source.replace(/^\uFEFF/, '')); }
-          catch { throw new Error('文件不是有效的 JSON。'); }
+          catch { throw new Error('这个文件不是合法的 JSON，是不是选错了或下坏了？'); }
           // An in-progress write finishes even if the page closes; count it once confirmed.
           imported.push(await importWorldbook(value, file.name));
         } catch (error) {
-          failures.push(`“${file.name}”：${error instanceof Error ? error.message : '无法读取文件。'}`);
+          failures.push(`“${file.name}”：${error instanceof Error ? error.message : '打不开这个文件。'}`);
         }
       }
     } finally {
@@ -832,9 +832,9 @@ export class ModelConfig {
         this.worldbook.book = imported.at(-1)!; this.worldbook.previewId = undefined;
       }
       const remaining = files.length - imported.length - failures.length;
-      const summary = `${remaining ? '导入已停止' : '导入完成'}：成功 ${imported.length} 本，失败 ${failures.length} 个文件。`
-        + (remaining ? `另有 ${remaining} 个文件未导入，可重新选择。` : '')
-        + (imported.length ? `已导入：${imported.map(name => `“${name}”`).join('、')}。选择要挂载的世界书或条目，选择会自动保存。` : '')
+      const summary = `${remaining ? '导入停下来了' : '导入弄好了'}：进了 ${imported.length} 本，没成的有 ${failures.length} 个文件。`
+        + (remaining ? `还剩 ${remaining} 个没来得及导，待会重选就行。` : '')
+        + (imported.length ? `进书库了：${imported.map(name => `“${name}”`).join('、')}。下面勾好想挂的书或条目就会自动存上。` : '')
         + (failures.length ? `失败详情：${failures.join('；')}` : '');
       this.worldbook.busy = false; this.booksLoaded = false;
       this.worldbookMessage(summary, failures.length > 0);
@@ -845,9 +845,9 @@ export class ModelConfig {
   private async removeWorldbook(): Promise<void> {
     const name = this.worldbook.book;
     if (!name || !this.settings || this.saving || this.worldbook.busy || !this.worldbook.names.includes(name)) return;
-    if (!window.confirm(`删除上传的世界书“${name}”？它的条目挂载也会移除。`)) return;
+    if (!window.confirm(`真要删掉传上来的“${name}”？上面挂着的条目也会一并撤掉。`)) return;
     this.worldbook.busy = true;
-    this.worldbookMessage('正在删除世界书…'); this.renderSources();
+    this.worldbookMessage('正把它从书库里删掉…'); this.renderSources();
     try {
       // Detach first: a failed deletion can leave a book available for re-selection,
       // but must never leave saved references that could match a later re-upload.
@@ -863,9 +863,9 @@ export class ModelConfig {
       if (this.worldbook.book === name) {
         this.worldbook.book = ''; this.worldbook.entries = []; this.worldbook.previewId = undefined;
       }
-      this.worldbookMessage(`已删除“${name}”。`);
+      this.worldbookMessage(`“${name}”已经删掉了。`);
     } catch (error) {
-      this.worldbookMessage(`删除失败：${error instanceof Error ? error.message : '无法删除世界书。'}`, true);
+      this.worldbookMessage(`没删成：${error instanceof Error ? error.message : '世界书这会儿删不掉。'}`, true);
     } finally {
       this.worldbook.busy = false; this.booksLoaded = false;
       this.worldbookMessage(this.worldbookNotice, this.worldbookError);
@@ -876,25 +876,25 @@ export class ModelConfig {
   private async importPresetFile(input: HTMLInputElement): Promise<void> {
     const file = input.files?.[0]; input.value = '';
     if (!file || !this.settings) return;
-    if (this.savingSettings) { this.presetMessage('配置正在保存，请完成后再导入预设。'); return; }
+    if (this.savingSettings) { this.presetMessage('刚改的还在往里存呢，等一秒存完再导预设吧。'); return; }
     const request = ++this.importRequest, revision = this.draftRevision, settings = this.settings, signal = this.listeners?.signal;
-    this.presetMessage('正在读取预设…');
+    this.presetMessage('正拆开这份预设来看…');
     try {
-      if (file.size > MAX_PRESET_BYTES) throw new Error('预设文件不能超过 2 MiB。');
+      if (file.size > MAX_PRESET_BYTES) throw new Error('预设文件太大了，得在 2 MiB 以内。');
       const source = await file.text();
       if (request !== this.importRequest || signal?.aborted || this.page !== 'model') return;
-      if (revision !== this.draftRevision || settings !== this.settings) throw new Error('读取期间配置已有更改，请重新选择文件。');
+      if (revision !== this.draftRevision || settings !== this.settings) throw new Error('刚读一半你又改了配置，重新选一次文件吧。');
       const imported = importModelPreset(source, file.name.replace(/\.json$/i, ''));
       const layers = settings.promptOrder.filter(key => key.startsWith('layer:')).map(key => key.slice(6));
       this.settings = normalizeSizeProtocolEntries({ ...settings, presetName: imported.presetName, head: imported.head, tail: imported.tail,
         promptOrder: createPromptOrder(imported.head, imported.tail, layers) });
       this.selectedKey = this.settings.promptOrder[0]; this.presetPage = 0; this.previewRequest?.abort(); this.preview = undefined;
       const warnings = imported.warnings.slice(0, 5).join(' ');
-      const warningCount = imported.warnings.length > 5 ? `（共 ${imported.warnings.length} 条提示，以上仅展示前 5 条。）` : '';
-      this.importNotice = `已导入“${imported.presetName || '未命名预设'}”，共 ${imported.head.length + imported.tail.length} 条，已自动保存。${warnings}${warningCount}`;
+      const warningCount = imported.warnings.length > 5 ? `（一共 ${imported.warnings.length} 条小提醒，这里只挑前 5 条给你看。）` : '';
+      this.importNotice = `已经换成“${imported.presetName || '未命名预设'}”，一共 ${imported.head.length + imported.tail.length} 条，自动存好啦。${warnings}${warningCount}`;
       this.importError = false; this.render(); this.changed(0); this.loadSelectedSource();
     } catch (error) {
-      if (request === this.importRequest && !signal?.aborted) this.presetMessage(`导入失败，原配置已保留：${error instanceof Error ? error.message : '无法读取文件。'}`, true);
+      if (request === this.importRequest && !signal?.aborted) this.presetMessage(`预设没导进来，原来那套都好好的没动：${error instanceof Error ? error.message : '打不开这个文件。'}`, true);
     }
   }
 
@@ -919,14 +919,14 @@ export class ModelConfig {
   private async refreshModels(): Promise<void> {
     if (this.refresh || !this.settings || this.settings.mode !== 'custom') return;
     const controller = new AbortController(); this.refresh = controller; this.syncRefresh();
-    this.message('正在读取模型列表…');
+    this.message('正在拉取模型列表…');
     try {
       const models = await fetchModelList({ url: this.settings.url, key: this.settings.key }, controller.signal);
       if (controller.signal.aborted || this.refresh !== controller) return;
       this.settings.models = models;
       this.renderModelPicker();
       this.syncSave();
-      this.message(models.length ? `已读取 ${models.length} 个模型，可选择或手动填写；点击保存保留配置。` : '接口未返回模型，可手动填写模型名称。');
+      this.message(models.length ? `拉到 ${models.length} 个模型，点选或者自己手填都行。` : '对面没吐出模型列表，自己手填模型名吧。');
     } catch (error) { if (!controller.signal.aborted) this.message((error as Error).message, true); }
     finally { if (this.refresh === controller) { this.refresh = null; this.syncRefresh(); } }
   }

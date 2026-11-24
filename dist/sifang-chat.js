@@ -28,12 +28,12 @@ function characterIdentity() {
 function checkFloor(floor) {
     if (!Number.isInteger(floor.floor) || floor.floor < 0 || !floor.node || !floor.saveId
         || typeof floor.raw !== 'string' || typeof floor.busy !== 'boolean') {
-        throw new Error('独立前端楼层接口版本不匹配，请更新独立前端。');
+        throw new Error('独立前端的楼层接口版本和画匣对不上，升级一下独立前端吧。');
     }
 }
 function requireIdle(floor) {
     if (saving || floor?.busy)
-        throw new Error('请等当前回复与保存完成后再处理。');
+        throw new Error('等这楼回复完、存稳当了再来点吧。');
 }
 function emit(messageId, event) {
     for (const listener of listeners) {
@@ -76,12 +76,12 @@ async function readFloors(event, messageId) {
     if (!after || !sameSave(before, after)) {
         valid = false;
         emit(undefined, 'CHAT_CHANGED');
-        throw new Error('存档已切换，正在等待当前正文同步。');
+        throw new Error('刚才换了存档，正等着当前正文同步过来呢。');
     }
     const next = loaded.filter((floor) => floor !== null);
     next.forEach(checkFloor);
     if (next.length !== line.length || next.some((floor, index) => !belongs(floor, before) || floor.node !== line[index].node)) {
-        throw new Error('楼层已变化，正在等待当前正文同步。');
+        throw new Error('楼层刚变过，正等着当前正文同步过来呢。');
     }
     const switched = !save || !sameSave(save, after);
     floors = next.sort((a, b) => a.floor - b.floor);
@@ -130,7 +130,7 @@ export async function initializeSifangChat(signal) {
         }
         void refresh(event, typeof messageId === 'number' ? messageId : undefined)
             .catch(error => { if (!signal.aborted)
-            void host.ui.toast(error instanceof Error ? error.message : '正文同步失败。', 'fail').catch(() => { }); });
+            void host.ui.toast(error instanceof Error ? error.message : '正文没同步过来。', 'fail').catch(() => { }); });
     }));
     unsubs.push(host.on('stream', () => { if (!signal.aborted) {
         streaming = true;
@@ -236,21 +236,21 @@ export async function captureSifangAssistant() {
         checkFloor(latest);
     requireIdle(latest);
     if (!latest || !save || !belongs(latest, save))
-        throw new Error('当前聊天还没有可处理的 AI 回复。');
+        throw new Error('聊到这儿还没有可以加配图的 AI 回复呢。');
     if (latest.role !== 'assistant')
-        throw new Error('最新一楼是用户消息，请等 AI 回复完成后再处理。');
+        throw new Error('最新一楼是你自己发的话，等 AI 写完回复再来吧。');
     const floor = readSifangFloors().find(item => item.node === latest.node && item.floor === latest.floor && item.raw === latest.raw);
     if (!floor)
-        throw new Error('最新回复已变化，请稍后重试。');
+        throw new Error('最新一楼刚刚变过了，稍微等一下再试。');
     requireIdle(floor);
     if (!floor.raw.trim())
-        throw new Error('最新 AI 回复为空。');
+        throw new Error('最新一楼 AI 回复还是空的。');
     return snapshotFor(floor, latest.node);
 }
 export async function assertSifangSnapshot(snapshot) {
     const state = snapshots.get(snapshot);
     if (!state)
-        throw new Error('聊天或原回复已发生变化，本次结果没有写回。');
+        throw new Error('刚才切了聊天或者原楼层变了，为了防止写串，这次没写回去。');
     const saved = state.floor;
     const host = requireSifangHost();
     const [current, line, active, latest] = await Promise.all([
@@ -266,7 +266,7 @@ export async function assertSifangSnapshot(snapshot) {
     if (!active || !current || !belongs(saved, active) || !belongs(current, active) || !latest || !belongs(latest, active)
         || current.node !== saved.node || current.raw !== snapshot.text || lastAssistant?.node !== saved.node
         || latest.role !== 'assistant' || latest.node !== state.latestNode || line.length !== state.length) {
-        throw new Error('聊天或原回复已发生变化，本次结果没有写回。');
+        throw new Error('刚才切了聊天或者原楼层变了，为了防止写串，这次没写回去。');
     }
     return saved;
 }
@@ -283,7 +283,7 @@ export async function replaceSifangAssistant(snapshot, text, signal) {
         });
         checkFloor(committed);
         if (committed.node !== saved.node || committed.saveId !== saved.saveId || committed.volume !== saved.volume || committed.raw !== text) {
-            throw new Error('独立前端未返回原楼层的保存确认，请重新打开该楼层检查。');
+            throw new Error('独立前端没回原本那一楼的保存确认，重开一下那楼看一眼吧。');
         }
     }
     finally {

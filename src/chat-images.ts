@@ -234,7 +234,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
       container.className = 'witch-paintbox-pending';
       container.dataset.preserveHtml = '1';
       const note = doc.createElement('small');
-      note.textContent = '配图已保存 · 暂未定位到正文位置，可先在此生成图片。';
+      note.textContent = '配图存好了，只是这会儿还没对上正文里的位置，可以直接先点这里出图。';
       container.append(note);
       const anchor = target.querySelector('.wlog-report-panel, .auto-system-panel');
       if (anchor && anchor.parentElement === target) target.insertBefore(container, anchor);
@@ -288,7 +288,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
         if (removed) URL.revokeObjectURL(removed.url);
         if (!request) {
           status.dataset.error = 'false';
-          status.textContent = history.length ? `已删除图片 · 剩余 ${history.length} 张` : '图片已删除，可重新生成。';
+          status.textContent = history.length ? `这张删掉了，还剩 ${history.length} 张` : '图删掉了，需要的话再点一次就能重画。';
         }
       },
     });
@@ -324,7 +324,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
     }
 
     syncGenerationButtons();
-    status.textContent = '正在读取图片历史…';
+    status.textContent = '正在翻出以前画的图…';
     const historyReady = (historyKey ? loadImageHistory(historyKey) : Promise.resolve([])).then(entries => {
       if (controls.signal.aborted) return;
       historyAvailable = true;
@@ -333,11 +333,11 @@ export function bindChatImages(signal: AbortSignal): () => void {
       showSelected();
       if (!request) status.textContent = historyKey
         ? history.length ? `已恢复 ${history.length} 张图片 · 点击查看历史` : ''
-        : '本楼层缺少唯一时间标识，图片仅保留在当前页面，可下载保存。';
+        : '这一楼缺少唯一时间标记，图只临时挂在页面上，喜欢记得先点下载保存。';
     }).catch(error => {
       if (controls.signal.aborted) return;
       status.dataset.error = 'true';
-      status.textContent = error instanceof Error ? error.message : '图片历史读取失败。';
+      status.textContent = error instanceof Error ? error.message : '之前的图片记录没读出来。';
     }).finally(() => { historyLoaded = true; syncGenerationButtons(); });
 
     preview.addEventListener('click', event => {
@@ -391,7 +391,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
           canvas.dataset.phase = phase;
           syncGenerationButtons();
           cancel.textContent = phase === 'queued' ? '取消排队' : '取消等待';
-          status.textContent = progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…';
+          status.textContent = progress.state === 'queued' ? `排队等着画 · 第 ${progress.position} 位` : '正在画着呢…';
           emitPetEvent({ type: 'image', id: pet, source, phase: progress.state, floor: message.messageId,
             position: progress.state === 'queued' ? progress.position : undefined, columns: progress.columns,
             width: parameters.width, height: parameters.height });
@@ -416,16 +416,16 @@ export function bindChatImages(signal: AbortSignal): () => void {
           blob: result.blob, width: result.parameters.width, height: result.parameters.height, target: () => floorTarget(slot), veil,
         } });
         cancel.hidden = true;
-        status.textContent = '绘制完成，正在保存图片历史…';
+        status.textContent = '画好啦，正把图存进历史里…';
         try {
           await saving;
           const saved = historyKey
             ? `已保存 ${history.length} 张图片 · 点击查看历史`
-            : '本楼层缺少唯一时间标识，图片仅保留在当前页面，可下载保存。';
+            : '这一楼缺少唯一时间标记，图只临时挂在页面上，喜欢记得先点下载保存。';
           if (!controls.signal.aborted) status.textContent = saved;
           emitPetEvent({ type: 'history', id: pet, saved: true, pageOnly: !historyKey, message: saved });
         } catch (error) {
-          const failed = `图片已生成，但历史未保存：${error instanceof Error ? error.message : '浏览器存储不可用。'}`;
+          const failed = `图画好了，不过没存进历史里：${error instanceof Error ? error.message : '浏览器存储写不进去。'}`;
           emitPetEvent({ type: 'history', id: pet, saved: false, message: failed });
           if (!controls.signal.aborted) {
             status.dataset.error = 'true';
@@ -439,8 +439,8 @@ export function bindChatImages(signal: AbortSignal): () => void {
         }
         status.dataset.error = String(!controller.signal.aborted);
         status.textContent = controller.signal.aborted
-          ? phase === 'queued' ? '已取消排队。' : '已取消等待，服务端任务可能仍在继续。'
-          : error instanceof Error ? error.message : '生图未完成，请稍后重试。';
+          ? phase === 'queued' ? '撤出排队了。' : '不再等这张图了，不过对面的生成任务可能还在后台跑。'
+          : error instanceof Error ? error.message : '这张没画出来，等会儿再点一次试试。';
         endPet({ ...petImage, result: controller.signal.aborted ? 'cancelled' : 'failed', message: status.textContent ?? '',
           fault: controller.signal.aborted ? undefined : petFault(error), serverMayContinue: controller.signal.aborted && phase !== 'queued' });
       } finally {
@@ -473,7 +473,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
         if (!history.some(item => item.entry.id === selectedId)) selectedId = history.at(-1)?.entry.id ?? null;
         showSelected();
         removed.forEach(item => URL.revokeObjectURL(item.url));
-        if (!request) status.textContent = history.length ? `剩余 ${history.length} 张图片` : '本机图片已清理，可手动重新生成。';
+        if (!request) status.textContent = history.length ? `还剩 ${history.length} 张图` : '本机存的旧图清掉了，想要的话可以自己重画。';
       },
       dispose() { controls.abort(); request?.abort(); history.forEach(item => URL.revokeObjectURL(item.url)); history = []; },
     };
@@ -532,7 +532,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
       if (!message || block.querySelector('textarea.edit_textarea')) continue;
       const entries = entriesFor(message);
       if (!entries.length) {
-        if (/<img\s*>/i.test(message.text)) warnRendering(element, message, '未解析到有效图片标记；请检查标记格式或其所在的代码/HTML 区域。');
+        if (/<img\s*>/i.test(message.text)) warnRendering(element, message, '没认出有效的配图标记，看看是不是格式写岔了，或者它正好落在代码块、HTML 区域里。');
         continue;
       }
       // Restore live slots if a frontend script cloned and replaced its container DOM.
@@ -566,7 +566,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
       let placements: ReturnType<typeof locateImageMarkers> = [];
       try { placements = locateImageMarkers(element, messageId, pending); }
       catch {
-        warnRendering(element, message, `已识别 ${entries.length} 个图片标记，但正文中的按钮定位失败。`);
+        warnRendering(element, message, `找到了 ${entries.length} 处配图标记，不过没把按钮插回正文对应位置。`);
       }
       for (const { entry, range } of placements) {
         const control = controlFor(entry, message);
@@ -590,7 +590,7 @@ export function bindChatImages(signal: AbortSignal): () => void {
       if (count < entries.length) {
         awaitingLayout.add(block);
         if (!hasPendingFrontendFrame(element)) {
-          warnRendering(element, message, `已挂载 ${count}/${entries.length} 个图片按钮；其余标记尚未定位到可见正文，可能尚未布局或被显示规则隐藏、复制或转换。`);
+          warnRendering(element, message, `先挂上了 ${count}/${entries.length} 个按钮；剩下的几处眼下在页面里找不着落点，可能正文还在折叠、被前端改写了结构或藏起来了。`);
         }
       } else warnings.delete(element);
     }

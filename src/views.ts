@@ -107,7 +107,7 @@ function guideView(): string {
       <div class="map-branches">
         <div class="map-branch">
           <button type="button" class="map-node" data-page="image-api">
-            <strong>接口配置</strong><span>管理服务连接</span>
+            <strong>接口配置</strong><span>把画图和写词接口接上</span>
           </button>
           <div class="map-leaves">
             ${guideLeaf('imageConnection', pages['image-api'].title, pages['image-api'].description, ['imageConnection', 'imageParameters', 'artists'])}
@@ -116,16 +116,16 @@ function guideView(): string {
         </div>
         <div class="map-branch">${node('features')}
           <div class="map-leaves">
-            ${guideLeaf('round', '标签锚定', '固定角色外貌与服装', ['round', 'anchors', 'outfits'])}
-            ${guideLeaf('worldbookUpload', '世界书', '上传并挂载参考条目', ['worldbookUpload', 'worldbookMount'])}
+            ${guideLeaf('round', '标签锚定', '锁定角色长相和衣柜', ['round', 'anchors', 'outfits'])}
+            ${guideLeaf('worldbookUpload', '世界书', '导入并挑出要带的设定条目', ['worldbookUpload', 'worldbookMount'])}
             ${guideLeaf('currentImages', pages.review.title, pages.review.description, ['currentImages', 'allImages'])}
           </div>
         </div>
         <div class="map-branch">${node('preferences')}
           <div class="map-leaves">
             ${guideLeaf('habits', pages['image-workflow'].title, pages['image-workflow'].description, ['autoProcess', 'autoImages', 'concurrency', 'retention'])}
-            ${guideLeaf('tia', '使用习惯', '调整缇娅的陪伴，查看画匣更新', ['tia', 'updates'])}
-            ${guideLeaf('exportConfig', '配置迁移与分享', '选择配置范围，迁移或分享', ['exportConfig', 'importConfig'])}
+            ${guideLeaf('tia', '使用习惯', '调调桌宠缇娅和外观，或者看看更新记录', ['tia', 'updates'])}
+            ${guideLeaf('exportConfig', '配置迁移与分享', '挑选需要的部分导出带走或分享', ['exportConfig', 'importConfig'])}
           </div>
         </div>
       </div>
@@ -133,94 +133,94 @@ function guideView(): string {
     <section class="guide-flow" aria-labelledby="guide-flow-heading">
       <h3 id="guide-flow-heading">从正文到配图</h3>
       <ol class="guide-steps">
-        <li><span class="guide-step-number" aria-hidden="true">01</span><div><h4>连接接口，导入预设</h4><p>选择 NAI 或 GPT，配置两类 API，再导入对应服务的预设。</p></div></li>
-        <li><span class="guide-step-number" aria-hidden="true">02</span><div><h4>补充角色与世界资料</h4><p>按需要配置标签锚定、上传世界书，并勾选要挂载的条目。</p></div></li>
-        <li><span class="guide-step-number" aria-hidden="true">03</span><div><h4>让 AI 处理最新回复</h4><p>打开悬浮球菜单，点击“AI生图”，为正文插入配图位置；也可在使用偏好的“出图与生图”中开启“回复后自动写 Tag”，正文写完自动处理。</p></div></li>
-        <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层中生成图片</h4><p>点击“生成图片”，或在使用偏好的“出图与生图”中开启“新标记自动出图”。已保存图片可在生图回顾中翻看。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">01</span><div><h4>接好接口，导入预设</h4><p>选一个你要用的画图服务（NAI、GPT、Gemini 或 Grok 都支持），把生图 API 和模型 API 配上，再导入对应的预设。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">02</span><div><h4>记下角色和世界设定</h4><p>需要固定人物长相或带入世界观的话，去标签锚定建档，或者上传世界书勾出要用的条目。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">03</span><div><h4>替最新正文写好画面位置</h4><p>点悬浮球菜单里的“AI生图”，让模型替最新一楼选好该画哪里；想省事的话，也可以在“出图与生图”打开“回复后自动写 Tag”，以后每楼写完自动处理。</p></div></li>
+        <li><span class="guide-step-number" aria-hidden="true">04</span><div><h4>在楼层里画出插图</h4><p>点楼层里的“生成图片”，或者在“出图与生图”打开“新标记自动出图”让它自己开画。画好的图之后都能在“生图回顾”里翻看。</p></div></li>
       </ol>
     </section>
     <section class="guide-transfer" aria-labelledby="guide-transfer-heading">
-      <div><h3 id="guide-transfer-heading">把配置带走，也分享喜欢的内容</h3><p>点击按钮选择全部配置、画师串、预设或世界书。完整导出可选择是否包含 API 密钥和相应 URL；导入时先校验并展示内容，确认后才会写入。</p></div>
+      <div><h3 id="guide-transfer-heading">把配置带走，也分享喜欢的内容</h3><p>点下面可以只挑画师串、预设、世界书导出，或者整套配置打包带走。导出完整包时可以自己勾选带不带 API 密钥和地址；导入前会先亮出清单给你核对，点头确认才会覆写。</p></div>
       <button type="button" class="secondary" data-page="preferences" data-section="config-transfer">配置迁移与分享 →</button>
     </section>`;
 }
 
 function hostSyncView(): string {
   if (!isTauriHost()) return '';
-  if (!getHostStore()) return '<p class="config-status">当前 TT 版本未提供完整的扩展数据存储，配置仍保存在本机。更新 TT 后重新打开画匣即可迁移。</p>';
+  if (!getHostStore()) return '<p class="config-status">现在这个版本的 TT 还没给全扩展数据存储接口，配置还是先存在本机。把 TT 升到新版再打开画匣，就能自动迁过去。</p>';
   return `<section class="image-settings" aria-label="TauriTavern 配置同步">
     <header class="section-heading section-heading--plain"><h2 class="section-title">TauriTavern 同步</h2>
-      <p class="section-description">配置已接入 TT 扩展数据。同步时勾选“扩展数据”；页面记忆与悬浮球位置随酒馆设置同步。</p></header>
-    <p class="config-status">包含接口参数、预设、画师串、角色与服装库、角色图、世界书及挂载选择。生成图片历史仍保存在本机。</p>
-    <label class="preference-row"><span><strong>同时同步 API 密钥</strong><span>默认关闭，接收设备需自行填写密钥。开启后，已保存的生图与模型 API 密钥会写入 TT 扩展数据并参与同步。</span></span>
+      <p class="section-description">配置已经接到 TT 的扩展数据里，同步时记得勾上“扩展数据”；上次停在哪页和悬浮球位置会跟酒馆自己的设置走。</p></header>
+    <p class="config-status">这里包括接口参数、预设、画师串、角色外貌和衣柜、角色图，还有世界书和挂载勾选；以前生成的图片历史还是留在各自本机里。</p>
+    <label class="preference-row"><span><strong>连着 API 密钥一起同步</strong><span>默认关着（换设备要自己补填密钥）；打开后，你存的生图和模型 API 密钥也会一起写进 TT 扩展数据同步出去。</span></span>
       <input type="checkbox" name="syncApiKeys" ${getSyncApiKeys() ? 'checked' : ''}></label>
-    <p class="config-status" data-host-sync-status role="status">${getSyncApiKeys() ? 'API 密钥会随 TT 扩展数据同步。' : 'API 密钥仅保留在本机。'}</p>
+    <p class="config-status" data-host-sync-status role="status">${getSyncApiKeys() ? 'API 密钥现在会跟着 TT 扩展数据一起同步。' : 'API 密钥眼下只留在这台设备上。'}</p>
   </section>`;
 }
 
 function imageWorkflowView(settings: Settings): string {
   return `
     <section class="preference-section" aria-labelledby="image-habits-heading">
-      <header class="section-heading section-heading--plain"><h3 id="image-habits-heading" class="section-title">自动配图</h3><p class="section-description">正文完成 → 模型写 Tag → 生成图片。两步可以分别开启。</p></header>
-      <label class="preference-row"><span><strong>回复后自动写 Tag</strong><span>原“自动 AI 生图”。新正文及酒馆助手后续任务结束、正文稳定 3 秒后，调用已保存的模型 API 和预设，写入配图标记。只开启此项时，图片由你手动生成。会消耗模型 API 额度。</span></span><input type="checkbox" name="autoProcessReplies" ${settings.autoProcessReplies ? 'checked' : ''}></label>
-      <label class="preference-row"><span><strong>新标记自动出图</strong><span>原“自动点击生图”。仅将最新回复中新出现的配图标记自动送入生图队列；配合上一项即可全程自动出图。已有图片跳过，失败不自动重试；打开聊天或开启功能时不补跑历史标记。会消耗生图额度。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
+      <header class="section-heading section-heading--plain"><h3 id="image-habits-heading" class="section-title">自动配图</h3><p class="section-description">正文写完 → 模型写 Tag → 画匣出图，这两步可以分开开关。</p></header>
+      <label class="preference-row"><span><strong>回复后自动写 Tag</strong><span>（以前叫“自动 AI 生图”）等新正文和酒馆助手手头的事情都跑完、页面稳住 3 秒后，自动调模型 API 按预设替这楼插好配图标记。只开这一项时不自动画图，等你自己点按钮再画；会消耗一次模型 API 额度。</span></span><input type="checkbox" name="autoProcessReplies" ${settings.autoProcessReplies ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>新标记自动出图</strong><span>（以前叫“自动点击生图”）盯着最新一楼刚冒出来的新配图标记，自动排队开画；和上一项一起开就是全自动配图。已经有图的会跳过，失败了不会自作主张重试；刚打开聊天或刚打开开关时也不会去补画旧楼层。会消耗生图额度。</span></span><input type="checkbox" name="autoGenerateImages" ${settings.autoGenerateImages ? 'checked' : ''}></label>
       <p class="config-status" data-workflow-status role="status">${workflowStatus(settings)}</p>
-      <label class="preference-row"><span><strong>自动出图等待与间隔</strong><span>正文稳定后先等待此时长；逐张绘制时，每张结束后再等此时长。并发时，空位按此间隔依次补入新任务。填 0 为立即接上，默认 1 秒，最多 ${MAX_AUTO_IMAGE_DELAY} 秒。</span></span>
+      <label class="preference-row"><span><strong>自动出图等待与间隔</strong><span>正文停稳后先等这么多秒再动手；一张张画时每画完一张也喘口气等这么久；并发时有空位也会隔这么久再补新单。填 0 就不等直接接上，默认 1 秒，最多 ${MAX_AUTO_IMAGE_DELAY} 秒。</span></span>
         <span class="preference-number"><input type="number" name="autoImageDelay" min="0" max="${MAX_AUTO_IMAGE_DELAY}" step="0.1" inputmode="decimal" value="${settings.autoImageDelay}" aria-label="自动出图等待与间隔（秒）">秒</span></label>
     </section>
     <section class="preference-section" aria-labelledby="image-queue-heading">
-      <header class="section-heading section-heading--plain"><h3 id="image-queue-heading" class="section-title">并发与队列</h3><p class="section-description">正文配图、重绘、试绘和角色图共用同一队列，按入队顺序开始。</p></header>
-      <label class="preference-row"><span><strong>最大同时生图数</strong><span>默认 1 张，可设为 1～${MAX_IMAGE_CONCURRENCY} 张。调低时正在生成的图片继续完成，后续按新上限开始；模型写 Tag 仍一次处理一条回复。请按生图服务允许的并发数设置。</span></span>
+      <header class="section-heading section-heading--plain"><h3 id="image-queue-heading" class="section-title">并发与队列</h3><p class="section-description">楼里配图、重画、设置页试绘还有画角色图都在同一条队伍里排队，谁先点就谁先画。</p></header>
+      <label class="preference-row"><span><strong>最大同时生图数</strong><span>默认一次 1 张，最多调到 ${MAX_IMAGE_CONCURRENCY} 张。往低调时，正在画的不会中途掐断，等后面的新任务按新上限走；模型写 Tag 每次还是只处理一条回复。照着你用的生图接口能承受的并发来调就好。</span></span>
         <select name="imageConcurrency" aria-label="最大同时生图数">${Array.from({ length: MAX_IMAGE_CONCURRENCY }, (_, i) => i + 1).map(value => `<option value="${value}"${settings.imageConcurrency === value ? ' selected' : ''}>${value} 张</option>`).join('')}</select></label>
       <p class="config-status" data-image-queue-status role="status"></p>
     </section>
     <section class="preference-section" aria-labelledby="image-retention-heading">
-      <header class="section-heading section-heading--plain"><h3 id="image-retention-heading" class="section-title">图片留存</h3><p class="section-description">管理保存在这台设备上的图片历史。</p></header>
-      <label class="preference-row"><span><strong>自动清理生图</strong><span>按生成时间清理所有角色卡的本机图片历史；角色锚定图保留。开启后立即清理，关闭酒馆期间的过期图片会在下次打开时清理。</span></span>
+      <header class="section-heading section-heading--plain"><h3 id="image-retention-heading" class="section-title">图片留存</h3><p class="section-description">管一管这台设备上越积越多的本地出图历史。</p></header>
+      <label class="preference-row"><span><strong>自动清理生图</strong><span>按出图时间把所有角色卡下的本地旧图清掉，不过锚定页里的角色图会一直留着。一选天数就会立刻清一次，酒馆关着那会儿过期的图，下次打开时会接着清掉。</span></span>
         <select name="imageRetentionDays" aria-label="图片保留时间">${[[0, '关闭'], [1, '保留 1 天'], [3, '保留 3 天'], [7, '保留 7 天']].map(([value, label]) => `<option value="${value}"${settings.imageRetentionDays === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
       <p class="config-status" data-cleanup-status role="status"></p>
       <button type="button" class="secondary" data-page="review">打开生图回顾 →</button>
     </section>
-    <div class="actions"><button type="button" class="secondary" data-action="reset-image-workflow">恢复默认生图设置</button><p class="muted" role="status" data-feedback>更改会自动保存。</p></div>`;
+    <div class="actions"><button type="button" class="secondary" data-action="reset-image-workflow">恢复默认生图设置</button><p class="muted" role="status" data-feedback>改完就会自动存好。</p></div>`;
 }
 
 export function workflowStatus(settings: Settings): string {
-  if (settings.autoProcessReplies && settings.autoGenerateImages) return '当前流程：正文完成 → 模型写 Tag → 自动生成图片。';
-  if (settings.autoProcessReplies) return '当前流程：正文完成 → 模型写 Tag → 手动点击生成图片。';
-  if (settings.autoGenerateImages) return '当前流程：正文出现新配图标记 → 自动生成图片。';
-  return '自动配图已关闭，可从缇娅菜单手动使用“AI生图”或“指定插图”。';
+  if (settings.autoProcessReplies && settings.autoGenerateImages) return '现在这套流程：正文写完 → 模型写 Tag → 直接自动画图。';
+  if (settings.autoProcessReplies) return '现在这套流程：正文写完 → 模型写 Tag → 等你手动点生成。';
+  if (settings.autoGenerateImages) return '现在这套流程：楼里一出现新配图标记 → 直接自动画图。';
+  return '自动配图关着呢，想画哪一楼就从缇娅菜单里手点“AI生图”或“指定插图”。';
 }
 
 function preferencesView(settings: Settings): string {
   return `
     <section class="preference-section" aria-labelledby="pet-heading">
-      <header class="section-heading section-heading--plain"><div class="pet-heading-line"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><small class="pet-credit">由 <strong>Lovéthia</strong> 宝宝制作，无比感谢！</small></div><p class="section-description">调整缇娅的大小、台词与动作；人物和画匣会一起缩放。</p></header>
+      <header class="section-heading section-heading--plain"><div class="pet-heading-line"><h3 id="pet-heading" class="section-title">桌宠缇娅</h3><small class="pet-credit">由 <strong>Lovéthia</strong> 宝宝制作，无比感谢！</small></div><p class="section-description">调一调缇娅的个头大小、台词和动作；调大小时小人和画匣会一起缩放。</p></header>
       <div class="preference-row pet-size-row">
-        <span><label for="pet-scale"><strong>缇娅的大小</strong></label><span id="pet-scale-description">50%～150%，拖动即时生效并自动保存。画匣同步缩放，菜单与台词文字大小不变。</span></span>
+        <span><label for="pet-scale"><strong>缇娅的大小</strong></label><span id="pet-scale-description">50%～150% 随便拉，松手就生效并自动存好。画匣会跟着一起缩放，菜单和台词字号不变。</span></span>
         <div class="pet-size-controls">
           <input id="pet-scale" name="petScale" type="range" min="50" max="150" step="1" value="${Math.round(settings.petScale * 100)}" aria-describedby="pet-scale-description" aria-valuetext="${Math.round(settings.petScale * 100)}%">
           <output for="pet-scale" data-pet-scale-value>${Math.round(settings.petScale * 100)}%</output>
           <button type="button" class="secondary" data-action="reset-pet-scale">恢复默认</button>
         </div>
       </div>
-      <label class="preference-row"><span><strong>缇娅的台词</strong><span>仅在操作或有结果时触发，相同台词有冷却时间。关闭后不再说话，出错时仍显示报错文字。</span></span><input type="checkbox" name="petLines" ${settings.petLines ? 'checked' : ''}></label>
-      <label class="preference-row"><span><strong>缇娅的动作</strong><span>关闭后仅保留呼吸和眨眼，取消走动、摆动及图片飞入楼层的动画。系统开启“减少动态效果”时同样生效。</span></span><input type="checkbox" name="petMotion" ${settings.petMotion ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>缇娅的台词</strong><span>平时只在动手操作或画完出结果时搭话，同一句不会连着刷屏。关掉后她就安静干活，真出错了还是会冒出报错提示。</span></span><input type="checkbox" name="petLines" ${settings.petLines ? 'checked' : ''}></label>
+      <label class="preference-row"><span><strong>缇娅的动作</strong><span>关掉之后她就只留着呼吸和眨眼，不再满屏幕溜达、晃悠，也没有图片飞进楼层的动画了（如果系统开了减少动态效果也会跟着关掉）。</span></span><input type="checkbox" name="petMotion" ${settings.petMotion ? 'checked' : ''}></label>
     </section>
     <label class="preference-row">
-      <span><strong>画匣色调</strong><span>夜间换成胡桃木色的纸。跟随酒馆时，按酒馆主题的明暗自动切换。</span></span>
+      <span><strong>画匣色调</strong><span>夜间会换成胡桃木色的暗纸页；选“跟随酒馆”就跟着酒馆主题的明暗自动换。</span></span>
       <select name="paintboxTheme" aria-label="画匣色调">${[['auto', '跟随酒馆'], ['day', '日间'], ['night', '夜间']].map(([value, label]) => `<option value="${value}"${settings.paintboxTheme === value ? ' selected' : ''}>${label}</option>`).join('')}</select>
     </label>
     <label class="preference-row">
-      <span><strong>回到上次页面</strong><span>再次打开时继续上次的位置；关闭后每次进入“开始使用”。</span></span>
+      <span><strong>回到上次页面</strong><span>下次打开画匣接着上次那一页继续看；关掉的话每次都回到“开始使用”。</span></span>
       <input type="checkbox" name="rememberPage" ${settings.rememberPage ? 'checked' : ''}>
     </label>
     <label class="preference-row">
-      <span><strong>记住悬浮球位置</strong><span>下次进入酒馆时，保留你拖动后的位置。</span></span>
+      <span><strong>记住悬浮球位置</strong><span>你把它拖到屏幕哪个角落，下次进酒馆还待在那里。</span></span>
       <input type="checkbox" name="rememberPosition" ${settings.rememberPosition ? 'checked' : ''}>
     </label>
     <div class="actions">
       <button type="button" class="secondary" data-action="reset-preferences">恢复默认使用偏好</button>
-      <p class="muted" role="status" data-feedback>更改会自动保存。</p>
+      <p class="muted" role="status" data-feedback>改完就会自动存好。</p>
     </div>
     ${hostSyncView()}
     <div data-config-transfer></div>
@@ -234,7 +234,7 @@ function featureView(tab: FeatureTab): string {
         <button type="button" data-feature-tab="anchors" aria-pressed="${tab === 'anchors'}">标签锚定</button>
         <button type="button" data-feature-tab="worldbook" aria-pressed="${tab === 'worldbook'}">世界书</button>
       </nav>
-      <p class="section-description">${tab === 'anchors' ? '把喜欢的外貌留下，为角色搭配不同服装。' : '上传世界书，将需要的条目挂入生图预设。'}</p>
+      <p class="section-description">${tab === 'anchors' ? '把角色固定长相存下来，随剧情换不同的衣服。' : '传几本世界书进来，把要用的设定条目挂进生图预设。'}</p>
     </header>
     ${tab === 'anchors'
       ? '<div data-anchor-settings></div><details class="feature-provider-settings"><summary>预设功能接入</summary><div data-model-settings></div></details>'

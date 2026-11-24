@@ -48,7 +48,7 @@ export function autoProcessReplies(processor: ChatProcessor, signal: AbortSignal
       if (stale.length) {
         for (const [id] of stale) helpers.delete(id);
         reset();
-        skipped('自动 AI 生图已跳过：酒馆助手的后续任务长时间没有结束确认，可稍后手动点击“AI生图”。');
+        skipped('这轮先跳过了自动写 Tag：酒馆助手后台一直在跑没给结束信号，需要的话过会儿手点一次“AI生图”就行。');
         return;
       }
       if (helpers.size || processor.busy || !await isChatReadyForImages()) { activity = Date.now(); return; }
@@ -108,7 +108,7 @@ export function autoProcessReplies(processor: ChatProcessor, signal: AbortSignal
   function subscribe() {
     try { stop = watchReplyGeneration(receive); subscribed = true; }
     catch {
-      if (enabled()) skipped('当前宿主的回复事件不可用，自动 AI 生图尚未接入；手动 AI生图仍可使用。');
+      if (enabled()) skipped('当前环境没开放回复完成事件，自动写 Tag 暂时搭不上；不过从菜单手点“AI生图”照样能用。');
     }
   }
   subscribe(); // Track helper jobs even while disabled, so enabling cannot miss an already observed request.

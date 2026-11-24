@@ -15,7 +15,7 @@ export function bindSettingsEntry(open: (button: HTMLButtonElement) => void, sig
       <b>${pluginName}</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down" aria-hidden="true"></div>
     </div>
     <div class="inline-drawer-content">
-      <p>管理生图接口、预设、角色锚定与图片历史。</p>
+      <p>接好生图接口、调好预设和角色外貌，还能翻看以前画好的图。</p>
       <button type="button" class="menu_button">打开${pluginName}</button>
     </div>
   </div>`;

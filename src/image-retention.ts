@@ -1,7 +1,7 @@
 import { deleteExpiredImages } from './image-history.js';
 import { currentPreferences } from './settings.js';
 
-let status = '自动清理已关闭。';
+let status = '自动清理关着。';
 export function imageRetentionStatus(): string { return status; }
 
 /** Runs only while the extension is open; expired records are caught up on the next launch. */
@@ -15,16 +15,16 @@ export function bindImageRetention(signal: AbortSignal): void {
   };
   async function clean() {
     if (running || signal.aborted) return;
-    if (!days) { report('自动清理已关闭。'); return; }
+    if (!days) { report('自动清理已经关了。'); return; }
     running = true;
     const version = revision;
     const before = Date.now() - days * 86_400_000;
-    report('正在清理过期图片…');
+    report('正在清掉过期旧图…');
     try {
       const count = await deleteExpiredImages(before, () => !signal.aborted && version === revision);
-      if (version === revision && !signal.aborted) report(count ? `已清理 ${count} 张过期图片，保留最近 ${days} 天。` : `保留最近 ${days} 天的图片，暂无过期图片。`);
+      if (version === revision && !signal.aborted) report(count ? `清掉了 ${count} 张旧图，只留着最近 ${days} 天的。` : `设了留最近 ${days} 天，眼下还没有过期的图。`);
     } catch (error) {
-      if (version === revision && !signal.aborted) report(error instanceof Error ? error.message : '图片清理失败，下次打开时重试。');
+      if (version === revision && !signal.aborted) report(error instanceof Error ? error.message : '刚才没清成，下次打开画匣再顺手清一次。');
     } finally {
       running = false;
       if (version !== revision) void clean();

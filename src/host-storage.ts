@@ -32,12 +32,12 @@ export function getHostStore(): HostStore | null { return store; }
 export function isTauriHost(): boolean { return detected; }
 
 export function readHostJson(key: string, table = 'main'): Promise<{ found: boolean; value?: unknown }> {
-  if (!store) throw new Error('当前宿主不支持扩展数据存储。');
+  if (!store) throw new Error('现在用的酒馆版本没提供扩展数据存储。');
   return store.tryGetJson({ namespace: HOST_NAMESPACE, table, key });
 }
 
 export async function writeHostJson(key: string, value: unknown, table = 'main'): Promise<void> {
-  if (!store) throw new Error('当前宿主不支持扩展数据存储。');
+  if (!store) throw new Error('现在用的酒馆版本没提供扩展数据存储。');
   await store.setJson({ namespace: HOST_NAMESPACE, table, key, value: structuredClone(value) });
 }
 

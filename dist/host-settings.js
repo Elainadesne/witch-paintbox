@@ -15,7 +15,7 @@ export async function initializeSettingsStorage() {
     if (options.found) {
         const value = options.value;
         if (!value || typeof value !== 'object' || typeof value.includeApiKeys !== 'boolean') {
-            throw new Error('TT 同步选项格式无效，原始记录已保留。');
+            throw new Error('TT 同步开关那项的格式不对，原来的记录没动。');
         }
         syncApiKeys = value.includeApiKeys;
     }
@@ -25,7 +25,7 @@ export async function initializeSettingsStorage() {
 }
 export async function setSyncApiKeys(enabled) {
     if (!getHostStore() || !ready)
-        throw new Error('当前宿主的配置同步尚未就绪。');
+        throw new Error('酒馆这边的配置同步还没准备好。');
     await withHostLock(writeLock, async () => {
         if (enabled === syncApiKeys)
             return;
@@ -55,7 +55,7 @@ export async function setSyncApiKeys(enabled) {
                     restored = false;
                 }
             }
-            throw new Error(`密钥同步选项未能保存。${restored ? '原选项保持不变。' : '部分原生配置未能恢复，请重试后再同步。'}`);
+            throw new Error(`密钥同步开关没存上。${restored ? '原本的设置好好的没变。' : '有几项原生配置没来得及回滚，等会儿重设一下再同步。'}`);
         }
     });
 }
@@ -72,14 +72,14 @@ export function createSettingsStorage(descriptor) {
             raw = storage.getItem(descriptor.localKey);
         }
         catch {
-            throw new Error(`浏览器无法读取${descriptor.label}，请检查站点存储权限。`);
+            throw new Error(`浏览器读不到${descriptor.label}，看看是不是站点存储权限被拦住了。`);
         }
         let value;
         try {
             value = raw === null ? descriptor.defaults() : descriptor.validate(JSON.parse(raw));
         }
         catch {
-            throw new Error(`已保存的${descriptor.label}无法读取，原始记录已保留，未覆盖。`);
+            throw new Error(`之前存着的${descriptor.label}这会儿读不出来，放心原始记录没被覆盖掉。`);
         }
         return { storage, raw, value };
     }
@@ -104,7 +104,7 @@ export function createSettingsStorage(descriptor) {
                 restore();
             }
             catch { /* Preserve the original failure. */ }
-            throw new Error(`${descriptor.label}未能保存，请检查浏览器存储权限或剩余空间。`);
+            throw new Error(`${descriptor.label}没存上，查一下浏览器存储权限或者空间够不够。`);
         }
         return restore;
     }
@@ -116,12 +116,12 @@ export function createSettingsStorage(descriptor) {
         if (!getHostStore())
             return localRecord().value;
         if (!initialized || cached === undefined)
-            throw new Error(`${descriptor.label}尚未完成 TT 存储初始化。`);
+            throw new Error(`${descriptor.label}还在初始化 TT 存储，等它跑完。`);
         return descriptor.validate(cached);
     }
     async function commit(value) {
         if (getHostStore() && !initialized)
-            throw new Error(`${descriptor.label}尚未完成 TT 存储初始化。`);
+            throw new Error(`${descriptor.label}还在初始化 TT 存储，等它跑完。`);
         const restoreLocal = saveLocal(value);
         if (getHostStore()) {
             const saved = forHost(value);
@@ -133,7 +133,7 @@ export function createSettingsStorage(descriptor) {
                     restoreLocal();
                 }
                 catch { /* The native cache remains unchanged. */ }
-                throw new Error(`${descriptor.label}未能写入 TT 存储，请重试。`);
+                throw new Error(`${descriptor.label}没写进 TT 存储里，再试一次。`);
             }
             cached = descriptor.validate(value);
             nativeValue = saved;

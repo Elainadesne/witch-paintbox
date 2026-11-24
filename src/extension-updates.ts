@@ -12,7 +12,7 @@ interface ExtensionVersion {
 
 const checkInterval = 15 * 60 * 1000;
 const retryInterval = 60 * 1000;
-const initialMessage = '打开画匣时检查当前安装分支的更新；点击铃铛可重新检查。';
+const initialMessage = '每次打开画匣会顺便看一眼当前分支有没有更新；点一下铃铛可以手动再查。';
 
 export function updateNoticeView(): string {
   return `<span class="update-notice">
@@ -51,23 +51,23 @@ async function readVersion(folder: string, signal: AbortSignal): Promise<Extensi
     SillyTavern?: { getContext(): { getRequestHeaders?: () => HeadersInit } };
   };
   const context = host.SillyTavern?.getContext();
-  if (typeof context?.getRequestHeaders !== 'function') throw new Error('宿主暂不支持更新检查。请在酒馆扩展管理中检查更新。');
+  if (typeof context?.getRequestHeaders !== 'function') throw new Error('当前酒馆环境查不了插件更新，直接去扩展管理里看吧。');
   const headers = new Headers(context.getRequestHeaders());
   headers.set('Content-Type', 'application/json');
   const discovery = await fetch('/api/extensions/discover', { headers, signal });
-  if (!discovery.ok) throw new Error('暂时无法读取扩展信息。请稍后点击铃铛重试，或在酒馆扩展管理中检查。');
+  if (!discovery.ok) throw new Error('这会儿没读到扩展信息，过会儿再点铃铛试试，或者去酒馆扩展管理里看。');
   const entries: unknown = await discovery.json();
   const installation = Array.isArray(entries) ? entries.filter(isInstallation).find(entry => entry.name === `third-party/${folder}`) : undefined;
-  if (!installation) throw new Error('未找到当前插件的安装信息。请在酒馆扩展管理中检查更新。');
+  if (!installation) throw new Error('没找着这个插件的安装记录，还是去酒馆扩展管理里检查更新吧。');
 
   // The host checks origin/<installed branch>; this never pulls or switches it.
   const response = await fetch('/api/extensions/version', {
     method: 'POST', headers, signal,
     body: JSON.stringify({ extensionName: folder, global: installation.type === 'global' }),
   });
-  if (!response.ok) throw new Error('更新检查未完成，可能暂时无法连接 Git 仓库。请稍后点击铃铛重试。');
+  if (!response.ok) throw new Error('更新没查成，可能是连不上 Git 仓库，等会儿再点铃铛试试。');
   const version: unknown = await response.json();
-  if (!isVersion(version)) throw new Error('宿主未返回完整的版本信息。请在酒馆扩展管理中检查更新。');
+  if (!isVersion(version)) throw new Error('酒馆返回的版本信息不全，去扩展管理里直接检查吧。');
   return version;
 }
 
@@ -87,12 +87,12 @@ export function bindUpdateNotice(root: ShadowRoot, signal: AbortSignal): { check
   async function check(force = false): Promise<void> {
     if (signal.aborted || pending || (!force && Date.now() < nextCheck)) return;
     if (!folder) {
-      describe('当前加载位置无法识别 Git 安装信息。请在酒馆扩展管理中检查更新。');
+      describe('当前加载方式认不出 Git 安装信息，去酒馆扩展管理里查更新吧。');
       return;
     }
     pending = true;
     button.setAttribute('aria-busy', 'true');
-    tooltip.textContent = '正在检查当前安装分支的更新…';
+    tooltip.textContent = '正看看当前分支有没有新更新…';
     const request = new AbortController();
     const cancel = () => request.abort();
     signal.addEventListener('abort', cancel, { once: true });
@@ -101,19 +101,19 @@ export function bindUpdateNotice(root: ShadowRoot, signal: AbortSignal): { check
       const version = await readVersion(folder, request.signal);
       if (signal.aborted) return;
       if (!version.currentBranchName.trim() || !version.currentCommitHash.trim() || !version.remoteUrl.trim()) {
-        describe('当前安装没有可用的 Git 分支信息，无法判断更新。请在酒馆扩展管理中查看。');
+        describe('这个安装版本没带 Git 分支信息，没法比对更新，去扩展管理里看一下吧。');
       } else {
         const branch = version.currentBranchName;
         const commit = version.currentCommitHash.slice(0, 8);
         describe(version.isUpToDate
-          ? `当前分支 ${branch}（${commit}）暂无可用更新。点击铃铛可重新检查。`
-          : `当前分支 ${branch} 有更新，本机提交 ${commit}。请在酒馆扩展管理中更新“魔女画匣”，完成后刷新页面。`, !version.isUpToDate);
+          ? `当前分支 ${branch}（${commit}）已经是最新的了，点铃铛可以重新检查。`
+          : `当前分支 ${branch} 有新版了（本机是 ${commit}）。去酒馆扩展管理里更新一下“魔女画匣”，然后刷新页面就行。`, !version.isUpToDate);
       }
       nextCheck = Date.now() + checkInterval;
     } catch (error) {
       if (!signal.aborted) {
-        describe(request.signal.aborted ? '更新检查超时，请稍后点击铃铛重试。'
-          : error instanceof Error ? error.message : '更新检查未完成，请稍后点击铃铛重试。');
+        describe(request.signal.aborted ? '查更新等太久超时了，过会儿再点铃铛试试。'
+          : error instanceof Error ? error.message : '刚才查更新中途断了，过会儿再点铃铛试试。');
         nextCheck = Date.now() + retryInterval;
       }
     } finally {

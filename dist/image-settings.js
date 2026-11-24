@@ -25,7 +25,7 @@ export function defaultImageSettings(provider = 'novelai') {
     };
 }
 function invalid() {
-    throw withFault(new Error('生图配置格式无效，请检查参数和配置条目。'), 'setup');
+    throw withFault(new Error('生图配置这一块格式不对，检查下参数和配置条目。'), 'setup');
 }
 function record(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -132,7 +132,7 @@ export function validateImageSettings(value) {
     });
     if (isNaturalLanguageProvider(provider) && (text(source.negative).trim() || artists.some(item => item.negative.trim()))) {
         const name = imageProviderName(provider);
-        throw new Error(`${name} 配置不支持独立负面提示词，请先在来源配置中移除负面字段内容，再导入 ${name} 配置。`);
+        throw new Error(`${name} 不支持单独写负面词，先把原配置里的负面栏清空再导入 ${name}。`);
     }
     return {
         provider, models: modelNames,

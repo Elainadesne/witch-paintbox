@@ -14,7 +14,7 @@ import { imageSizeDimensions } from './image-size.js';
 /** Resolve one marker before queuing; never overwrite the user's fallback dimensions. */
 export function imageSettingsForMarker(settings, marker) {
     if (isImageSizeModeSaving())
-        throw withFault(new Error('画幅模式正在同步，请完成后再生成图片。'), 'setup');
+        throw withFault(new Error('画幅模式还在同步，等它存好再点出图吧。'), 'setup');
     if (!marker.size || imageSizeMode(loadModelSettings(settings.provider)) !== 'ai')
         return settings;
     if (settings.provider === 'gemini') {
@@ -35,9 +35,9 @@ export async function generatePreparedImage(settings, prompt, signal, onProgress
     if (settings.provider === 'openai') {
         const parameters = { ...settings.openaiParameters };
         if (prompt.negative.trim())
-            throw withFault(new Error('GPT 生图接口不支持独立负面提示词，请在当前配置中清空负面词后生成。'), 'setup');
+            throw withFault(new Error('GPT 生图没有独立负面栏，先把这边配置里的负面词清空再画吧。'), 'setup');
         if (prompt.characters.length)
-            throw withFault(new Error('GPT 生图接口不支持 NAI 角色分栏，请使用普通正面提示词。'), 'setup');
+            throw withFault(new Error('GPT 用不了 NAI 那套角色分栏写法，直接把画面写进普通正面词就行。'), 'setup');
         const positive = prompt.positive;
         const result = await generateOpenAIImage(connection, parameters, positive, signal, onProgress);
         return { ...result, provider: 'openai', positive, negative: '', characters: [] };
@@ -45,9 +45,9 @@ export async function generatePreparedImage(settings, prompt, signal, onProgress
     if (settings.provider === 'gemini' || settings.provider === 'grok') {
         const name = imageProviderName(settings.provider);
         if (prompt.negative.trim())
-            throw withFault(new Error(`${name} 生图接口不支持独立负面提示词，请在当前配置中清空负面词后生成。`), 'setup');
+            throw withFault(new Error(`${name} 生图没有独立负面栏，先把这边配置里的负面词清空再画吧。`), 'setup');
         if (prompt.characters.length)
-            throw withFault(new Error(`${name} 生图接口不支持 NAI 角色分栏，请使用普通正面提示词。`), 'setup');
+            throw withFault(new Error(`${name} 用不了 NAI 那套角色分栏写法，直接把画面写进普通正面词就行。`), 'setup');
         const positive = prompt.positive;
         if (settings.provider === 'gemini') {
             const result = await generateGeminiImage(connection, { ...settings.geminiParameters }, positive, signal, onProgress);
@@ -57,7 +57,7 @@ export async function generatePreparedImage(settings, prompt, signal, onProgress
         return { blob: result.blob, provider: 'grok', parameters: { ...result.parameters, width: result.width, height: result.height }, positive, negative: '', characters: [] };
     }
     if (settings.provider && settings.provider !== 'novelai')
-        throw withFault(new Error('当前生图服务类型不受支持。'), 'setup');
+        throw withFault(new Error('当前选的这个生图服务还没接通呢。'), 'setup');
     const locked = lockMediumEffort({ ...settings.parameters }, { positive: prompt.positive, negative: prompt.negative, characters: prompt.characters.map(character => ({ ...character })) });
     const parameters = locked.params;
     const prepared = locked.prompt;
@@ -76,11 +76,11 @@ export async function generateConfiguredImage(settings, scene, signal, onProgres
     if (isNaturalLanguageProvider(snapshot.provider)) {
         const name = imageProviderName(snapshot.provider);
         if (snapshot.negative.trim())
-            throw withFault(new Error(`${name} 生图接口不支持独立负面提示词，请在当前配置中清空负面词后生成。`), 'setup');
+            throw withFault(new Error(`${name} 生图没有独立负面栏，先把负面词清空再画。`), 'setup');
         // No NAI column parsing, weight conversion, or hidden instructions are added to a natural-language prompt.
         const expanded = await resolveStoredAnchorPromptFields(scene);
         if (expanded.negative.trim()) {
-            throw withFault(new Error(`${name} 生图不支持角色独立负面提示词，请清空该角色的负面词或切换 NAI。`), 'setup');
+            throw withFault(new Error(`${name} 不吃角色自己的负面词，把那个角色的负面栏清空，或者切回 NAI 来画。`), 'setup');
         }
         prompt = { positive: [expanded.positive, artistPositive].filter(value => value.trim()).join(', '), negative: '', characters: [] };
     }

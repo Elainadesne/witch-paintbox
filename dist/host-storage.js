@@ -18,12 +18,12 @@ export function getHostStore() { return store; }
 export function isTauriHost() { return detected; }
 export function readHostJson(key, table = 'main') {
     if (!store)
-        throw new Error('当前宿主不支持扩展数据存储。');
+        throw new Error('现在用的酒馆版本没提供扩展数据存储。');
     return store.tryGetJson({ namespace: HOST_NAMESPACE, table, key });
 }
 export async function writeHostJson(key, value, table = 'main') {
     if (!store)
-        throw new Error('当前宿主不支持扩展数据存储。');
+        throw new Error('现在用的酒馆版本没提供扩展数据存储。');
     await store.setJson({ namespace: HOST_NAMESPACE, table, key, value: structuredClone(value) });
 }
 /** Keep read/modify/write operations in one domain ordered within this page. */

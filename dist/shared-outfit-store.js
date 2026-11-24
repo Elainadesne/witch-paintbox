@@ -5,19 +5,19 @@ const storageKey = 'witch-paintbox.shared-outfits.v1';
 const listeners = new Set();
 function requiredText(value, label, limit) {
     if (typeof value !== 'string' || !value.trim())
-        throw new Error(`请填写${label}。`);
+        throw new Error(`得填上${label}。`);
     const text = value.trim();
     if (text.length > limit)
-        throw new Error(`${label}不能超过 ${limit} 个字符。`);
+        throw new Error(`${label}太长了，最多 ${limit} 个字。`);
     return text;
 }
 export function validateSharedOutfits(value) {
     if (!Array.isArray(value) || value.length > 10_000)
-        throw new Error('通用服装库格式无效，原有记录未修改。');
+        throw new Error('通用服装库格式不对，原来的记录没动。');
     const ids = new Set(), names = new Set();
     return Array.from(value, raw => {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw))
-            throw new Error('通用服装记录格式无效，原有记录未修改。');
+            throw new Error('这套通用服装记录格式不对，原来的记录没动。');
         const outfit = raw;
         const id = requiredText(outfit.id, '通用服装标识', 128);
         const name = requiredText(outfit.name, '通用服装名称', ANCHOR_NAME_LIMIT);
@@ -26,7 +26,7 @@ export function validateSharedOutfits(value) {
         if (/[\\()[\]{}<>]/.test(name) || name.includes('::'))
             throw new Error('通用服装名称不能包含英文括号、反斜杠或提示词权重符号。');
         if (ids.has(id))
-            throw new Error('通用服装标识重复，原有记录未修改。');
+            throw new Error('通用服装的标识撞了，原来的记录没动。');
         if (names.has(name))
             throw new Error(`通用服装“${name}”重名，请更换名称。`);
         ids.add(id);

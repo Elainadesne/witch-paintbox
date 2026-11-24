@@ -123,7 +123,7 @@ export class AnchorConfig {
   }
 
   private image(blob: Blob | null, className: string): string {
-    if (!blob) return `<span class="${className} anchor-no-image" aria-label="尚未设置角色图">✦</span>`;
+    if (!blob) return `<span class="${className} anchor-no-image" aria-label="还没放角色图">✦</span>`;
     const url = URL.createObjectURL(blob);
     this.urls.push(url);
     return `<img class="${className}" src="${url}" alt="" loading="lazy">`;
@@ -152,12 +152,12 @@ export class AnchorConfig {
       const result = await getCurrentRoundImages();
       if (!this.container || request !== this.roundRequest) return;
       this.round = result.images;
-      this.roundNotice = result.images.length ? '' : '本轮还没有已保存的图片。先点击最新 AI 回复中的“生成图片”，再来挑选角色。';
+      this.roundNotice = result.images.length ? '' : '这一轮还没有已保存的图片。先在最新 AI 回复里点一次“生成图片”，再来这里挑角色。';
       this.roundError = false;
     } catch (error) {
       if (!this.container || request !== this.roundRequest) return;
       this.round = [];
-      this.roundNotice = error instanceof Error ? error.message : '无法读取本轮图片，请重试。';
+      this.roundNotice = error instanceof Error ? error.message : '这一轮的图片没读出来，再试一次看看。';
       this.roundError = true;
     }
     if (this.tab === 'round') this.render();
@@ -172,7 +172,7 @@ export class AnchorConfig {
       this.anchorsError = '';
     } catch (error) {
       if (!this.container || request !== this.anchorsRequest) return;
-      this.anchorsError = error instanceof Error ? error.message : '无法读取角色，请重试。';
+      this.anchorsError = error instanceof Error ? error.message : '角色列表没读出来，再试一次。';
     }
     if (this.tab === 'anchors' && !this.draft && !this.busy) this.render();
   }
@@ -182,7 +182,7 @@ export class AnchorConfig {
       this.sharedOutfits = loadSharedOutfits();
       this.sharedOutfitsError = '';
     } catch (error) {
-      this.sharedOutfitsError = error instanceof Error ? error.message : '无法读取通用服装，请重试。';
+      this.sharedOutfitsError = error instanceof Error ? error.message : '通用服装没读出来，再试一次。';
     }
     if (this.tab === 'shared-outfits' && !this.sharedDraft && !this.busy) this.render();
     if (this.tab === 'anchors' && this.draft && !this.busy) this.updateSharedOutfitChoices();
@@ -204,7 +204,7 @@ export class AnchorConfig {
   }
 
   private roundView(): string {
-    return `<div class="anchor-toolbar"><p class="config-status">当前聊天最新 AI 回复的已生成图片。点击图片与 tag，配置单个角色。</p>
+    return `<div class="anchor-toolbar"><p class="config-status">这里列出最新一楼已经画好的图。点开就能挑出单人外貌 tag，存成固定角色。</p>
       <button type="button" class="text-button" data-anchor-action="refresh">刷新</button></div>
       ${this.roundNotice ? `<p class="anchor-empty${this.roundError ? ' is-error' : ''}" role="status">${escape(this.roundNotice)}</p>` : ''}
       <div class="anchor-round-grid">${this.round.map(item => `<button type="button" class="anchor-image-card" data-anchor-image="${escape(item.entry.id)}">
@@ -214,10 +214,10 @@ export class AnchorConfig {
   }
 
   private libraryView(): string {
-    return `<div class="anchor-toolbar"><p class="config-status">固定外貌与服装分别保存；模型 API 的标签锚定条目会展示角色、别名与完整服装库。</p>
+    return `<div class="anchor-toolbar"><p class="config-status">外貌和衣服分开存；启用标签锚定层时，角色名、别名和整套衣柜都会交给模型挑选。</p>
       <button type="button" class="text-button" data-anchor-action="new">新建角色</button></div>
       ${this.anchorsError ? `<p class="anchor-empty is-error" role="alert">${escape(this.anchorsError)}</p><button type="button" class="text-button" data-anchor-action="reload">重新读取</button>` : ''}
-      ${!this.anchors.length && !this.anchorsError ? '<p class="anchor-empty">还没有锚定角色。可以从“本轮生图”挑一张图片，也可以直接新建。</p>' : ''}
+      ${!this.anchors.length && !this.anchorsError ? '<p class="anchor-empty">还没有存过角色。可以去“本轮生图”里从画好的图挑，也可以直接新建一个。</p>' : ''}
       <div class="anchor-library">${this.anchors.map(anchor => `<article class="anchor-record">
         <button type="button" class="anchor-character" data-anchor-id="${escape(anchor.id)}">
           ${this.image(anchor.portrait, 'anchor-portrait')}
@@ -231,10 +231,10 @@ export class AnchorConfig {
   }
 
   private sharedLibraryView(): string {
-    return `<div class="anchor-toolbar"><p class="config-status">保存可供角色共用的服装。用 #服装名调用时，未指定服装的 @角色 仅展开固定外貌，避免叠加默认装。</p>
+    return `<div class="anchor-toolbar"><p class="config-status">存几套大家都能穿的通用服装。只要提示词里写了 #服装名，没单独点名衣服的 @角色 就只带出固定外貌，不会和默认衣服打架。</p>
       <button type="button" class="text-button" data-anchor-action="new-shared">新建通用服装</button></div>
       ${this.sharedOutfitsError ? `<p class="anchor-empty is-error" role="alert">${escape(this.sharedOutfitsError)}</p><button type="button" class="text-button" data-anchor-action="reload-shared">重新读取</button>` : ''}
-      ${!this.sharedOutfits.length && !this.sharedOutfitsError ? '<p class="anchor-empty">还没有通用服装。点击“新建通用服装”，保存名称与服装 tag，便可在不同角色间使用。</p>' : ''}
+      ${!this.sharedOutfits.length && !this.sharedOutfitsError ? '<p class="anchor-empty">还没有通用服装。点“新建通用服装”存一套进去，以后所有角色都能直接穿。</p>' : ''}
       <div class="anchor-library">${this.sharedOutfits.map(outfit => `<button type="button" class="anchor-record shared-outfit-record" data-shared-outfit-id="${escape(outfit.id)}">
         <span class="shared-outfit-heading"><strong>${escape(outfit.name)}</strong><span class="anchor-edit-label">编辑</span></span>
         <span class="anchor-tag-excerpt">${escape(outfit.tags)}</span>
@@ -249,11 +249,11 @@ export class AnchorConfig {
       <fieldset class="anchor-editor shared-outfit-editor"${this.busy ? ' disabled' : ''}>
         <label class="config-field"><span>服装名称</span><input type="text" data-shared-outfit-field="name" value="${escape(draft.name)}" maxlength="${ANCHOR_NAME_LIMIT}" placeholder="例如：旅行装" autocomplete="off"></label>
         <label class="config-field"><span>服装 tag</span><textarea rows="6" data-shared-outfit-field="tags" maxlength="${ANCHOR_TAG_LIMIT}" spellcheck="false">${escape(draft.tags)}</textarea></label>
-        <p class="config-status">保存服装与配饰 tag，权重括号和 :: 写法原样保留；不自动筛选或修改内容。</p>
-        <p class="anchor-usage">在生图提示词中用 <code>@角色, #服装名</code> 组合固定外貌与通用服装。每个调用独立成项，用逗号或换行分隔。若同时明确写了 <code>@角色:专属服装</code>，该专属服装仍会保留。</p>
+        <p class="config-status">填衣服和配饰 tag 就行，权重括号和 :: 写法会原样留着，插件不会自作主张帮你删改。</p>
+        <p class="anchor-usage">写生图词时用 <code>@角色, #服装名</code> 就能把底子外貌和通用服装拼到一起（中间用逗号或换行隔开）。如果同时又写了 <code>@角色:专属服装</code>，那还是以角色自己的专属服装为准。</p>
         <div class="anchor-save-line"><button type="button" class="primary" data-anchor-action="save-shared"${!this.sharedDirty || this.busy ? ' disabled' : ''}>${this.busy ? '保存中…' : '保存通用服装'}</button>
           ${exists ? '<button type="button" class="text-button anchor-danger" data-anchor-action="delete-shared">删除服装</button>' : ''}</div>
-        ${this.sharedDeleting ? '<div class="shared-outfit-delete-confirm" role="alert"><p>删除这套通用服装？角色自己的服装库不会受影响。</p><button type="button" class="text-button anchor-danger" data-anchor-action="confirm-delete-shared">确认删除</button><button type="button" class="text-button" data-anchor-action="cancel-delete-shared">取消</button></div>' : ''}
+        ${this.sharedDeleting ? '<div class="shared-outfit-delete-confirm" role="alert"><p>真要删掉这套通用服装？角色自己衣柜里的衣服不会受影响。</p><button type="button" class="text-button anchor-danger" data-anchor-action="confirm-delete-shared">确认删除</button><button type="button" class="text-button" data-anchor-action="cancel-delete-shared">取消</button></div>' : ''}
       </fieldset>`;
   }
 
@@ -265,27 +265,27 @@ export class AnchorConfig {
         <div class="anchor-identity">${this.image(draft.portrait, 'anchor-editor-portrait')}
           <div class="anchor-identity-fields"><label class="config-field"><span>角色中文名称</span><input type="text" data-anchor-field="name" value="${escape(draft.name)}" maxlength="${ANCHOR_NAME_LIMIT}" placeholder="例如：莎莉" autocomplete="off"></label>
             <label class="config-field"><span>别名与称呼</span><textarea rows="3" data-anchor-field="aliases" spellcheck="false" placeholder="每行一个，也可用逗号分隔" aria-describedby="anchor-aliases-hint">${escape(draft.aliases.join('\n'))}</textarea></label>
-            <p class="config-status" id="anchor-aliases-hint">每个称呼需含汉字，最多 ${ANCHOR_ALIAS_LIMIT} 个；可用换行、中英文逗号分隔。别名共用当前角色的外貌与服装。</p>
+            <p class="config-status" id="anchor-aliases-hint">每个称呼里至少带一个汉字，最多填 ${ANCHOR_ALIAS_LIMIT} 个，用换行或中英文逗号隔开都行。写哪个称呼都能认出这个角色。</p>
             <label class="config-field"><span>角色图</span><input type="file" accept="image/png,image/jpeg,image/webp" data-anchor-portrait></label>
             <div class="anchor-portrait-actions"><button type="button" class="text-button" data-anchor-action="generate-portrait"${this.portraitRequest ? ' disabled' : ''}>生成角色图</button><button type="button" class="text-button" data-anchor-action="cancel-portrait"${this.portraitRequest ? '' : ' hidden'}>取消</button></div>
-            <p class="config-status anchor-portrait-hint">沿用生图 API 的参数与画师串，生成后点击“保存角色”保留。</p>
+            <p class="config-status anchor-portrait-hint">会直接套用你配好的生图参数和画师串；画满意了记得点下面的“保存角色”才会留下来。</p>
             <p class="config-status${this.portraitError ? ' is-error' : ''}" data-portrait-status role="status">${escape(this.portraitNotice)}</p>
             ${draft.portrait ? '<button type="button" class="text-button" data-anchor-action="remove-portrait">移除角色图</button>' : ''}
           </div>
         </div>
         <label class="config-field"><span>固定外貌 · base</span><textarea rows="5" data-anchor-field="appearance" maxlength="${ANCHOR_TAG_LIMIT}" spellcheck="false">${escape(draft.appearance)}</textarea></label>
-        <div class="anchor-toolbar anchor-tag-tools"><p class="config-status">仅保留版权角色、发色发型、瞳色、肤色、体型与种族等固定特征；服装单独保存，表情、动作和场景留给当轮生图。由你确认保留的 tag，插件不会自动删改。</p><button type="button" class="text-button" data-anchor-action="pick-tags">筛选外貌 tag</button></div>
+        <div class="anchor-toolbar anchor-tag-tools"><p class="config-status">只留角色名、发色、瞳色、肤色、体型和种族这些底子特征；衣服放下面衣柜，表情动作和背景留给每一轮现写。你点选留下的 tag，插件不会私自改动。</p><button type="button" class="text-button" data-anchor-action="pick-tags">筛选外貌 tag</button></div>
         ${this.pickerView()}
         ${this.sourcePrompt ? `<details class="anchor-source"><summary>查看这张图片的完整生成 tag</summary><pre>${escape(this.sourcePrompt)}</pre></details>` : ''}
         <div class="anchor-negative">
           ${this.negativeExpanded ? `<label class="config-field"><span>角色负面提示词</span><textarea rows="3" data-anchor-field="negative" maxlength="${ANCHOR_TAG_LIMIT}" spellcheck="false" aria-describedby="anchor-negative-hint">${escape(draft.negative)}</textarea></label>
-            <div class="anchor-toolbar"><p class="config-status" id="anchor-negative-hint">NAI 单串生图时加入全局负面词；多角色分栏时只加入该角色栏。GPT 不支持独立负面词。</p><button type="button" class="text-button" data-anchor-action="remove-negative">移除负面提示词</button></div>`
+            <div class="anchor-toolbar"><p class="config-status" id="anchor-negative-hint">NAI 单图会合并进全局负面；多人分栏时只加在对应角色那一栏。GPT 这边不吃角色独立负面词。</p><button type="button" class="text-button" data-anchor-action="remove-negative">移除负面提示词</button></div>`
             : '<button type="button" class="text-button" data-anchor-action="add-negative">添加负面提示词</button>'}
         </div>
         <section class="anchor-outfit-section"><div class="anchor-toolbar"><h3 class="subsection-title">服装库</h3><button type="button" class="text-button" data-anchor-action="add-outfit">＋ 添加服装</button></div>
           ${this.sharedOutfitPickerView()}
           <label class="config-field"><span>当前服装（默认）</span><select data-anchor-field="selectedOutfitId"><option value="">只用固定外貌</option>${draft.outfits.map(outfit => `<option value="${escape(outfit.id)}"${draft.selectedOutfitId === outfit.id ? ' selected' : ''}>${escape(outfit.name || '未命名服装')}</option>`).join('')}</select></label>
-          <p class="config-status">当前选择作为 default；其他服装也会随角色资料提供给模型，供当轮选择。</p>
+          <p class="config-status">选中的这套会当成默认装（default）；衣柜里别的衣服也会一并报给模型，方便它按剧情换装。</p>
           <div class="anchor-outfit-editors">${draft.outfits.map(outfit => `<details class="anchor-outfit" data-outfit="${escape(outfit.id)}"${outfit.id === draft.selectedOutfitId || !outfit.name ? ' open' : ''}>
             <summary>${escape(outfit.name || '新服装')}</summary>
             <div class="anchor-outfit-fields"><label class="config-field"><span>服装名称</span><input type="text" data-outfit-field="name" maxlength="${ANCHOR_NAME_LIMIT}" value="${escape(outfit.name)}" placeholder="例如：日常装"></label>
@@ -293,23 +293,23 @@ export class AnchorConfig {
               <button type="button" class="text-button anchor-danger" data-anchor-action="remove-outfit">删除这套服装</button></div>
           </details>`).join('')}</div>
         </section>
-        <div class="anchor-usage"><p><code>@角色</code> 使用固定外貌与默认服装；<code>@别名:服装</code> 指定角色服装；<code>@角色:无服装</code> 只使用固定外貌。称呼与角色名共用同一份配置。</p>
-          <p>同一条提示词含 <code>#通用服装</code>，或独立的 nude、completely_nude、topless、bikini、swimsuit、nightgown、towel tag 时，未指定服装的 <code>@角色</code> 只展开 base。兼容空格、下划线与权重写法；明确指定的角色服装优先。</p>
-          <p>调用需用逗号或换行与其他 tag 分隔，只匹配完整调用。旧的“角色名”“角色名/服装名”和“角色名/无服装”仍可使用，沿用原有服装规则；无前缀角色名仍携带默认服装。</p></div>
+        <div class="anchor-usage"><p>写 <code>@角色</code> 会带上固定外貌和默认装；写 <code>@别名:服装</code> 指定穿某一套；写 <code>@角色:无服装</code> 就只展开固定外貌。正式名和别名都通用。</p>
+          <p>要是同一串里出现了 <code>#通用服装</code>，或者写了独立的 nude、completely_nude、topless、bikini、swimsuit、nightgown、towel，没点名衣服的 <code>@角色</code> 会自动退回只展开 base。空格、下划线和权重写法都能认；写了专属服装的还是优先。</p>
+          <p>记得用逗号或换行和别的 tag 隔开，防止误匹配。以前的“角色名”“角色名/服装名”和“角色名/无服装”旧写法照样能用；不加前缀直接写名字也会自动带默认服装。</p></div>
         <div class="anchor-save-line"><button type="button" class="primary" data-anchor-action="save"${!this.dirty || this.portraitRequest ? ' disabled' : ''}>${this.busy ? '保存中…' : '保存角色'}</button>
           ${exists ? `<button type="button" class="text-button anchor-danger" data-anchor-action="delete"${this.portraitRequest ? ' disabled' : ''}>删除角色</button>` : ''}</div>
-        ${this.deleting ? '<div class="anchor-delete-confirm" role="alert"><p>删除这个角色及其服装库？原生成图片会保留。</p><button type="button" class="text-button anchor-danger" data-anchor-action="confirm-delete">确认删除</button><button type="button" class="text-button" data-anchor-action="cancel-delete">取消</button></div>' : ''}
+        ${this.deleting ? '<div class="anchor-delete-confirm" role="alert"><p>连角色带她的衣服一起删掉？以前画好的图还会留着。</p><button type="button" class="text-button anchor-danger" data-anchor-action="confirm-delete">确认删除</button><button type="button" class="text-button" data-anchor-action="cancel-delete">取消</button></div>' : ''}
       </fieldset>`;
   }
 
   private sharedOutfitUnavailable(outfit: SharedOutfit): string {
-    if (outfit.name === '无服装') return '此名称为角色服装保留字';
+    if (outfit.name === '无服装') return '“无服装”是保留字，不能当成衣服名';
     return this.draft?.outfits.some(item => item.name.trim() === outfit.name) ? '角色已有同名服装' : '';
   }
 
   private sharedOutfitChoicesView(): string {
     if (this.sharedOutfitsError) return `<p class="config-status is-error" role="alert">${escape(this.sharedOutfitsError)}</p><button type="button" class="text-button" data-anchor-action="reload-shared">重新读取</button>`;
-    if (!this.sharedOutfits.length) return '<p class="config-status">还没有已保存的通用服装。</p><button type="button" class="text-button" data-anchor-tab="shared-outfits">去通用服装库添加 →</button>';
+    if (!this.sharedOutfits.length) return '<p class="config-status">通用服装库里还是空的。</p><button type="button" class="text-button" data-anchor-tab="shared-outfits">去通用服装库添一套 →</button>';
     const query = this.sharedPickerSearch.trim().toLocaleLowerCase();
     const matching = this.sharedOutfits.filter(outfit => outfit.name.toLocaleLowerCase().includes(query));
     return `<p class="config-status">${matching.length > 50 ? `找到 ${matching.length} 套，先显示前 50 套；可搜索缩小范围。` : matching.length ? `找到 ${matching.length} 套服装。` : '没有找到匹配的服装。'}</p>
@@ -324,7 +324,7 @@ export class AnchorConfig {
     return `<div class="anchor-shared-picker">
       <button type="button" class="text-button" data-anchor-action="toggle-shared-picker" aria-expanded="${this.sharedPickerOpen}" aria-controls="anchor-shared-picker-panel">从通用服装添加</button>
       ${this.sharedPickerOpen ? `<div id="anchor-shared-picker-panel" class="anchor-shared-panel">
-        <p class="config-status">勾选后，将服装名称和 Tag 复制到当前角色草稿，可单独调整；之后通用库的修改不会联动。添加后可在下方选为默认服装，点击“保存角色”生效。</p>
+        <p class="config-status">勾好点导入，会把衣服名字和 Tag 抄进当前角色草稿，以后两边各改各的互不影响。加进去后记得在下面选成默认，并点“保存角色”。</p>
         <label class="config-field"><span>搜索通用服装</span><input type="search" data-shared-outfit-search value="${escape(this.sharedPickerSearch)}" maxlength="128" placeholder="按服装名称搜索" autocomplete="off"></label>
         <div data-shared-picker-results>${this.sharedOutfitChoicesView()}</div>
         <div class="actions"><button type="button" class="secondary" data-anchor-action="import-shared-outfits"${!this.sharedPickerSelection.size || this.sharedOutfitsError ? ' disabled' : ''}>添加所选服装${this.sharedPickerSelection.size ? `（${this.sharedPickerSelection.size} 套）` : ''}</button></div>
@@ -358,7 +358,7 @@ export class AnchorConfig {
       const selected = latest.filter(outfit => this.sharedPickerSelection.has(outfit.id));
       if (selected.length !== this.sharedPickerSelection.size) {
         this.refreshSharedOutfits();
-        this.message('通用服装库已变化，请核对后重新选择。', true);
+        this.message('通用服装库刚变过，核对一下再重选吧。', true);
         return;
       }
       this.sharedOutfits = latest;
@@ -377,16 +377,16 @@ export class AnchorConfig {
       }
       this.render();
       if (added) this.container?.querySelector<HTMLSelectElement>('[data-anchor-field="selectedOutfitId"]')?.focus({ preventScroll: true });
-      this.message(added ? `已添加 ${added} 套服装${skipped ? `，跳过 ${skipped} 套同名或保留名称的服装` : ''}。可在“当前服装（默认）”中选用，点击“保存角色”生效。`
-        : '所选服装已存在或使用了保留名称，未覆盖角色已有服装。');
+      this.message(added ? `加上了 ${added} 套服装${skipped ? `，有 ${skipped} 套重名或撞了保留字跳过了` : ''}。可以在“当前服装（默认）”里选它，点“保存角色”生效。`
+        : '挑的这几套都已经有了或者撞了保留字，没覆盖角色原有的衣服。');
     } catch (error) {
-      this.message(error instanceof Error ? error.message : '读取通用服装失败，请重试。', true);
+      this.message(error instanceof Error ? error.message : '没读出通用服装，再试一次。', true);
     }
   }
 
   private pickerView(): string {
     if (!this.picker) return '';
-    return `<section class="anchor-tag-picker" aria-label="选择要保留的外貌标签"><p class="config-status">勾选要留下的 tag；带括号的权重组会作为整体保留，也可在上方直接编辑。</p>
+    return `<section class="anchor-tag-picker" aria-label="选择要保留的外貌标签"><p class="config-status">勾上想留下的 tag 就行；带括号的权重组会整组保留，也可以直接在上面输入框里手改。</p>
       <div class="anchor-tag-list">${this.picker.map((item, index) => `<label><input type="checkbox" data-tag-index="${index}"${item.keep ? ' checked' : ''}><span>${escape(item.tag)}</span></label>`).join('')}</div>
       <div class="anchor-picker-actions"><button type="button" class="text-button" data-anchor-action="select-none">取消全选</button><button type="button" class="text-button" data-anchor-action="apply-tags">应用所选</button><button type="button" class="text-button" data-anchor-action="close-picker">收起</button></div></section>`;
   }
@@ -397,7 +397,7 @@ export class AnchorConfig {
     const button = this.container?.querySelector<HTMLButtonElement>('[data-anchor-action="save"]');
     if (button) button.disabled = this.busy || this.portraitRequest !== null;
     this.container?.querySelector('.anchor-delete-confirm')?.remove();
-    this.message('尚未保存。');
+    this.message('还没保存。');
   }
 
   private markSharedDirty(): void {
@@ -406,7 +406,7 @@ export class AnchorConfig {
     const button = this.container?.querySelector<HTMLButtonElement>('[data-anchor-action="save-shared"]');
     if (button) button.disabled = this.busy;
     this.container?.querySelector('.shared-outfit-delete-confirm')?.remove();
-    this.message('通用服装尚未保存。');
+    this.message('这套通用服装还没保存。');
   }
 
   private edit(event: Event): void {
@@ -439,7 +439,7 @@ export class AnchorConfig {
       this.markDirty();
     }
     if (key === 'name' || key === 'appearance' || key === 'negative' || key === 'selectedOutfitId') {
-      if (key !== 'name' && this.draft[key] !== field.value) this.cancelPortrait('角色提示词或服装已修改，已取消本次生成等待。');
+      if (key !== 'name' && this.draft[key] !== field.value) this.cancelPortrait('刚改了角色设定，这次生成已经停下了。');
       this.draft[key] = field.value;
       if (key === 'appearance') { this.picker = null; this.container?.querySelector('.anchor-tag-picker')?.remove(); }
       this.markDirty();
@@ -449,7 +449,7 @@ export class AnchorConfig {
       const details = field.closest<HTMLDetailsElement>('[data-outfit]');
       const outfit = this.draft.outfits.find(item => item.id === details?.dataset.outfit);
       if (!outfit) return;
-      if (outfitKey === 'tags' && outfit.id === this.draft.selectedOutfitId && outfit.tags !== field.value) this.cancelPortrait('服装 tag 已修改，已取消本次生成等待。');
+      if (outfitKey === 'tags' && outfit.id === this.draft.selectedOutfitId && outfit.tags !== field.value) this.cancelPortrait('刚改了服装 tag，这次生成已经停下了。');
       outfit[outfitKey] = field.value;
       if (outfitKey === 'name') {
         details!.querySelector('summary')!.textContent = field.value || '新服装';
@@ -471,18 +471,18 @@ export class AnchorConfig {
     if (!file) return;
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || !file.size || file.size > ANCHOR_PORTRAIT_LIMIT) {
       input.value = '';
-      this.message('请选择不超过 10 MB 的 PNG、JPEG 或 WebP 图片。', true);
+      this.message('得选 10 MB 以内的 PNG、JPEG 或 WebP 图片。', true);
       return;
     }
-    this.cancelPortrait('已手动更换角色图，已取消本次生成等待。');
+    this.cancelPortrait('你换了新图片，原本这次等待生成就先取消了。');
     this.draft.portrait = file;
     this.markDirty();
     this.render();
   }
 
   private begin(anchor?: CharacterAnchor, source?: CurrentRoundImage): boolean {
-    if (this.draft && this.dirty && !window.confirm('放弃当前尚未保存的角色修改？')) return false;
-    this.cancelPortrait('已切换角色，已取消之前的生成等待。');
+    if (this.draft && this.dirty && !window.confirm('刚改的内容还没保存，真要丢掉吗？')) return false;
+    this.cancelPortrait('切去别的角色了，刚才那张图的等待先取消。');
     this.draft = anchor ? structuredClone(anchor) : {
       id: newAnchorId(), name: '', aliases: [], appearance: source ? imageHistoryPositive(source.entry) : '', negative: '', outfits: [],
       selectedOutfitId: '', portrait: source?.entry.blob ?? null, updatedAt: Date.now(),
@@ -505,7 +505,7 @@ export class AnchorConfig {
   }
 
   private beginShared(outfit?: SharedOutfit): void {
-    if (this.sharedDraft && this.sharedDirty && !window.confirm('放弃当前尚未保存的通用服装修改？')) return;
+    if (this.sharedDraft && this.sharedDirty && !window.confirm('这套通用服装还没保存，真要丢掉修改吗？')) return;
     this.sharedDraft = outfit ? { ...outfit } : { id: newAnchorId(), name: '', tags: '' };
     this.sharedDirty = !outfit;
     this.sharedDeleting = false;
@@ -527,9 +527,9 @@ export class AnchorConfig {
       this.sharedDraft = null;
       this.sharedDirty = false;
       this.sharedDeleting = false;
-      this.message(remove ? '通用服装已删除。' : getHostStore() ? '通用服装已保存到 TT 扩展数据。' : '通用服装已保存在当前浏览器。');
+      this.message(remove ? '通用服装已经删掉了。' : getHostStore() ? '通用服装已经存进 TT 扩展数据。' : '通用服装已经存在这台浏览器里。');
     } catch (error) {
-      this.message(error instanceof Error ? error.message : '保存失败，修改仍保留在当前编辑页。', true);
+      this.message(error instanceof Error ? error.message : '没存上，你改的内容还留在这里没丢。', true);
     } finally {
       this.busy = false;
       this.render();
@@ -565,10 +565,10 @@ export class AnchorConfig {
         this.picker = null;
         this.dirty = false;
         this.deleting = false;
-        this.message(remove ? '角色及服装库已删除。' : getHostStore() ? '角色与服装已保存到 TT 扩展数据。' : '角色与服装已保存在当前浏览器。');
+        this.message(remove ? '这个角色和她的衣服已经删掉了。' : getHostStore() ? '角色和衣服已经存进 TT 扩展数据。' : '角色和衣服已经存在这台浏览器里。');
       }
     } catch (error) {
-      this.message(error instanceof Error ? error.message : '保存失败，修改仍保留在当前编辑页。', true);
+      this.message(error instanceof Error ? error.message : '没存上，你改的内容还留在这里没丢。', true);
     } finally {
       this.busy = false;
       this.render();
@@ -592,11 +592,11 @@ export class AnchorConfig {
     if (remove) remove.disabled = this.busy || request !== null;
   }
 
-  private cancelPortrait(reason = '已取消本次角色图生成等待。'): void {
+  private cancelPortrait(reason = '不继续等这张角色图了。'): void {
     const request = this.portraitRequest;
     if (!request || request.signal.aborted) return;
     request.abort();
-    this.portraitNotice = reason + (this.portraitPhase === 'generating' ? '服务端任务可能仍在继续。' : '');
+    this.portraitNotice = reason + (this.portraitPhase === 'generating' ? '（对面的生成任务可能还在后台跑着）' : '');
     this.portraitError = false;
     this.syncPortrait();
     const pet = this.portraitPet;
@@ -621,10 +621,10 @@ export class AnchorConfig {
     this.portraitPet = { id: pet, end: endPet };
     this.portraitNotice = '正在加入生图队列…'; this.portraitError = false; this.syncPortrait();
     try {
-      if (!appearance.trim()) throw withFault(new Error('请先填写角色的固定外貌 tag。'), 'setup');
+      if (!appearance.trim()) throw withFault(new Error('先把角色的固定外貌 tag 填好再画。'), 'setup');
       const settings = loadImageSettings();
       if (isNaturalLanguageProvider(settings.provider) && negative.trim()) {
-        throw withFault(new Error(`${imageProviderName(settings.provider)} 生图不支持角色独立负面提示词，请清空该角色的负面词或切换 NAI。`), 'setup');
+        throw withFault(new Error(`${imageProviderName(settings.provider)} 不吃角色独立负面词，把这段负面清空或者换回 NAI 再试。`), 'setup');
       }
       emitPetEvent({ type: 'image', id: pet, source: 'portrait', phase: 'start', provider: settings.provider, summary: draft.name });
       const positive = [settings.positive, appearance, outfitTags].map(part => part.trim()).filter(Boolean).join(', ');
@@ -641,13 +641,13 @@ export class AnchorConfig {
         endPet({ ...petImage, result: 'dropped', paid: true, message: '' });
         return;
       }
-      if (!result.blob.size || result.blob.size > ANCHOR_PORTRAIT_LIMIT) throw withFault(new Error('生成的角色图超过 10 MiB 或为空，请调小生图尺寸后重试。'), 'decode');
-      if (!['image/png', 'image/jpeg', 'image/webp'].includes(result.blob.type)) throw withFault(new Error('生成结果不是支持的角色图片格式。'), 'decode');
+      if (!result.blob.size || result.blob.size > ANCHOR_PORTRAIT_LIMIT) throw withFault(new Error('画出来的图太大（超 10 MiB）或者是个空图，调小一点尺寸再试吧。'), 'decode');
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(result.blob.type)) throw withFault(new Error('传回来的不是常见的图片格式（得是 PNG、JPEG 或 WebP）。'), 'decode');
       draft.portrait = result.blob;
       this.sourcePrompt = positive;
       this.dirty = true;
       this.deleting = false;
-      this.portraitNotice = '角色图已生成，点击“保存角色”后保留。';
+      this.portraitNotice = '角色图画好了，点“保存角色”就能存下来。';
       endPet({ ...petImage, result: 'done', message: this.portraitNotice, picture: {
         blob: result.blob, width: result.parameters.width, height: result.parameters.height,
         target: () => this.container?.querySelector('.anchor-editor-portrait') ?? null,
@@ -659,7 +659,7 @@ export class AnchorConfig {
     } catch (error) {
       if (!request.signal.aborted && current()) {
         this.portraitError = true;
-        this.portraitNotice = error instanceof Error ? error.message : '角色图生成失败，请重试。';
+        this.portraitNotice = error instanceof Error ? error.message : '角色图没画出来，再试一次。';
         endPet({ ...petImage, result: 'failed', message: this.portraitNotice, fault: petFault(error) });
       }
     } finally {
@@ -676,7 +676,7 @@ export class AnchorConfig {
     const tab = button.dataset.anchorTab;
     if (tab === 'round' || tab === 'anchors' || tab === 'shared-outfits') {
       this.tab = tab;
-      this.message(tab === 'shared-outfits' && this.sharedDirty ? '通用服装尚未保存。' : tab === 'anchors' && this.dirty ? '角色修改尚未保存。' : '');
+      this.message(tab === 'shared-outfits' && this.sharedDirty ? '通用服装还没保存。' : tab === 'anchors' && this.dirty ? '刚改的角色内容还没保存。' : '');
       this.render();
       if (tab === 'round') void this.refreshRound();
       if (tab === 'shared-outfits') this.refreshSharedOutfits();
@@ -710,19 +710,19 @@ export class AnchorConfig {
       case 'new': this.begin(); break;
       case 'new-shared': this.beginShared(); break;
       case 'back-shared':
-        if (this.sharedDirty && !window.confirm('放弃当前尚未保存的通用服装修改？')) return;
+        if (this.sharedDirty && !window.confirm('这套通用服装还没保存，真要丢掉修改吗？')) return;
         this.sharedDraft = null; this.sharedDirty = false; this.sharedDeleting = false; this.message(''); this.render(); break;
       case 'save-shared': this.commitShared(); break;
       case 'delete-shared': this.sharedDeleting = true; this.render(); break;
       case 'cancel-delete-shared': this.sharedDeleting = false; this.render(); break;
       case 'confirm-delete-shared': this.commitShared(true); break;
       case 'back':
-        if (this.dirty && !window.confirm('放弃当前尚未保存的角色修改？')) return;
+        if (this.dirty && !window.confirm('刚改的内容还没保存，真要丢掉吗？')) return;
         this.cancelPortrait();
         this.draft = null; this.picker = null; this.dirty = false; this.deleting = false; this.message(''); this.render(); break;
       case 'generate-portrait': await this.generatePortrait(); break;
       case 'cancel-portrait': this.cancelPortrait(); break;
-      case 'remove-portrait': if (this.draft) { this.cancelPortrait('角色图已移除，已取消本次生成等待。'); this.draft.portrait = null; this.markDirty(); this.render(); } break;
+      case 'remove-portrait': if (this.draft) { this.cancelPortrait('角色图已经拿掉了，先取消这次等待。'); this.draft.portrait = null; this.markDirty(); this.render(); } break;
       case 'add-negative':
         if (!this.draft) return;
         this.negativeExpanded = true;
@@ -732,7 +732,7 @@ export class AnchorConfig {
       case 'remove-negative':
         if (!this.draft) return;
         if (this.draft.negative) {
-          this.cancelPortrait('角色负面词已移除，已取消本次生成等待。');
+          this.cancelPortrait('负面词已经删了，先取消这次等待。');
           this.draft.negative = '';
           this.markDirty();
         }
@@ -751,7 +751,7 @@ export class AnchorConfig {
       case 'remove-outfit': {
         if (!this.draft) return;
         const id = button.closest<HTMLElement>('[data-outfit]')?.dataset.outfit;
-        if (this.draft.selectedOutfitId === id) this.cancelPortrait('当前服装已移除，已取消本次生成等待。');
+        if (this.draft.selectedOutfitId === id) this.cancelPortrait('当前选的衣服已经删了，先取消这次等待。');
         this.draft.outfits = this.draft.outfits.filter(item => item.id !== id);
         if (this.draft.selectedOutfitId === id) this.draft.selectedOutfitId = '';
         this.markDirty(); this.render(); break;
@@ -759,15 +759,15 @@ export class AnchorConfig {
       case 'pick-tags': {
         if (!this.draft) return;
         const tags = selectableTags(this.draft.appearance);
-        if (!tags.length) { this.message('先填写或从图片带入外貌 tag。', true); return; }
-        if (tags.length > 512) { this.message('标签较多，请直接在外貌文本中编辑。', true); return; }
+        if (!tags.length) { this.message('先把外貌 tag 填进去，或者从图片带入。', true); return; }
+        if (tags.length > 512) { this.message('tag 太长了，直接去上面的输入框里改吧。', true); return; }
         this.picker = tags.map(tag => ({ tag, keep: true })); this.render(); break;
       }
       case 'select-none': this.picker?.forEach(item => { item.keep = false; }); this.render(); break;
       case 'apply-tags':
         if (!this.draft || !this.picker) return;
-        if (!this.picker.some(item => item.keep)) { this.message('请至少保留一个外貌 tag。', true); return; }
-        this.cancelPortrait('外貌 tag 已修改，已取消本次生成等待。');
+        if (!this.picker.some(item => item.keep)) { this.message('至少得留一个外貌 tag。', true); return; }
+        this.cancelPortrait('刚改了外貌 tag，这次生成已经停下了。');
         this.draft.appearance = this.picker.filter(item => item.keep).map(item => item.tag).join(', ');
         this.picker = null; this.markDirty(); this.render(); break;
       case 'close-picker': this.picker = null; this.render(); break;

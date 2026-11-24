@@ -41,7 +41,7 @@ function copyMessages(messages) {
 export async function featureLayerMessages(id, settings, context) {
     const layer = layers.get(id);
     if (!layer)
-        throw new Error('功能层当前不可用，请关闭此条目或重新加载对应功能。');
+        throw new Error('这个功能层眼下没法用，先关掉它或者重新打开对应功能试试。');
     context.signal?.throwIfAborted();
     const body = context.sourceText ?? context.messages.map(message => message.content).join('\n\n');
     const sourceText = settings.hideImageContext ? stripImageBlocks(body) : body;
@@ -74,13 +74,13 @@ export async function buildModelMessages(settings, context) {
         else {
             const entry = entries.get(key);
             if (!entry)
-                throw new Error('预设排序引用了不存在的条目，请重新保存预设。');
+                throw new Error('预设排序里指了一个找不着的条目，进预设页面微调保存一下就好。');
             const content = expanded.get(entry.id);
             if (content?.trim())
                 output.push(...copyMessages([{ role: entry.role, content }]));
         }
     }
     if (!output.some(message => message.content.trim()))
-        throw new Error('当前没有可发送的内容。');
+        throw new Error('预设里啥有效内容也没开，发不出去空请求。');
     return output;
 }

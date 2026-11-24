@@ -34,7 +34,7 @@ export function bindSifangImages(root: ShadowRoot, signal: AbortSignal): void {
 
   const report = (error: unknown) => {
     if (signal.aborted) return;
-    const text = error instanceof Error ? error.message : '配图显示接口未能完成操作。';
+    const text = error instanceof Error ? error.message : '配图展示这边刚才没跑通。';
     if (text === errorText) return;
     errorText = text;
     void host.ui.toast(text, 'fail').catch(() => {});

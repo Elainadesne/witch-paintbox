@@ -35,9 +35,9 @@ export async function generateGrokImage(
 ): Promise<{ blob: Blob; parameters: GrokImageParameters; width: number; height: number }> {
   signal.throwIfAborted();
   const configured = validateGrokConnection(connection);
-  const params = validateGrokImageParameters(parameters, () => fail('Grok 生图参数无效，请检查模型、比例和分辨率。', 'setup'));
-  if (!params.model) fail('请先填写或拉取生图模型名称。', 'setup');
-  if (typeof prompt !== 'string' || !prompt.trim()) fail('请填写正面提示词。', 'setup');
+  const params = validateGrokImageParameters(parameters, () => fail('Grok 这套参数没填对，核对下模型、比例和分辨率。', 'setup'));
+  if (!params.model) fail('先填一个或者刷新拉取一个 Grok 生图模型名吧。', 'setup');
+  if (typeof prompt !== 'string' || !prompt.trim()) fail('正面提示词还是空的，写点东西再画。', 'setup');
   const image = await postImagesGeneration(configured, grokRequestBody(params, prompt), signal, onProgress);
   return { blob: image.blob, parameters: params, width: image.width, height: image.height };
 }

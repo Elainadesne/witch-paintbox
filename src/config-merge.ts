@@ -86,14 +86,14 @@ function mergeArtists(settings: ImageSettings, incoming: ArtistFields, mode: Imp
   const tally: Tally = { added: 0, replaced: 0, skipped: 0 };
   const fresh = !settings.artists.length && !settings.positive.trim() && !settings.negative.trim();
   const { items, ids } = mergeNamed(settings.artists, incoming.artists, mode, tally);
-  if (items.length > PROFILE_LIMIT) throw new Error(`${imageProviderName(settings.provider)} 画师串合并后超过 ${PROFILE_LIMIT} 个，请先清理本地画师串。`);
+  if (items.length > PROFILE_LIMIT) throw new Error(`${imageProviderName(settings.provider)} 画师串合起来超过 ${PROFILE_LIMIT} 个了，先清掉几个本地旧的吧。`);
   settings.artists = items;
   const prompts = mode === 'overwrite' || fresh;
   if (prompts) {
     settings.positive = incoming.positive; settings.negative = incoming.negative;
     settings.activeArtistId = ids.get(incoming.activeArtistId) ?? '';
   }
-  return `${imageProviderName(settings.provider)}：${tallyText(tally, mode)}；当前提示词${prompts ? '改用文件内容' : '保留本地'}`;
+  return `${imageProviderName(settings.provider)}：${tallyText(tally, mode)}；画风输入框里${prompts ? '换成了文件里的内容' : '留着本地原本的'}`;
 }
 
 function presetFields(preset: ModelPresetSettings): PresetFields {
@@ -106,7 +106,7 @@ function mergePreset(model: AllModelSettings, provider: ImageProvider, incoming:
   const current = model.presets[provider], blank = presetFields(modelPresetSettings(defaultModelSettings(provider)));
   const name = `${imageProviderName(provider)} 预设`;
   if (same(presetFields({ ...current, ...incoming }), blank)) return null;
-  if (mode === 'skip' && !same(presetFields(current), blank)) return `${name}：本地已有“${current.presetName || '未命名'}”，保留本地`;
+  if (mode === 'skip' && !same(presetFields(current), blank)) return `${name}：本地已经有“${current.presetName || '未命名'}”，就先留着它`;
   model.presets[provider] = { ...current, ...structuredClone(presetFields({ ...current, ...incoming })) };
   return `${name}：改用“${incoming.presetName || '未命名'}”`;
 }
@@ -172,7 +172,7 @@ function mergeApi(config: LocalConfig, data: Extract<ParsedArchive, { kind: 'all
     const tally: Tally = { added: 0, replaced: 0, skipped: 0 };
     const { items, ids } = mergeNamed(current.connectionProfiles, incoming.connectionProfiles, mode, tally,
       (local, next) => next.key ? { ...next, id: local.id } : null);
-    if (items.length > PROFILE_LIMIT) throw new Error(`${imageProviderName(provider)} 保存的连接合并后超过 ${PROFILE_LIMIT} 个，请先清理本地连接。`);
+    if (items.length > PROFILE_LIMIT) throw new Error(`${imageProviderName(provider)} 存下的连接合起来超过 ${PROFILE_LIMIT} 个了，先删几个本地不用的连接。`);
     current.connectionProfiles = items;
     const take = fresh || (mode === 'overwrite' && Boolean(incoming.connection.key));
     if (take) {
@@ -274,5 +274,5 @@ async function rollback(error: unknown, undo: (() => void | Promise<void>)[]): P
   for (const restore of undo.reverse()) {
     try { await restore(); } catch { failed = true; }
   }
-  throw new Error(`${error instanceof Error ? error.message : '配置导入失败。'}${failed ? '部分配置未能恢复，请保留导入文件并检查浏览器存储。' : '本次更改已撤回，原配置已恢复。'}`);
+  throw new Error(`${error instanceof Error ? error.message : '配置没能导进来。'}${failed ? '有几项没来得及回滚，先留好导入文件并看看浏览器存储空间。' : '刚才改到一半的都撤回去了，原配置安好。'}`);
 }

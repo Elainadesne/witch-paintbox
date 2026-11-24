@@ -82,9 +82,9 @@ function migrationRecordError(error: unknown): boolean {
 
 function databaseError(action: string, error: unknown): string {
   const name = databaseErrorName(error);
-  if (name === 'QuotaExceededError') return `图片历史${action}失败，浏览器存储空间不足。`;
-  if (name === 'VersionError') return '图片历史版本较新，请更新插件后重试。';
-  return `图片历史${action}失败（${name}），原有图片记录已保留。`;
+  if (name === 'QuotaExceededError') return `图片历史${action}没存上，浏览器存储空间不够了。`;
+  if (name === 'VersionError') return '图片历史库的版本比当前插件新，把画匣升到新版再试吧。';
+  return `图片历史${action}没成功（${name}），原先存的图都在没丢。`;
 }
 
 /** Scope is metadata, never a reason to change a stored image's primary key. */
@@ -124,8 +124,8 @@ function database(): Promise<IDBDatabase> {
         if (upgrade) {
           try { upgrade.abort(); }
           catch { waiting(); return; } // A commit may already be finishing; wait for its result.
-          fail('图片历史升级长时间无响应，已停止本次升级，原有图片记录已保留。');
-        } else fail('打开图片历史超时，请关闭其他酒馆页面后重试。');
+          fail('图片历史库升级半天没动静，先停下来了，原本的图片都还在。');
+        } else fail('半天没打开图片历史，关掉其他酒馆页面再试试。');
       }, upgrade ? 60_000 : 15_000);
     };
     function fail(message: string): void {
@@ -139,7 +139,7 @@ function database(): Promise<IDBDatabase> {
     let request: IDBOpenDBRequest;
     try { request = window.indexedDB.open(databaseName, 2); }
     catch (error) { fail(databaseError('打开', error)); return; }
-    request.onblocked = () => fail('图片历史被其他页面占用，请关闭其他酒馆页面后重试。');
+    request.onblocked = () => fail('图片历史正被别的页面占着，关掉其他酒馆页再试试。');
     request.onerror = () => fail(databaseError('打开', request.error));
     request.onupgradeneeded = () => {
       if (settled) { request.transaction?.abort(); return; }
@@ -204,8 +204,8 @@ function database(): Promise<IDBDatabase> {
 
 function operationError(action: string, error?: DOMException | null): Error {
   return new Error(error?.name === 'QuotaExceededError'
-    ? `图片历史${action}失败，浏览器存储空间不足。`
-    : `图片历史${action}失败，请检查站点存储权限后重试。`);
+    ? `图片历史${action}没存上，浏览器存储空间不够了。`
+    : `图片历史${action}没成功，查一下站点存储权限再试试。`);
 }
 
 async function transact<T>(mode: IDBTransactionMode, action: string, makeRequest: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
@@ -217,7 +217,7 @@ async function transact<T>(mode: IDBTransactionMode, action: string, makeRequest
     let settled = false;
     const timer = setTimeout(() => {
       try { transaction.abort(); } catch { /* The transaction may already be finishing. */ }
-      fail(new Error(`图片历史${action}超时，尚未确认完成，请重试。`));
+      fail(new Error(`图片历史${action}等太久了，还没确认写成，再试一次。`));
     }, 30_000);
     const fail = (error: Error) => {
       if (settled) return;
@@ -253,18 +253,18 @@ function snapshot(value: unknown): ImageHistoryEntry {
     || typeof entry.positive !== 'string' || typeof entry.negative !== 'string'
     || (entry.scenePrompt !== undefined && typeof entry.scenePrompt !== 'string')
     || (entry.provider !== undefined && !['novelai', 'openai', 'gemini', 'grok'].includes(entry.provider))) {
-    throw new Error('图片历史记录格式无效，原有记录未修改。');
+    throw new Error('这条图片历史格式不对，原本记录没动。');
   }
   let characters: CharacterPrompt[] | undefined;
   if (entry.characters !== undefined) {
     if (!Array.isArray(entry.characters) || entry.characters.length > 22) {
-      throw new Error('图片历史的角色分栏格式无效，原有记录未修改。');
+      throw new Error('图片历史里角色分栏格式不对，原本记录没动。');
     }
     characters = [];
     for (const character of entry.characters) {
       if (!character || typeof character.positive !== 'string' || !character.positive.trim()
         || typeof character.negative !== 'string') {
-        throw new Error('图片历史的角色分栏格式无效，原有记录未修改。');
+        throw new Error('图片历史里角色分栏格式不对，原本记录没动。');
       }
       characters.push({ positive: character.positive, negative: character.negative });
     }
@@ -283,12 +283,12 @@ function snapshot(value: unknown): ImageHistoryEntry {
     // A compatible provider may return a different canvas; retain its validated raster dimensions.
     const parameters = validateOpenAIImageParameters(entry.parameters, 'image');
     if (!parameters.model || entry.negative || characters?.length || entry.seed !== undefined) {
-      throw new Error('GPT 图片历史记录格式无效，原有记录未修改。');
+      throw new Error('这条 GPT 图片历史格式不对，原本记录没动。');
     }
     return { ...common, provider: 'openai', parameters };
   }
   if (entry.provider === 'gemini' || entry.provider === 'grok') {
-    const bad = (): never => { throw new Error('图片历史记录格式无效，原有记录未修改。'); };
+    const bad = (): never => { throw new Error('这条图片历史格式不对，原本记录没动。'); };
     const raw = entry.parameters as Sized<GeminiImageParameters | GrokImageParameters>;
     const sized = [raw?.width, raw?.height].every(size => Number.isInteger(size) && size >= 1 && size <= 16_384);
     if (!sized || entry.negative || characters?.length || entry.seed !== undefined) bad();
@@ -302,7 +302,7 @@ function snapshot(value: unknown): ImageHistoryEntry {
     || !parameters || typeof parameters.model !== 'string' || typeof parameters.sampler !== 'string'
     || typeof parameters.noiseSchedule !== 'string' || typeof parameters.sm !== 'boolean' || typeof parameters.smDyn !== 'boolean'
     || ![parameters.width, parameters.height, parameters.steps, parameters.scale, parameters.cfgRescale].every(Number.isFinite)) {
-    throw new Error('图片历史记录格式无效，原有记录未修改。');
+    throw new Error('这条图片历史格式不对，原本记录没动。');
   }
   return {
     ...common, provider: 'novelai', seed: entry.seed,
@@ -316,7 +316,7 @@ function snapshot(value: unknown): ImageHistoryEntry {
 }
 
 export async function loadImageHistory(markerKey: string): Promise<ImageHistoryEntry[]> {
-  if (typeof markerKey !== 'string' || !markerKey) throw new Error('图片标记标识无效，无法读取历史。');
+  if (typeof markerKey !== 'string' || !markerKey) throw new Error('配图标记标识不对，读不出来它的历史。');
   const entries = await transact('readonly', '读取', store => store.index('markerKey').getAll(markerKey));
   return entries.map(snapshot).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
 }
@@ -328,7 +328,7 @@ export async function saveImageHistory(entry: ImageHistoryEntry): Promise<void> 
 }
 
 export async function deleteImageHistory(id: string): Promise<void> {
-  if (typeof id !== 'string' || !id) throw new Error('图片历史标识无效，无法删除。');
+  if (typeof id !== 'string' || !id) throw new Error('这条图片记录标识不对，删不掉。');
   await transact('readwrite', '删除', store => store.delete(id));
   notifyChanged({ deletedIds: [id] });
 }
@@ -379,7 +379,7 @@ async function walkHistory<T, C extends IDBCursor>(mode: IDBTransactionMode, act
     catch { connection = null; reject(operationError(action)); return; }
     const timer = setTimeout(() => {
       try { transaction.abort(); } catch { /* May already be committed. */ }
-      reject(new Error(`图片历史${action}超时，请稍后重试。`));
+      reject(new Error(`图片历史${action}超时了，过会儿再试。`));
     }, 30_000);
     transaction.onabort = transaction.onerror = () => { clearTimeout(timer); reject(operationError(action, transaction.error)); };
     transaction.oncomplete = () => { clearTimeout(timer); resolve(result()); };

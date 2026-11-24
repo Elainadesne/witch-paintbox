@@ -29,9 +29,9 @@ const first = (value: unknown): JsonRecord => Array.isArray(value) ? record(valu
 function customBaseUrl(address: string): string {
   let url: URL;
   try { url = new URL(address.trim()); }
-  catch { throw new ModelApiError('请填写有效的 API 地址。', 'setup'); }
+  catch { throw new ModelApiError('先把 API 地址填完整吧。', 'setup'); }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
-    throw new ModelApiError('API 地址只支持不含账号、查询参数或锚点的 HTTP / HTTPS 网址。', 'setup');
+    throw new ModelApiError('API 地址只认干净的 HTTP / HTTPS 网址，别带账号密码、查询参数或 # 锚点。', 'setup');
   }
   const path = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|models)$/, '');
   url.pathname = path || '/v1';
@@ -40,7 +40,7 @@ function customBaseUrl(address: string): string {
 
 function customConnection(settings: Pick<ModelApiSettings, 'url' | 'key'>): JsonRecord {
   const normalized = settings.key.trim().replace(/^Bearer\s+/i, '');
-  if (/[^\x21-\x7e]/.test(normalized)) throw new ModelApiError('API 密钥包含空格或无效字符。', 'setup');
+  if (/[^\x21-\x7e]/.test(normalized)) throw new ModelApiError('API 密钥里好像夹了空格或奇怪的字符。', 'setup');
   return {
     chat_completion_source: 'custom',
     custom_url: customBaseUrl(settings.url),
@@ -57,7 +57,7 @@ function tavernContext(): JsonRecord {
 }
 
 function requestHeaders(host = tavernContext()): HeadersInit {
-  if (typeof host.getRequestHeaders !== 'function') throw new ModelApiError('当前环境未提供酒馆后端连接。', 'setup');
+  if (typeof host.getRequestHeaders !== 'function') throw new ModelApiError('当前环境连不上酒馆后端。', 'setup');
   return (host.getRequestHeaders as () => HeadersInit)();
 }
 
@@ -77,9 +77,9 @@ async function withRequest<T>(
     return await operation(controller.signal);
   } catch (error) {
     if (signal?.aborted) throw new DOMException('请求已取消。', 'AbortError');
-    if (timedOut) throw new ModelApiError('模型接口响应超时。', 'timeout');
+    if (timedOut) throw new ModelApiError('等太久模型那边没回话，超时了。', 'timeout');
     if (error instanceof ModelApiError) throw error;
-    throw new ModelApiError('模型接口请求失败，请检查连接设置与酒馆后端连接。', 'network');
+    throw new ModelApiError('模型请求发出去没连上，看看接口设置或酒馆后端还在不在跑。', 'network');
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);
@@ -93,12 +93,12 @@ function parseJson(text: string): JsonRecord | JsonRecord[] {
     const items = (Array.isArray(parsed) ? parsed : [parsed]).map(record);
     if (!items.length || items.some(item => !Object.keys(item).length || item.error)) throw new Error();
     return Array.isArray(parsed) ? items : items[0];
-  } catch { throw new ModelApiError('模型接口返回了错误或无法解析的数据。'); }
+  } catch { throw new ModelApiError('模型那边报错了，或者回过来的数据看不明白。'); }
 }
 
 async function readBody(response: Response, signal: AbortSignal): Promise<string> {
-  if (!response.ok) throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`, statusFault(response.status));
-  if (!response.body) throw new ModelApiError('模型接口没有返回正文。');
+  if (!response.ok) throw new ModelApiError(`模型那边拒绝了（HTTP ${response.status}）。`, statusFault(response.status));
+  if (!response.body) throw new ModelApiError('模型回了个空包，啥字也没吐出来。');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let text = '';
@@ -110,7 +110,7 @@ async function readBody(response: Response, signal: AbortSignal): Promise<string
       signal.throwIfAborted();
       if (chunk.done) return text + decoder.decode();
       bytes += chunk.value.byteLength;
-      if (bytes > responseLimit) throw new ModelApiError('模型接口返回的数据过大。');
+      if (bytes > responseLimit) throw new ModelApiError('模型吐回来的内容太大了，已经停下接收。');
       text += decoder.decode(chunk.value, { stream: true });
     }
   } finally {
@@ -132,10 +132,10 @@ export async function fetchModelList(
       credentials: 'same-origin', redirect: 'error', referrerPolicy: 'no-referrer',
     });
     const payload = record(parseJson(await readBody(response, requestSignal)));
-    if (!Array.isArray(payload.data)) throw new ModelApiError('模型列表格式不受支持，请手动填写模型名称。');
+    if (!Array.isArray(payload.data)) throw new ModelApiError('对面回的模型列表格式认不出来，自己手填模型名吧。');
     const models = [...new Set(payload.data.map(item => record(item).id)
       .filter((id): id is string => typeof id === 'string' && id.trim().length > 0 && id.length <= 512))];
-    if (models.length > 10_000) throw new ModelApiError('接口返回的模型列表过大，请手动填写模型名称。');
+    if (models.length > 10_000) throw new ModelApiError('模型列表太长超过 10,000 个了，直接手填模型名吧。');
     return models.sort((a, b) => a.localeCompare(b));
   });
 }
@@ -294,8 +294,8 @@ function toolCallDelta(payload: JsonRecord): string {
 
 /** Compatible mode tolerates JSON bodies and SSE events containing a complete message. */
 async function readCompletion(response: Response, mode: ModelTransport, options: ModelRequestOptions): Promise<string> {
-  if (!response.ok) throw new ModelApiError(`模型接口请求失败（HTTP ${response.status}）。`, statusFault(response.status));
-  if (!response.body) throw new ModelApiError('模型接口没有返回正文。');
+  if (!response.ok) throw new ModelApiError(`模型那边拒绝了（HTTP ${response.status}）。`, statusFault(response.status));
+  if (!response.body) throw new ModelApiError('模型回了个空包，啥字也没吐出来。');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let protocol: 'json' | 'sse' | null = null;
@@ -348,7 +348,7 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
     eventData = [];
     const name = eventName;
     eventName = '';
-    if (name === 'error') throw new ModelApiError('模型接口返回了错误事件。');
+    if (name === 'error') throw new ModelApiError('模型在流式里直接报了个错。');
     if (!data.trim()) return;
     if (data.trim() === '[DONE]') { finished = true; return; }
     consumePayloads(data);
@@ -369,10 +369,10 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
       if (prefix.startsWith('{') || prefix.startsWith('[')) protocol = 'json';
       else if (/^(?::|data:|event:|id:|retry:)/.test(prefix)) { protocol = 'sse'; buffer = prefix; }
       else if (prefix && (eof || !['data:', 'event:', 'id:', 'retry:'].some(field => field.startsWith(prefix)))) {
-        throw new ModelApiError('模型接口响应格式不受支持。');
+        throw new ModelApiError('模型传回来的响应格式画匣认不出来。');
       }
       if ((protocol === 'json' && mode === 'stream') || (protocol === 'sse' && mode === 'nonstream')) {
-        throw new ModelApiError('接口返回格式与传输方式不符，请切换“假流兼容”。');
+        throw new ModelApiError('这个中转实际吐出来的格式和选的传输方式拧巴了，把请求方式换成“假流兼容”试试。');
       }
     }
     if (protocol !== 'sse') return;
@@ -402,13 +402,13 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
       options.signal?.throwIfAborted();
       if (chunk.done) { consume(decoder.decode(), true); break; }
       bytes += chunk.value.byteLength;
-      if (bytes > responseLimit) throw new ModelApiError('模型接口返回的数据过大。');
+      if (bytes > responseLimit) throw new ModelApiError('模型吐回来的内容太大了，已经停下接收。');
       consume(decoder.decode(chunk.value, { stream: true }));
     }
     options.signal?.throwIfAborted();
     if (protocol === 'json') consumePayloads(buffer);
     if (!text.trim() && toolArgsRaw.trim()) update(extractPlanJsonFromArgs(toolArgsRaw) || toolArgsRaw.trim());
-    if (!text.trim()) throw new ModelApiError('模型接口没有返回文本正文。');
+    if (!text.trim()) throw new ModelApiError('模型走完了流程但没写出任何正文。');
     if (mode !== 'stream' && mode !== 'toolcall') options.onText?.(text);
     return text;
   } finally {
@@ -421,15 +421,15 @@ async function readCompletion(response: Response, mode: ModelTransport, options:
 function tavernHost(): TavernModelHost {
   const host = tavernContext();
   if (host.mainApi !== 'openai') {
-    throw new ModelApiError('跟随酒馆主 API 目前支持“聊天补全”；请切换主 API 类型或使用自定义接口。', 'setup');
+    throw new ModelApiError('选“跟随酒馆主 API”时只吃聊天补全（Chat Completion）；要是你在用别的接口，切回聊天补全或者改填自定义接口吧。', 'setup');
   }
   const service = host.ChatCompletionService as Partial<TavernModelHost['ChatCompletionService']> | undefined;
   if ((!isSifangEnvironment() && typeof service?.presetToGeneratePayload !== 'function')
     || typeof host.getRequestHeaders !== 'function' || typeof host.getChatCompletionModel !== 'function'
     || !host.chatCompletionSettings) {
     throw new ModelApiError(isSifangEnvironment()
-      ? '独立前端未提供完整的模型连接，请更新前端或使用自定义接口。'
-      : '当前酒馆版本未提供独立模型请求接口，请升级酒馆或使用自定义接口。', 'setup');
+      ? '现在这个独立前端没把完整的模型接口放出来，升级一下前端或者直接改用自定义接口吧。'
+      : '你这版酒馆没带独立发起模型请求的接口，升级一下酒馆，或者改用自定义接口吧。', 'setup');
   }
   return host as unknown as TavernModelHost;
 }
@@ -444,12 +444,12 @@ export async function requestModel(
     || !Number.isFinite(settings.temperature) || settings.temperature < 0 || settings.temperature > 2
     || !['tavern', 'custom'].includes(settings.mode)
     || !['nonstream', 'stream', 'compatible', 'toolcall'].includes(settings.transport)) {
-    throw new ModelApiError('请检查模型参数。', 'setup');
+    throw new ModelApiError('上面的回复参数有地方没填对，核对一下吧。', 'setup');
   }
   if (!messages.length
     || messages.some(message => !message || !['system', 'user', 'assistant'].includes(message.role) || typeof message.content !== 'string')
     || !messages.some(message => message.content.trim())) {
-    throw new ModelApiError('没有可发送的有效预设或功能层内容。', 'setup');
+    throw new ModelApiError('预设和功能层里现在一条有效内容都没开，发不出去空请求。', 'setup');
   }
   const stream = settings.transport !== 'nonstream';
   const toolEnvelope = settings.transport === 'toolcall' ? buildToolCallEnvelope(messages) : null;
@@ -459,7 +459,7 @@ export async function requestModel(
     let headers: HeadersInit;
     let payload: JsonRecord;
     if (settings.mode === 'custom') {
-      if (!settings.model.trim()) throw new ModelApiError('请填写模型名称。', 'setup');
+      if (!settings.model.trim()) throw new ModelApiError('先把模型名字填上吧。', 'setup');
       headers = requestHeaders();
       payload = {
         ...customConnection(settings),
@@ -469,7 +469,7 @@ export async function requestModel(
     } else {
       const host = tavernHost();
       const model = host.getChatCompletionModel(host.chatCompletionSettings);
-      if (!model) throw new ModelApiError('请先在酒馆主 API 中选择模型。', 'setup');
+      if (!model) throw new ModelApiError('现在选了跟随酒馆，得先去酒馆主 API 那边挑好一个模型。', 'setup');
       headers = host.getRequestHeaders();
       // Sifang's backend bridge already selects the background seat and its protocol.
       // Send only this extension's messages and sampling; the ST payload builder is not exposed there.

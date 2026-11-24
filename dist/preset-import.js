@@ -4,38 +4,38 @@ export const MAX_PRESET_BYTES = 2 * 1024 * 1024;
 export { MAX_PRESET_ENTRIES };
 function record(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value))
-        throw new Error('预设包含无效的对象。');
+        throw new Error('预设里有块内容格式不对劲。');
     return value;
 }
 function text(value, label, max) {
     if (typeof value !== 'string' || value.length > max)
-        throw new Error(`${label}格式无效或过长。`);
+        throw new Error(`${label}格式不对，或者太长装不下了。`);
     return value;
 }
 function list(value) {
     if (!Array.isArray(value) || value.length > MAX_PRESET_ENTRIES)
-        throw new Error(`预设列表无效，最多支持 ${MAX_PRESET_ENTRIES} 条。`);
+        throw new Error(`预设列表格式不对，或者条目超过 ${MAX_PRESET_ENTRIES} 条上限了。`);
     return value;
 }
 function parseEntry(value, index, warnings) {
     const item = record(value);
     const id = text(item.identifier !== undefined ? item.identifier : item.id !== undefined ? item.id : `entry-${index + 1}`, '条目标识', 128);
     if (!id.trim())
-        throw new Error('条目标识不能为空。');
+        throw new Error('有个条目的标识写空了。');
     const name = item.name === undefined ? id : text(item.name, '条目名称', 256);
     if (item.marker !== undefined && typeof item.marker !== 'boolean')
-        throw new Error('条目标记格式无效。');
+        throw new Error('条目的占位标记字段格式不对。');
     if (item.enabled !== undefined && typeof item.enabled !== 'boolean')
-        throw new Error('条目启用状态格式无效。');
+        throw new Error('条目的开关状态字段格式不对。');
     const marker = item.marker === true;
     const role = item.role === undefined && marker ? 'system' : item.role;
     if (role !== 'system' && role !== 'user' && role !== 'assistant')
-        throw new Error(`“${name}”的角色不受支持，未导入。`);
+        throw new Error(`“${name}”的角色写法画匣认不出来，没导进来。`);
     const content = item.content === undefined && marker ? '' : text(item.content, '条目正文', 65_536);
     if (item.section !== undefined && item.section !== 'head' && item.section !== 'tail')
-        throw new Error(`“${name}”的头尾区段无效。`);
+        throw new Error(`“${name}”写的头尾区段不对劲。`);
     if (marker)
-        warnings.push(`“${name}”是酒馆占位标记，已保留并禁用，不会发送。`);
+        warnings.push(`“${name}”是酒馆占位标记，先原样留着并关掉，不会发出去。`);
     warnings.push(...presetMacroWarnings(content, name));
     return {
         entry: { id, name, role, content, enabled: !marker && item.enabled !== false, ...(marker ? { marker: true } : {}) },
@@ -44,15 +44,15 @@ function parseEntry(value, index, warnings) {
 }
 function unique(entries) {
     if (entries.length > MAX_PRESET_ENTRIES)
-        throw new Error(`预设最多支持 ${MAX_PRESET_ENTRIES} 条。`);
+        throw new Error(`预设太多啦，最多只支持 ${MAX_PRESET_ENTRIES} 条。`);
     if (new Set(entries.map(item => item.entry.id)).size !== entries.length)
-        throw new Error('预设包含重复的条目标识，未导入。');
+        throw new Error('这份预设里有条目标识写重了，没导进来。');
 }
 function orderEntries(entries, value, warnings) {
     if (value === undefined)
         return entries;
     if (!Array.isArray(value) || value.length > MAX_PRESET_ENTRIES)
-        throw new Error('prompt_order 排序表格式无效。');
+        throw new Error('这份预设的 prompt_order 排序表格式不对。');
     const groups = value.map(raw => {
         const group = record(raw);
         list(group.order);
@@ -62,40 +62,40 @@ function orderEntries(entries, value, warnings) {
     if (!group)
         return entries;
     if (groups.length > 1)
-        warnings.push('使用默认角色（100001）排序；没有默认角色时使用第一组排序。');
+        warnings.push('排序表选了默认角色（100001）那组，没有的话就按第一组走。');
     const byId = new Map(entries.map(item => [item.entry.id, item]));
     const seen = new Set();
     const ordered = list(group.order).map(raw => {
         const row = record(raw);
         const id = text(row.identifier !== undefined ? row.identifier : row.id, '排序标识', 128);
         if (seen.has(id))
-            throw new Error('排序表包含重复标识，未导入。');
+            throw new Error('排序表里有两个一模一样的条目标识，没导进来。');
         const item = byId.get(id);
         if (!item)
-            throw new Error('排序表引用了不存在的条目，未导入。');
+            throw new Error('排序表里点名了一个不存在的条目，没导进来。');
         if (row.enabled !== undefined && typeof row.enabled !== 'boolean')
-            throw new Error('排序表启用状态格式无效。');
+            throw new Error('排序表里的开关状态格式不对。');
         seen.add(id);
         return { ...item, entry: { ...item.entry, enabled: !item.entry.marker && (row.enabled === undefined ? item.entry.enabled : row.enabled) } };
     });
     for (const item of entries) {
         if (seen.has(item.entry.id))
             continue;
-        warnings.push(`“${item.entry.name}”不在排序表中，已排在末尾并禁用。`);
+        warnings.push(`“${item.entry.name}”没写进排序表里，先塞到最后并关掉了。`);
         ordered.push({ ...item, entry: { ...item.entry, enabled: false } });
     }
     return ordered;
 }
 export function importModelPreset(source, fallbackName) {
     if (source.length > MAX_PRESET_BYTES || new TextEncoder().encode(source).byteLength > MAX_PRESET_BYTES) {
-        throw new Error('预设文件不能超过 2 MiB。');
+        throw new Error('预设文件太大了，得在 2 MiB 以内。');
     }
     let decoded;
     try {
         decoded = JSON.parse(source.replace(/^\uFEFF/, ''));
     }
     catch {
-        throw new Error('文件不是有效的 JSON。');
+        throw new Error('这个文件不是合法的 JSON，是不是下坏了？');
     }
     const raw = record(decoded);
     const warnings = [];
@@ -105,11 +105,11 @@ export function importModelPreset(source, fallbackName) {
     let tail;
     if (raw.head !== undefined || raw.tail !== undefined) {
         if (raw.prompts !== undefined || raw.prompt_order !== undefined)
-            throw new Error('预设同时包含两种编排格式，无法确定顺序。');
+            throw new Error('这份预设把两套编排格式混在一起了，分不清按哪套排。');
         head = list(raw.head === undefined ? [] : raw.head).map((item, index) => parseEntry(item, index, warnings));
         tail = list(raw.tail === undefined ? [] : raw.tail).map((item, index) => parseEntry(item, head.length + index, warnings));
         if (head.some(item => item.section === 'tail') || tail.some(item => item.section === 'head')) {
-            throw new Error('条目的区段标记与 head/tail 所在位置冲突，未导入。');
+            throw new Error('条目的区段标记跟它放在 head 还是 tail 拧巴了，没导进来。');
         }
         unique([...head, ...tail]);
     }
@@ -120,12 +120,12 @@ export function importModelPreset(source, fallbackName) {
         const firstTail = ordered.findIndex(item => item.section === 'tail');
         const boundary = firstTail < 0 ? ordered.length : firstTail;
         if (ordered.slice(boundary).some(item => item.section === 'head')) {
-            throw new Error('头部与尾部标记交错，无法保持原顺序；请修正区段标记后导入。');
+            throw new Error('头部和尾部标记串到一块儿了，理不出原顺序；改顺了再导进来吧。');
         }
         head = ordered.slice(0, boundary);
         tail = ordered.slice(boundary);
         if (!ordered.some(item => item.section))
-            warnings.push('预设未声明头尾位置，已保留原顺序；可在左侧移动功能层与最新正文条目。');
+            warnings.push('这份预设没标明头尾位置，按原本顺序留着了；待会儿在左边把功能层和“最新正文”拖到合适位置就行。');
     }
     return { presetName, head: head.map(item => item.entry), tail: tail.map(item => item.entry), warnings };
 }

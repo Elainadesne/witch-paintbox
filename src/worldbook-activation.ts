@@ -24,7 +24,7 @@ function matchesKeyword(text: string, key: string, activation: WorldbookActivati
 export function isWorldbookEntryActive(entry: WorldbookSourceEntry, text: string): boolean {
   if (!entry.enabled) return false;
   const activation = entry.activation;
-  if (!activation) throw new Error(`世界书条目“${entry.name}”缺少激活设置，请重新导入原世界书并重新选择条目。`);
+  if (!activation) throw new Error(`条目“${entry.name}”缺了触发设置，把原世界书重导一遍再重新勾选吧。`);
   if (activation.constant) return true;
   const matches = (key: string) => matchesKeyword(text, key, activation);
   if (!activation.keys.some(matches)) return false;

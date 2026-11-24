@@ -30,7 +30,7 @@ export function isWorldbookEntryActive(entry, text) {
         return false;
     const activation = entry.activation;
     if (!activation)
-        throw new Error(`世界书条目“${entry.name}”缺少激活设置，请重新导入原世界书并重新选择条目。`);
+        throw new Error(`条目“${entry.name}”缺了触发设置，把原世界书重导一遍再重新勾选吧。`);
     if (activation.constant)
         return true;
     const matches = (key) => matchesKeyword(text, key, activation);

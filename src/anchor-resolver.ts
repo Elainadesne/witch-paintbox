@@ -57,7 +57,7 @@ function wrapper(token: string): Wrapper | null {
 /** Visit independent tags, preserving separators, whitespace, and original weight syntax. */
 function mapTags(source: string, visit: (token: string, nested: boolean, active: boolean) => string,
   depth = 0, active = true): string {
-  if (depth > 64) throw withFault(new Error('生图 tag 的权重嵌套过深，请简化后重试。'), 'reference');
+  if (depth > 64) throw withFault(new Error('这串 tag 的权重括号套了太多层，精简一下再试。'), 'reference');
   function part(value: string): string {
     const token = value.trim();
     if (!token) return value;
@@ -123,7 +123,7 @@ export function resolveAnchorPromptFields(prompt: string, anchors: readonly Char
       const outfit = shared.get(referenceName(token.slice(1).trim()));
       if (outfit) return outfit.tags;
       // A pre-existing literal name beginning with # keeps its legacy meaning.
-      if (nested || !reference(token, false)) throw withFault(new Error(`通用服装“${token.slice(1).trim() || '（空）'}”不存在，请检查标签。`), 'reference');
+      if (nested || !reference(token, false)) throw withFault(new Error(`找不到通用服装“${token.slice(1).trim() || '（空）'}”，看看是不是名字写错了。`), 'reference');
     }
     const prefixed = token.startsWith('@');
     const match = prefixed ? reference(token, true) ?? (!nested ? reference(token, false) : null)
@@ -139,12 +139,12 @@ export function resolveAnchorPromptFields(prompt: string, anchors: readonly Char
         outfit = anchor.outfits.find(item => item.name === outfitName);
         if (!outfit && prefixed && outfitName === 'default') outfit = anchor.outfits.find(item => item.id === anchor.selectedOutfitId);
         else if (!outfit && !(prefixed && outfitName === 'base')) {
-          throw withFault(new Error(`角色“${anchor.name}”没有名为“${outfitName || '（空）'}”的服装，请检查标签。`), 'reference');
+          throw withFault(new Error(`“${anchor.name}”的衣柜里没有叫“${outfitName || '（空）'}”的衣服，核对一下名字。`), 'reference');
         }
       }
     } else if (!prefixed || !omitDefault) {
       outfit = anchor.outfits.find(item => item.id === anchor.selectedOutfitId);
-      if (anchor.selectedOutfitId && !outfit) throw withFault(new Error(`角色“${anchor.name}”选中的服装不存在，请重新选择。`), 'reference');
+      if (anchor.selectedOutfitId && !outfit) throw withFault(new Error(`“${anchor.name}”原本设好的默认衣服找不到了，回锚定页重选一下。`), 'reference');
     }
     if (active && !negativeAnchors.has(anchor.id) && anchor.negative?.trim()) {
       negativeAnchors.add(anchor.id);

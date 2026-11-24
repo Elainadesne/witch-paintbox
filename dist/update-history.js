@@ -1,6 +1,13 @@
 // Release dates use Asia/Shanghai. Historical entries follow the local repository log.
 const updates = [
     {
+        date: '2026-11-24', title: '全界面文案润色',
+        changes: [
+            '重写引导页、接口配置、标签锚定、世界书、楼层画框、指定插图、生图回顾与使用偏好等全部界面提示与报错文案，去掉生硬的说明书腔，读起来更自然顺口。',
+            '同步修正几处旧文案：引导页与配置导入导出说明已补齐 Gemini / Grok 通道，并更新为自动保存后的操作提示。',
+        ],
+    },
+    {
         date: '2026-11-21', title: 'NAI 新增 V5 Full 性能版',
         changes: [
             'NAI 模型列表新增“NAI Diffusion V5 Full · 性能版（Medium Effort）”，同等质量约省 42% 点数。',

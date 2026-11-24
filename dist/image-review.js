@@ -34,7 +34,7 @@ export class ImageReview {
         container.innerHTML = `<section class="image-review">
       <div class="review-toolbar"><nav class="anchor-tabs" aria-label="图片范围"><button type="button" data-review-scope="current">当前角色卡</button><button type="button" data-review-scope="all">全部角色卡</button></nav><button type="button" class="text-button" data-review-action="refresh">刷新</button></div>
       <nav class="review-categories" data-review-categories aria-label="按角色卡筛选" hidden></nav>
-      <p class="config-status" data-review-context></p><p class="config-status" data-review-status role="status">正在读取图片…</p>
+      <p class="config-status" data-review-context></p><p class="config-status" data-review-status role="status">正翻着画夹呢…</p>
       <div class="review-grid" data-review-grid></div>
       <nav class="review-pagination" aria-label="图片翻页"><button type="button" class="secondary" data-review-action="previous">上一页</button><span data-review-page></span><button type="button" class="secondary" data-review-action="next">下一页</button></nav>
     </section>`;
@@ -76,7 +76,7 @@ export class ImageReview {
                 if (!this.gallery?.element.open && this.cursors.length === 1)
                     void this.load(true);
                 else
-                    this.message('有新图片，点击“刷新”查看。');
+                    this.message('刚又有新画进来了，点一下“刷新”就能看到。');
                 return;
             }
             // Invalidate an earlier read so a deletion cannot resurrect its page of blobs.
@@ -90,7 +90,7 @@ export class ImageReview {
             this.gallery?.setSummary(selected ? historyTitle(selected.entry) : '生图回顾');
             this.gallery?.setImages(this.items, this.selectedId);
             if (removed.length && !this.items.length)
-                this.message('本页图片已删空。');
+                this.message('这一页的图片都删光啦。');
             this.render();
             removed.forEach(item => URL.revokeObjectURL(item.url));
             if (!this.gallery?.element.open)
@@ -146,11 +146,11 @@ export class ImageReview {
         this.render();
         if (!this.all && !this.scope) {
             this.loading = false;
-            this.message('请先打开角色卡聊天，或切换“全部角色卡”。');
+            this.message('得先点进某个角色卡聊天，或者点上面的“全部角色卡”来看。');
             this.render();
             return;
         }
-        this.message('正在读取图片…');
+        this.message('正翻着画夹呢…');
         try {
             if (this.all && refreshCategories) {
                 const categories = await loadImageHistoryCategories();
@@ -169,13 +169,13 @@ export class ImageReview {
             this.next = result.next;
             this.more = result.more;
             if (this.items.length)
-                this.message('点击图片可全屏查看、下载、删除或查看生成属性。');
+                this.message('点开哪张就能看大图、保存、删掉，或者翻当时用的提示词和参数。');
             else
                 this.message('画夹还是空的。等第一张画干透，我就把它夹进来。', false, true);
         }
         catch (error) {
             if (version === this.version)
-                this.message(error instanceof Error ? error.message : '图片读取失败，请刷新重试。', true);
+                this.message(error instanceof Error ? error.message : '画夹没读出来，刷新再试一次。', true);
         }
         finally {
             if (version === this.version) {

@@ -27,15 +27,15 @@ function frontend(messageId: number) {
       return win?.GameManagerInstance ? [{ frame, win, game: win.GameManagerInstance }] : [];
     } catch { return []; }
   });
-  if (matches.length > 1) throw withFault(new Error('当前楼层存在多个前端回合缓存，无法确认配图归属。'), 'host');
+  if (matches.length > 1) throw withFault(new Error('这一楼挂了好几份前端回合缓存，分不清配图该往哪份写。'), 'host');
   return matches[0] ?? null;
 }
 
 function requireIdle(game: Game, win: Frontend): void {
   if (game.isBackgroundProcessing || win.LlmLock?.blockedReason?.()) {
-    throw withFault(new Error('请等当前楼层前端完成后台结算后再处理。'), 'host');
+    throw withFault(new Error('等这一楼的前端卡片把后台结算跑完，再点处理吧。'), 'host');
   }
-  if (game.isHistoryViewMode) throw withFault(new Error('当前处于前端历史回看模式，请先返回最新回合再处理。'), 'host');
+  if (game.isHistoryViewMode) throw withFault(new Error('现在正在回看以前的回合呢，先切回最新那一回合再插图。'), 'host');
 }
 
 function historyKey(game: Game): string | null {
@@ -70,7 +70,7 @@ function cacheFor(game: Game): Turn[] {
   const cache = game.chatHistoryCache;
   if (!Array.isArray(cache) || !cache.length
     || cache.some(turn => !turn || typeof turn !== 'object' || typeof turn.message !== 'string')) {
-    throw withFault(new Error('当前前端的回合缓存尚未就绪。'), 'host');
+    throw withFault(new Error('这一楼前端的回合缓存还没准备好。'), 'host');
   }
   return cache;
 }
@@ -81,11 +81,11 @@ export function readEmbeddedTurn(messageId: number) {
   const { game } = current;
   const cache = cacheFor(game);
   const index = game.isHistoryViewMode ? game.historyViewIndex : cache.length - 1;
-  if (!Number.isInteger(index) || index! < 0 || index! >= cache.length) throw new Error('无法确认前端正在展示的历史回合。');
+  if (!Number.isInteger(index) || index! < 0 || index! >= cache.length) throw new Error('认不出前端正显示着哪一回合的历史。');
   const turn = cache[index!];
   const displayed = game._getCurrentViewSnapshot?.();
   if (game.isHistoryViewMode && displayed && displayed.message !== turn.message) {
-    throw new Error('前端正在切换历史回合，请稍后再试。');
+    throw new Error('前端还在切历史回合呢，稍等一下再点。');
   }
   const signature = turnSignature(turn);
   const unique = cache.filter(item => turnSignature(item) === signature).length === 1;
@@ -103,19 +103,19 @@ export function captureEmbeddedWrite(messageId: number, original: string) {
   requireIdle(game, win);
   const cache = cacheFor(game);
   const target = cache[cache.length - 1];
-  if (target.message !== original) throw withFault(new Error('前端当前回合与酒馆正文不同，未修改历史缓存；请先完成前端同步。'), 'host');
+  if (target.message !== original) throw withFault(new Error('前端这一回合跟酒馆正文对不上号，先别改缓存；让前端先同步一下。'), 'host');
   const length = cache.length;
   const key = historyKey(game);
   const storage = win.AppStorage;
   const saveData = storage?.saveData;
-  if (!key || !storage || typeof saveData !== 'function') throw withFault(new Error('前端未提供可确认的历史保存接口，暂不能写入配图。'), 'host');
+  if (!key || !storage || typeof saveData !== 'function') throw withFault(new Error('这个前端没给出能确认存盘的接口，画匣没敢把图写进去。'), 'host');
 
   const assertCurrent = (expected = original) => {
     const now = frontend(messageId);
     if (!now || now.frame !== frame || now.game !== game || now.win !== win
       || game.chatHistoryCache !== cache || cache.length !== length || cache[length - 1] !== target
       || target.message !== expected || historyKey(game) !== key || win.AppStorage !== storage
-      || storage.saveData !== saveData) throw new Error('前端回合已变化，本次结果没有写入前端缓存。');
+      || storage.saveData !== saveData) throw new Error('刚才前端回合变了，这次的结果没往前端缓存里写。');
     requireIdle(game, win);
   };
   return {
@@ -132,9 +132,9 @@ export function captureEmbeddedWrite(messageId: number, original: string) {
       try {
         const result = await Promise.race([
           saveData.call(storage, key, copy, { silent: true }),
-          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('前端历史保存超时。')), 30_000); }),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('前端存历史等太久超时了。')), 30_000); }),
         ]);
-        if (result === false) throw new Error('前端拒绝保存历史缓存。');
+        if (result === false) throw new Error('前端那边拒收这次历史缓存保存。');
         confirmed = true;
         assertCurrent(nextText);
       } catch (error) {

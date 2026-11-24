@@ -2,11 +2,11 @@ import { ImageResponseError, MAX_IMAGE_BYTES, PNG_MAGIC, requirePng } from './im
 function fail(message, fault) { throw new ImageResponseError(message, fault); }
 function dimensions(width, height) {
     if (!width || !height || width > 4096 || height > 4096)
-        fail('图片尺寸无效或超过 4096 像素。', 'decode');
+        fail('图片宽高读出来不对劲，或者超过 4096 像素了。', 'decode');
     return { width, height };
 }
 function jpegDimensions(bytes) {
-    const invalid = () => fail('JPEG 图片结构无效或数据不完整。', 'decode');
+    const invalid = () => fail('这张 JPEG 图片文件坏了或者没下全。', 'decode');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     let frame;
     let components = 0;
@@ -63,7 +63,7 @@ function jpegDimensions(bytes) {
     return invalid();
 }
 function webpDimensions(bytes) {
-    const invalid = () => fail('WebP 图片结构无效或数据不完整。', 'decode');
+    const invalid = () => fail('这张 WebP 图片文件坏了或者没下全。', 'decode');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (bytes.length < 20 || view.getUint32(4, true) !== bytes.length - 8)
         return invalid();
@@ -81,13 +81,13 @@ function webpDimensions(bytes) {
         if (next > bytes.length)
             return invalid();
         if (name === 'ANIM' || name === 'ANMF')
-            fail('接口返回了动态 WebP；当前仅支持单张静态图片。', 'decode');
+            fail('对面回了一张动图 WebP，画匣这里只收单张静态图。', 'decode');
         if (name === 'VP8X') {
             if (offset !== 12 || length !== 10 || canvas || bytes[start] & 0xc1
                 || bytes[start + 1] || bytes[start + 2] || bytes[start + 3])
                 return invalid();
             if (bytes[start] & 2)
-                fail('接口返回了动态 WebP；当前仅支持单张静态图片。', 'decode');
+                fail('对面回了一张动图 WebP，画匣这里只收单张静态图。', 'decode');
             canvas = dimensions(uint24(start + 4) + 1, uint24(start + 7) + 1);
         }
         else if (name === 'VP8 ') {
@@ -113,7 +113,7 @@ function webpDimensions(bytes) {
 async function decodeImage(blob, expected, signal) {
     signal.throwIfAborted();
     if (typeof Image !== 'function' || typeof URL.createObjectURL !== 'function') {
-        fail('当前浏览器不支持图片解码，请升级浏览器或 WebView 后重试。', 'setup');
+        fail('这个浏览器内核解不开图，升一下浏览器或者 WebView 版本再试吧。', 'setup');
     }
     let image;
     let url;
@@ -122,7 +122,7 @@ async function decodeImage(blob, expected, signal) {
         url = URL.createObjectURL(blob);
     }
     catch {
-        return fail('当前浏览器无法读取图片，请检查浏览器或 WebView 支持。', 'setup');
+        return fail('当前浏览器或 WebView 读不了图片数据。', 'setup');
     }
     return new Promise((resolve, reject) => {
         let settled = false;
@@ -141,7 +141,7 @@ async function decodeImage(blob, expected, signal) {
                 resolve(value);
         };
         const abort = () => finish(new DOMException('图片读取已取消。', 'AbortError'));
-        const invalid = () => finish(new ImageResponseError('图片无法解码：数据可能损坏，或当前浏览器不支持此图片格式。', 'decode'));
+        const invalid = () => finish(new ImageResponseError('图解不出来，可能文件本身坏了，或者当前浏览器不认这个格式。', 'decode'));
         const loaded = () => {
             if (settled)
                 return;
@@ -203,9 +203,9 @@ export function rasterImageType(bytes) {
 export async function readRasterImage(bytes, signal) {
     signal.throwIfAborted();
     if (!bytes.length)
-        fail('生图接口没有返回图片数据。');
+        fail('生图接口回了个空，没有图。');
     if (bytes.length > MAX_IMAGE_BYTES)
-        fail('接口返回的图片超过 32 MiB。');
+        fail('传回来的图太大了，超过 32 MiB 上限。');
     const type = rasterImageType(bytes);
     if (type === 'image/png') {
         requirePng(bytes);
@@ -224,13 +224,13 @@ export async function readRasterImage(bytes, signal) {
         // Never include upstream text in errors; it may contain HTML or credentials.
         const prefix = new TextDecoder().decode(bytes.subarray(0, 512)).trimStart();
         if (/^<(?:!doctype\s+html|html\b)/i.test(prefix)) {
-            fail('生图接口返回了 HTML 网页，请检查接口地址或登录、网关拦截情况。');
+            fail('接口回的是网页 HTML 而不是图，检查下接口地址，或者看是不是撞上了登录墙、网关盾。');
         }
         if (/^[\[{]/.test(prefix))
-            fail('生图接口返回了 JSON 数据，请检查密钥、额度和接口兼容性。');
+            fail('接口回了一段 JSON 而不是直接出图，查一下密钥、余额或者中转格式对不对。');
         if (bytes[0] === 0x50 && bytes[1] === 0x4b)
-            fail('图片内容仍是压缩包；请让接口返回单张 PNG、JPEG 或 WebP 图片。');
-        fail('生图接口未返回可识别的图片；当前支持 PNG、JPEG 和 WebP，请检查接口兼容性。');
+            fail('对面给过来还是个压缩包，得让接口返回单张 PNG、JPEG 或 WebP。');
+        fail('对面回来的数据认不出是哪类图（画匣只认 PNG、JPEG、WebP），查一下接口兼容性吧。');
     }
     const blob = new Blob([bytes.slice()], { type });
     const size = await decodeImage(blob, expected, signal);
@@ -244,5 +244,5 @@ export function imageFileExtension(blob) {
         return 'jpg';
     if (blob.type === 'image/webp')
         return 'webp';
-    return fail('图片格式不受支持，无法确定下载扩展名。');
+    return fail('这个图片格式不认识，没法替它加下载后缀名。');
 }

@@ -11,7 +11,7 @@ export function createSifangImageControl(entry, root, hooks) {
     const controller = new AbortController();
     let request = null;
     let phase = 'idle';
-    let status = '正在读取图片历史…';
+    let status = '正在翻出以前画的图…';
     let history = [];
     let selectedId = null;
     let historyAvailable = false;
@@ -51,7 +51,7 @@ export function createSifangImageControl(entry, root, hooks) {
         if (!history.some(item => item.entry.id === selectedId))
             selectedId = history.at(-1)?.entry.id ?? null;
         if (removed.length && !request)
-            status = history.length ? `剩余 ${history.length} 张图片` : '图片已清理，可重新生成。';
+            status = history.length ? `还剩 ${history.length} 张图` : '旧图清掉了，想要的话可以重画。';
         show();
         removed.forEach(item => URL.revokeObjectURL(item.url));
     }
@@ -116,7 +116,7 @@ export function createSifangImageControl(entry, root, hooks) {
                     return;
                 }
                 phase = progress.state;
-                report(progress.state === 'queued' ? `等待绘制 · 队列第 ${progress.position} 位` : '正在绘制…');
+                report(progress.state === 'queued' ? `排队等着画 · 第 ${progress.position} 位` : '正在画着呢…');
                 emitPetEvent({ type: 'image', id: pet, source, phase: progress.state, floor,
                     position: progress.state === 'queued' ? progress.position : undefined, columns: progress.columns,
                     width: parameters.width, height: parameters.height });
@@ -135,7 +135,7 @@ export function createSifangImageControl(entry, root, hooks) {
             saves.set(item.id, save);
             history.push({ entry: item, url: URL.createObjectURL(item.blob) });
             selectedId = item.id;
-            report('绘制完成，正在保存图片历史…');
+            report('画好啦，正把图存进历史里…');
             const place = hooks.watch();
             setTimeout(place.stop, 8000);
             endPet({ ...petImage, result: 'done', message: '', picture: {
@@ -143,12 +143,12 @@ export function createSifangImageControl(entry, root, hooks) {
                 } });
             try {
                 await save;
-                const saved = historyKey ? `已保存 ${history.length} 张图片 · 点击查看历史` : '图片仅保留在当前页面，可下载保存。';
+                const saved = historyKey ? `存好 ${history.length} 张图 · 点图能翻历史` : '图只临时挂在当前页面上，喜欢记得先下载保存。';
                 report(saved);
                 emitPetEvent({ type: 'history', id: pet, saved: true, pageOnly: !historyKey, message: saved });
             }
             catch (error) {
-                const failed = `图片已生成，但历史未保存：${error instanceof Error ? error.message : '浏览器存储不可用。'}`;
+                const failed = `图画好了，不过没存进历史里：${error instanceof Error ? error.message : '浏览器存储写不进去。'}`;
                 report(failed);
                 emitPetEvent({ type: 'history', id: pet, saved: false, message: failed });
             }
@@ -162,7 +162,7 @@ export function createSifangImageControl(entry, root, hooks) {
                 return;
             }
             const cancelled = job.signal.aborted;
-            report(cancelled ? '已取消本次等待，服务端任务可能仍在继续。' : error instanceof Error ? error.message : '生图未完成，请稍后重试。');
+            report(cancelled ? '不再等这张图了，不过对面的生成任务可能还在后台跑。' : error instanceof Error ? error.message : '这张没画出来，等会儿再点一次试试。');
             endPet({ ...petImage, result: cancelled ? 'cancelled' : 'failed', message: status,
                 fault: cancelled ? undefined : petFault(error), serverMayContinue: cancelled && phase !== 'queued' });
         }

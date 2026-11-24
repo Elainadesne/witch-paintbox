@@ -74,7 +74,7 @@ export class VibePanel {
         if (!state) {
             const p = document.createElement('p');
             p.className = 'config-status';
-            p.textContent = '正在读取氛围参考…';
+            p.textContent = '正在翻出之前存的氛围参考…';
             host.append(p);
             return;
         }
@@ -84,10 +84,10 @@ export class VibePanel {
         const intro = document.createElement('p');
         intro.className = 'config-status vibe-intro';
         intro.textContent = support === 'unavailable'
-            ? 'NAI 官方尚未为 V5 开放氛围参考，当前模型生图时会跳过这里的参考图。切到 V4 / V4.5 / V3 即可使用。'
+            ? 'NAI 官方还没给 V5 开放氛围参考，用 V5 画图时会先跳过这里塞的参考图；切回 V4、V4.5 或 V3 就能用上了。'
             : support === 'raw'
-                ? 'V3 直接发送原图，不需要编码。'
-                : '普通图片在首次生图时编码一次（每张 2 Anlas），按模型和信息提取度缓存在本机；导入的 .naiv4vibe 自带编码时不再扣费。';
+                ? 'V3 是直接传原图过去的，不用提前编码扣点数。'
+                : '普通图片第一次用时要编码一次（每张扣 2 Anlas），编好会按模型和提取度缓存在本机；如果是导入自带编码的 .naiv4vibe 文件，就不重复扣费了。';
         if (support === 'unavailable')
             intro.classList.add('is-warning');
         const list = document.createElement('ul');
@@ -110,11 +110,11 @@ export class VibePanel {
       <button type="button" class="text-button" data-vibe-action="export"${state.items.length ? '' : ' disabled'}>导出合集</button>`;
         const normalize = document.createElement('label');
         normalize.className = 'vibe-normalize';
-        normalize.innerHTML = `<input type="checkbox" data-vibe-normalize${state.normalize ? ' checked' : ''}>强度总和超过 1 时自动归一化`;
+        normalize.innerHTML = `<input type="checkbox" data-vibe-normalize${state.normalize ? ' checked' : ''}>几张图的强度加起来超过 1 时自动按比例压回 1`;
         const summary = document.createElement('p');
         summary.className = 'config-status vibe-summary';
         const extra = Math.max(0, enabled.length - VIBE_FREE_COUNT) * 2;
-        summary.textContent = `已启用 ${enabled.length} / ${VIBE_LIMIT} 张。${extra ? `超过 ${VIBE_FREE_COUNT} 张，每次生图额外约 ${extra} Anlas。` : `${VIBE_FREE_COUNT} 张以内不额外收费。`}${pending ? `下次生图需编码 ${pending} 张，约 ${pending * 2} Anlas。` : ''}`;
+        summary.textContent = `启用了 ${enabled.length} / ${VIBE_LIMIT} 张。${extra ? `超出了 ${VIBE_FREE_COUNT} 张，每次画图还要多扣大概 ${extra} Anlas。` : `${VIBE_FREE_COUNT} 张以内不另加钱。`}${pending ? `下回开画前还得编码 ${pending} 张（大概要 ${pending * 2} Anlas）。` : ''}`;
         if (extra || pending)
             summary.classList.add('is-warning');
         const status = document.createElement('p');
@@ -194,7 +194,7 @@ export class VibePanel {
             support === 'encoded' ? needsEncoding(item, this.model) ? (item.image ? '待编码 · 2 Anlas' : '缺少此模型编码') : '已缓存编码' : '',
             cached ? `${cached} 个模型有编码` : '',
         ].filter(Boolean).join(' · ');
-        body.append(head, slider('strength', '参考强度', '越高越贴近参考图的画风与构图；调整不需要重新编码。'), slider('informationExtracted', '信息提取度', '越低越只保留整体氛围；改动后需要重新编码（2 Anlas）。'), tags);
+        body.append(head, slider('strength', '参考强度', '拉得越高，成图的画风和构图越像这张参考；调它不用重新花钱编码。'), slider('informationExtracted', '信息提取度', '调低就只学大概意境和色调；只要改了这个值，下次画就得重新编码一次（2 Anlas）。'), tags);
         row.append(thumb, body);
         return row;
     }
@@ -206,7 +206,7 @@ export class VibePanel {
         this.busy = true;
         try {
             await saveVibe(item);
-            this.say('已保存。');
+            this.say('存好了。');
         }
         catch (error) {
             this.say(error.message, true);
@@ -234,7 +234,7 @@ export class VibePanel {
             this.busy = true;
             try {
                 await saveVibeNormalize(field.checked);
-                this.say('已保存。');
+                this.say('存好了。');
             }
             catch (error) {
                 this.say(error.message, true);
@@ -281,7 +281,7 @@ export class VibePanel {
             this.busy = false;
             await this.reload();
             const encoded = accepted.filter(item => Object.keys(item.encodings).length).length;
-            this.say(`已添加 ${accepted.length} 张${encoded ? `，其中 ${encoded} 张自带编码` : ''}。${added.length > accepted.length ? `超出 ${VIBE_LIMIT} 张上限，其余未添加。` : ''}`);
+            this.say(`加进来 ${accepted.length} 张${encoded ? `（其中 ${encoded} 张自带编码，省下一次编码费）` : ''}。${added.length > accepted.length ? `最多装 ${VIBE_LIMIT} 张，多余的没塞进去。` : ''}`);
         }
         catch (error) {
             this.busy = false;
@@ -307,7 +307,7 @@ export class VibePanel {
                 this.busy = false;
             }
             await this.reload();
-            this.say(`已移除“${item.name}”。`);
+            this.say(`已经把“${item.name}”拿掉了。`);
             return;
         }
         if (button.dataset.vibeAction === 'export') {
@@ -318,7 +318,7 @@ export class VibePanel {
             link.download = 'witch-paintbox.naiv4vibeBundle';
             link.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
-            this.say('已导出合集，可在 NovelAI 官网或其他画匣导入。');
+            this.say('合集已经导出来了，拿去 NovelAI 官网或者别的画匣里都能直接导入。');
         }
     }
 }

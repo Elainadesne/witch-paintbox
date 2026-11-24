@@ -20,7 +20,7 @@ async function readBoundedStream(stream, limit, signal, ensureActive) {
                 break;
             length += value.byteLength;
             if (length > limit)
-                fail('图片响应超出允许大小，已停止读取。');
+                fail('图片体积太大超出上限，已经停下接收。');
             chunks.push(value);
         }
         const bytes = new Uint8Array(length);
@@ -41,10 +41,10 @@ async function readResponse(response, limit, signal, ensureActive) {
     const length = Number(response.headers.get('content-length'));
     if (Number.isFinite(length) && length > limit) {
         void response.body?.cancel().catch(() => { });
-        fail('图片响应超出允许大小，已停止读取。');
+        fail('图片体积太大超出上限，已经停下接收。');
     }
     if (!response.body)
-        fail('图片接口没有返回数据。');
+        fail('生图接口回了个空，什么都没收到。');
     return readBoundedStream(response.body, limit, signal, ensureActive);
 }
 export function requireImageSupport() {
@@ -52,12 +52,12 @@ export function requireImageSupport() {
         new DecompressionStream('deflate-raw');
     }
     catch {
-        fail('当前浏览器不支持图片解压，请升级浏览器后再生成；尚未发送生图请求。', 'setup');
+        fail('你现在用的浏览器太旧，解不开图片压缩包，升级一下浏览器再来画（刚才还没发请求扣费）。', 'setup');
     }
 }
 /** Read bounded, single-disk ZIP/ZIP64 archives; never extract names to the filesystem. */
 async function readSingleImageZip(bytes, signal, ensureActive) {
-    const invalid = () => fail('NovelAI 返回的图片压缩包格式或校验无效。');
+    const invalid = () => fail('NovelAI 传回来的图片压缩包坏了或者校验没过。');
     if (bytes.length < 22 || bytes.length > MAX_IMAGE_BYTES)
         return invalid();
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -276,7 +276,7 @@ async function readSingleImageZip(bytes, signal, ensureActive) {
         }
         if (/\.(?:png|jpe?g|webp)$/i.test(name)) {
             if (selected || !expanded)
-                fail('生图压缩包应包含且仅包含一张图片。');
+                fail('生图压缩包里得刚好塞着一张图，这次对不上。');
             selected = { start, size, expanded, crc, method };
         }
         at = next;
@@ -287,7 +287,7 @@ async function readSingleImageZip(bytes, signal, ensureActive) {
     // the extracted bytes still go through the same format and integrity checks.
     selected ??= fileCount === 1 ? soleFile : undefined;
     if (!selected)
-        fail('生图压缩包中没有找到唯一的 PNG、JPEG 或 WebP 图片。');
+        fail('生图压缩包里没找着正经的 PNG、JPEG 或 WebP 图片。');
     const compressed = bytes.slice(selected.start, selected.start + selected.size);
     let image;
     try {
@@ -314,7 +314,7 @@ function imageReference(payload) {
             return payload.trim();
         if (Array.isArray(payload)) {
             if (payload.length !== 1)
-                fail('生图接口应返回且仅返回一张图片。');
+                fail('生图接口每次得正好返回一张图，这次数量不对。');
             payload = payload[0];
             continue;
         }
@@ -322,14 +322,14 @@ function imageReference(payload) {
             break;
         const item = payload;
         if (item.error || item.success === false)
-            fail('生图接口返回了错误数据，请检查密钥、额度和接口兼容性。');
+            fail('生图接口返回报错了，查一下密钥、余额或者中转站兼容情况。');
         for (const key of ['b64_json', 'base64', 'image', 'url']) {
             if (typeof item[key] === 'string' && item[key].trim())
                 return item[key].trim();
         }
         payload = item.data ?? item.images;
     }
-    return fail('生图接口返回了 JSON，但未包含可识别的图片数据或图片 URL；请检查密钥、额度和接口兼容性。');
+    return fail('对面回了一段 JSON，里面却找不着图片数据或链接；看看是不是密钥、余额或接口格式出了岔子。');
 }
 async function readImageReference(value, signal, ensureActive) {
     ensureActive();
@@ -340,10 +340,10 @@ async function readImageReference(value, signal, ensureActive) {
         url = new URL(value);
     }
     catch {
-        return fail('接口返回的图片 URL 无效。');
+        return fail('接口给的图片链接打不开，格式不对。');
     }
     if (value.length > 8192 || !['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash) {
-        fail('接口返回的图片 URL 不受支持。');
+        fail('接口给的图片链接带了不支持的协议或参数。');
     }
     // Fetch only the returned image, once. Never forward the API key or cookies.
     let response;
@@ -354,12 +354,12 @@ async function readImageReference(value, signal, ensureActive) {
     }
     catch {
         ensureActive();
-        return fail('无法读取接口返回的图片 URL，请检查图片地址、跨域访问或重定向设置；没有重新发起生图。', 'network');
+        return fail('去拉接口给的图片链接时失败了，看看是不是图片地址、跨域或者跳转被拦（没重新发起生图）。', 'network');
     }
     ensureActive();
     if (!response.ok) {
         void response.body?.cancel().catch(() => { });
-        fail(`读取图片 URL 失败（HTTP ${response.status}）；没有重新发起生图。`, 'network');
+        fail(`图床链接没拉下来（HTTP ${response.status}），这次没有重新扣费生图。`, 'network');
     }
     return readResponse(response, MAX_IMAGE_BYTES, signal, ensureActive);
 }
@@ -372,21 +372,21 @@ export async function readImageResponse(response, signal, ensureActive) {
         const prefix = new TextDecoder().decode(bytes.subarray(0, 512)).trimStart();
         // Never echo arbitrary upstream content: it may contain credentials or HTML.
         if (!bytes.length)
-            fail('生图服务没有返回图片数据。');
+            fail('生图服务回了个空数据包。');
         if (prefix.startsWith('<')) {
-            fail('生图服务返回了 HTML 网页，没有返回图片。请检查服务 URL 是否为生图接口，或是否被登录页、网关拦截。');
+            fail('对面吐回来的是一张网页 HTML，不是图片！看看服务 URL 是不是填错成了主页，或者被登录页、Cloudflare 盾给拦住了。');
         }
         const isJson = /^[\[{"]/.test(prefix);
         const isBase64 = /^data:image\//i.test(prefix) || /^[A-Za-z0-9+/\s]+=*$/.test(prefix);
         const isUrl = /^https?:\/\//i.test(prefix);
         if (!isJson && !isBase64 && !isUrl)
-            fail('生图服务返回了无法识别的数据；支持 PNG、JPEG、WebP、图片压缩包及 base64 / JSON 图片。');
+            fail('对面传回来的数据画匣认不出来（目前认 PNG、JPEG、WebP、压缩包和 base64 / JSON 图片）。');
         let source;
         try {
             source = new TextDecoder('utf-8', { fatal: true }).decode(bytes).trim();
         }
         catch {
-            return fail('生图服务返回的数据既不是有效图片，也不是可识别的文本图片数据。');
+            return fail('对面传回来的内容既不是图，也不是能拆出来的图片数据。');
         }
         if (isJson) {
             let payload;
@@ -394,7 +394,7 @@ export async function readImageResponse(response, signal, ensureActive) {
                 payload = JSON.parse(source);
             }
             catch {
-                return fail('生图接口返回的 JSON 不完整或格式无效。');
+                return fail('生图接口回的 JSON 没传全或者格式碎了。');
             }
             source = imageReference(payload);
         }

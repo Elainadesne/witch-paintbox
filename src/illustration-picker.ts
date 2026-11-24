@@ -17,7 +17,7 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
     </header>
     <div class="illustration-picker-body">
       <div class="illustration-picker-toolbar">
-        <div><p data-source>正在读取最新回复…</p><p class="muted" data-hint>点击自然段加入配图清单，每项一张。</p></div>
+        <div><p data-source>正在拿最新一楼正文…</p><p class="muted" data-hint>点一下自然段就能放进右边清单，每段出 1 张图。</p></div>
         <button type="button" class="secondary" data-refresh>重新读取正文</button>
         <div class="illustration-modes" role="group" aria-label="正文选取方式">
           <button type="button" data-mode="paragraph" aria-pressed="true">正文原文</button>
@@ -112,7 +112,7 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
     if (!selection || firstLine === null || lastLine === null) return {};
     try {
       const unit = groupIllustrationLines(selection.plan, units, firstLine, lastLine);
-      return overlaps(unit) ? { error: '选区与配图清单重叠。' } : { unit };
+      return overlaps(unit) ? { error: '这段和右边清单里挑过的重了。' } : { unit };
     } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
   }
 
@@ -132,7 +132,7 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
       : firstLine !== null && units[firstLine] ? `首行：${units[firstLine].lineStart} · 末行待选` : '首行待选');
     button('add-range').disabled = busy || !draft.unit || !selection || cart.length >= selection.capacity;
     button('clear-range').disabled = busy || firstLine === null;
-    count.textContent = `清单 ${cart.length} 项 · ${cart.length} 张配图${selection ? ` · 最多 ${selection.capacity} 项` : ''}`;
+    count.textContent = `清单里 ${cart.length} 处 · 共画 ${cart.length} 张${selection ? ` · 最多挑 ${selection.capacity} 处` : ''}`;
     panel.querySelector('[data-cart-count]')!.textContent = String(cart.length);
     panel.querySelector('[data-drawer-count]')!.textContent = String(cart.length);
     button('submit').disabled = busy || !selection || !cart.length || (manual && firstLine !== null);
@@ -162,8 +162,8 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
       control.classList.toggle('is-added', added);
       control.classList.toggle('is-overlap', overlap);
       control.disabled = busy || !selection || added || overlap || cart.length >= selection.capacity;
-      control.title = added ? '已加入配图清单，可在清单中移除' : overlap
-        ? '与清单中已有范围重叠，请先移除对应项' : manual ? `选择${firstLine === null || lastLine !== null ? '首' : '末'}行 · 第 ${unit.lineStart} 行`
+      control.title = added ? '已经在清单里了，去右边就能删' : overlap
+        ? '跟清单里挑好的位置撞了，先删掉那项再选' : manual ? `挑第 ${unit.lineStart} 行当${firstLine === null || lastLine !== null ? '开头' : '结尾'}`
           : `加入配图清单 · ${range(unit)} · 第 ${unit.lineStart}—${unit.lineEnd} 行`;
     }
     cartList.querySelectorAll<HTMLButtonElement>('button').forEach(control => { control.disabled = busy; });
@@ -193,7 +193,7 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
     if (loading || running || processor.busy) return;
     excludedTags = saveExcludedTags(next);
     renderExcluded();
-    excludedNote.textContent = note + (cart.length ? '正文已重新读取，配图清单已清空。' : '正文已重新读取。');
+    excludedNote.textContent = note + (cart.length ? '正文重新拿过来了，原本的清单已经清空。' : '正文重新拿过来了。');
     void read();
   }
 
@@ -233,9 +233,9 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
     reading.dataset.mode = manual ? 'manual' : mode;
     reading.setAttribute('aria-label', manual ? '正文行选区' : '点击正文加入配图清单');
     hint.hidden = manual;
-    hint.textContent = mode === 'sentence' ? '点击一句话加入清单，配图插在这句话后。'
-      : mode === 'lines' ? '按非空原文行分段；每项由 AI 在所选范围内选一处配图。'
-        : '点击自然段加入配图清单，每项一张；切换选取方式会保留清单。';
+    hint.textContent = mode === 'sentence' ? '点中哪句话，等会儿配图就插在这句话后面。'
+      : mode === 'lines' ? '按非空行分段；这一大段里让 AI 自己挑最合适的地方插 1 张图。'
+        : '点一下自然段就加进右边清单（每段 1 张）；切别的挑法时，已经选好的还会留着。';
     const fragment = document.createDocumentFragment();
     let passage: HTMLDivElement | undefined;
     let previousLine = -1;
@@ -310,7 +310,7 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
     clearRange();
     pointOffsets.clear();
     reading.replaceChildren();
-    source.textContent = '正在读取最新回复…';
+    source.textContent = '正在拿最新一楼正文…';
     showStatus('');
     renderCart();
     try {
@@ -322,7 +322,7 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
       renderReading();
     } catch (error) {
       if (version !== readVersion || signal.aborted || !panel.open) return;
-      source.textContent = '正文暂不可用';
+      source.textContent = '这会儿拿不到正文';
       showStatus(error instanceof Error ? error.message : String(error), true);
     } finally {
       if (version === readVersion) { loading = false; syncControls(); }
@@ -379,9 +379,9 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
     event.preventDefault();
     const input = excludedForm.elements.namedItem('tag') as HTMLInputElement;
     const name = normalizeTagName(input.value);
-    if (!name) { excludedNote.textContent = '标签名不能为空，也不能含空格、引号、等号、斜杠或尖括号，最长 40 个字符。'; return; }
-    if (excludedTags.some(tag => tag.toLowerCase() === name.toLowerCase())) { excludedNote.textContent = `<${name}> 已在排除列表里。`; input.value = ''; return; }
-    if (excludedTags.length >= MAX_EXCLUDED_TAGS) { excludedNote.textContent = `最多排除 ${MAX_EXCLUDED_TAGS} 个标签。`; return; }
+    if (!name) { excludedNote.textContent = '标签名不能为空，别带空格、引号、等号、斜杠或尖括号，最长 40 个字。'; return; }
+    if (excludedTags.some(tag => tag.toLowerCase() === name.toLowerCase())) { excludedNote.textContent = `<${name}> 已经在排除单子里啦。`; input.value = ''; return; }
+    if (excludedTags.length >= MAX_EXCLUDED_TAGS) { excludedNote.textContent = `最多排除 ${MAX_EXCLUDED_TAGS} 个标签，装不下了。`; return; }
     input.value = '';
     changeExcluded([...excludedTags, name], `已排除 <${name}>。`);
   }, { signal });
@@ -406,7 +406,7 @@ export function bindIllustrationPicker(root: ShadowRoot, signal: AbortSignal, pr
     }
     cart.push(unit);
     renderCart();
-    showStatus(`已加入第 ${cart.length} 项。可继续选取场景，最后统一提交。`);
+    showStatus(`加好第 ${cart.length} 项啦，可以接着挑，选完一起点提交。`);
   }, { signal });
   cartList.addEventListener('click', event => {
     const target = (event.target as Element).closest<HTMLButtonElement>('button[data-remove]');

@@ -38,71 +38,71 @@ export type ParsedArchive = Envelope & (
 export interface ArchiveSummary { title: string; detail: string }
 
 function object(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label}格式无效。`);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label}的格式不对。`);
   return value as Record<string, unknown>;
 }
 
 function fields(value: Record<string, unknown>, names: string[], label: string): void {
   if (Object.keys(value).length !== names.length || names.some(name => !Object.hasOwn(value, name))) {
-    throw new Error(`${label}字段缺失或含有不支持的配置，请使用完整的魔女画匣导出文件。`);
+    throw new Error(`${label}少东西或者带着认不出的字段，拿完整的魔女画匣导出文件再试。`);
   }
 }
 
 function preferences(value: unknown): Settings {
   const source = object(value, '使用偏好');
   if (typeof source.rememberPage !== 'boolean' || typeof source.rememberPosition !== 'boolean' || !isPageId(source.lastPage)) {
-    throw new Error('使用偏好格式无效。');
+    throw new Error('使用偏好那一段格式不对。');
   }
   let position = null;
   if (source.position !== null) {
     const point = object(source.position, '悬浮球位置');
     if (typeof point.x !== 'number' || !Number.isFinite(point.x) || typeof point.y !== 'number' || !Number.isFinite(point.y)) {
-      throw new Error('悬浮球位置格式无效。');
+      throw new Error('悬浮球位置的数据不对。');
     }
     position = { x: point.x, y: point.y };
   }
   const optional = defaultSettings();
   if (source.imageRetentionDays !== undefined) {
-    if (![0, 1, 3, 7].includes(source.imageRetentionDays as number)) throw new Error('图片保留时间格式无效。');
+    if (![0, 1, 3, 7].includes(source.imageRetentionDays as number)) throw new Error('图片保留天数只能选关闭或 1 / 3 / 7 天。');
     optional.imageRetentionDays = source.imageRetentionDays as Settings['imageRetentionDays'];
   }
   if (source.autoProcessReplies !== undefined) {
-    if (typeof source.autoProcessReplies !== 'boolean') throw new Error('回复后自动写 Tag 偏好格式无效。');
+    if (typeof source.autoProcessReplies !== 'boolean') throw new Error('“回复后自动写 Tag”这个开关的值不对。');
     optional.autoProcessReplies = source.autoProcessReplies;
   }
   if (source.autoGenerateImages !== undefined) {
-    if (typeof source.autoGenerateImages !== 'boolean') throw new Error('新标记自动出图偏好格式无效。');
+    if (typeof source.autoGenerateImages !== 'boolean') throw new Error('“新标记自动出图”这个开关的值不对。');
     optional.autoGenerateImages = source.autoGenerateImages;
   }
   if (source.autoImageDelay !== undefined) {
     const delay = readAutoImageDelay(source.autoImageDelay);
-    if (delay === null) throw new Error('自动出图等待与间隔须在 0～60 秒之间。');
+    if (delay === null) throw new Error('自动出图等待和间隔得在 0 到 60 秒之间。');
     optional.autoImageDelay = delay;
   }
   if (source.imageConcurrency !== undefined) {
     const concurrency = readImageConcurrency(source.imageConcurrency);
-    if (concurrency === null) throw new Error('最大同时生图数须为 1～4 的整数。');
+    if (concurrency === null) throw new Error('最大同时生图数只能填 1 到 4 的整数。');
     optional.imageConcurrency = concurrency;
   }
   for (const name of ['petLines', 'petMotion', 'petAway'] as const) {
     const value = source[name];
     if (value === undefined) continue;
-    if (typeof value !== 'boolean') throw new Error('使用偏好格式无效。');
+    if (typeof value !== 'boolean') throw new Error('使用偏好里有个开关的值不对。');
     optional[name] = value;
   }
   if (source.excludedTags !== undefined) {
     const tags = readExcludedTags(source.excludedTags);
-    if (!tags) throw new Error('排除标签格式无效。');
+    if (!tags) throw new Error('排除标签那一段格式不对。');
     optional.excludedTags = tags;
   }
   if (source.paintboxTheme !== undefined) {
-    if (!isPaintboxTheme(source.paintboxTheme)) throw new Error('画匣色调格式无效。');
+    if (!isPaintboxTheme(source.paintboxTheme)) throw new Error('画匣色调的选项值不对。');
     optional.paintboxTheme = source.paintboxTheme;
   }
   if (source.petPlacement !== undefined) optional.petPlacement = readPetPlacement(source.petPlacement);
   if (source.petScale !== undefined) {
     if (typeof source.petScale !== 'number' || !Number.isFinite(source.petScale) || source.petScale < 0.5 || source.petScale > 1.5) {
-      throw new Error('缇娅的大小须在 50%～150% 之间。');
+      throw new Error('缇娅的大小得在 50% 到 150% 之间。');
     }
     optional.petScale = readPetScale(source.petScale);
   }
@@ -112,7 +112,7 @@ function preferences(value: unknown): Settings {
 const providerName = (provider: ImageProvider): string => imageProviderName(provider);
 
 function imageProvider(value: unknown): ImageProvider {
-  if (!IMAGE_PROVIDERS.includes(value as ImageProvider)) throw new Error('配置文件的生图类型无效。');
+  if (!IMAGE_PROVIDERS.includes(value as ImageProvider)) throw new Error('配置文件里写的生图服务认不出来。');
   return value as ImageProvider;
 }
 
@@ -144,7 +144,7 @@ function worldbookSettings(value: unknown, version: 1 | 2): WorldbookSettings {
   const worldbooks = validateWorldbookArchive(source.worldbooks);
   let raw: Record<string, unknown>;
   if (version === 1) {
-    if (!Array.isArray(source.attachments)) throw new Error('旧版世界书挂载必须是数组。');
+    if (!Array.isArray(source.attachments)) throw new Error('旧版世界书挂载那一段格式不对。');
     raw = { novelai: source.attachments, openai: [] };
   } else {
     raw = object(source.attachments, '世界书挂载');
@@ -170,23 +170,23 @@ async function encodePortrait(blob: Blob | null): Promise<string | null> {
 function decodePortrait(value: unknown): Blob | null {
   if (value === null) return null;
   if (typeof value !== 'string' || value.length > Math.ceil(ANCHOR_PORTRAIT_LIMIT / 3) * 4 + 64) {
-    throw new Error('角色图格式无效或超过 10 MiB。');
+    throw new Error('角色图格式不对，或者图片超过 10 MiB 了。');
   }
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
-  if (!match) throw new Error('角色图必须是内嵌的 PNG、JPEG 或 WebP。');
+  if (!match) throw new Error('角色图得是内嵌进文件的 PNG、JPEG 或 WebP。');
   let binary: string;
-  try { binary = atob(match[2]); } catch { throw new Error('角色图编码损坏。'); }
+  try { binary = atob(match[2]); } catch { throw new Error('角色图的数据编码坏了。'); }
   const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
   const valid = match[1] === 'image/png'
     ? [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => bytes[index] === byte)
     : match[1] === 'image/jpeg' ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
       : binary.startsWith('RIFF') && binary.slice(8, 12) === 'WEBP';
-  if (!valid) throw new Error('角色图内容与图片类型不符。');
+  if (!valid) throw new Error('角色图的实际内容跟声明的图片格式对不上。');
   return new Blob([bytes], { type: match[1] });
 }
 
 function anchors(value: unknown): CharacterAnchor[] {
-  if (!Array.isArray(value) || value.length > 10_000) throw new Error('角色锚定列表无效。');
+  if (!Array.isArray(value) || value.length > 10_000) throw new Error('角色锚定列表不对（或者数量太夸张了）。');
   return validateAnchorLibrary(value.map(raw => {
     const item = object(raw, '角色锚定');
     return { ...item, portrait: decodePortrait(item.portrait) };
@@ -199,7 +199,7 @@ export function checkWorldbookLinks(attachments: WorldbookAttachments, books: St
     for (const selected of attachments[provider]) {
       const entries = available.get(selected.name);
       if (!entries || selected.entries.some(id => !entries.has(id))) {
-        throw new Error(`${providerName(provider)} 世界书挂载“${selected.name}”缺少对应书籍或条目，无法完整迁移。`);
+        throw new Error(`${providerName(provider)} 这边挂载的“${selected.name}”在书库里找不齐书或条目，没法完整搬过来。`);
       }
     }
   }
@@ -223,23 +223,23 @@ export function archiveUrlCount(archive: ParsedArchive): number {
 }
 
 export function parseArchive(source: string): ParsedArchive {
-  if (source.length > MAX_ARCHIVE_BYTES || new TextEncoder().encode(source).byteLength > MAX_ARCHIVE_BYTES) throw new Error('配置文件不能超过 128 MiB。');
+  if (source.length > MAX_ARCHIVE_BYTES || new TextEncoder().encode(source).byteLength > MAX_ARCHIVE_BYTES) throw new Error('配置文件超过了 128 MiB 上限。');
   let decoded: unknown;
   try { decoded = JSON.parse(source.replace(/^\uFEFF/, '')); }
-  catch { throw new Error('文件不是有效的 JSON。'); }
+  catch { throw new Error('这文件不是合法的 JSON，是不是下坏了？'); }
   const raw = object(decoded, '配置文件');
   fields(raw, ['format', 'version', 'kind', 'exportedAt', 'includesKeys', 'data'], '配置文件');
-  if (raw.format !== 'witch-paintbox-config') throw new Error('请选择魔女画匣导出的配置文件；原始模型预设和世界书 JSON 请在各自页面导入。');
-  if (raw.version !== 1 && raw.version !== 2) throw new Error('不支持这个配置文件版本，请更新插件后重试。');
+  if (raw.format !== 'witch-paintbox-config') throw new Error('这里只能导魔女画匣自己导出的配置文件；原本的酒馆预设或世界书 JSON 要去各自页面导。');
+  if (raw.version !== 1 && raw.version !== 2) throw new Error('这个配置文件的版本认不出来，先升级一下画匣再试吧。');
   if (!['all', 'artists', 'presets', 'worldbooks'].includes(String(raw.kind)) || typeof raw.includesKeys !== 'boolean'
     || typeof raw.exportedAt !== 'string' || raw.exportedAt.length > 64 || !Number.isFinite(Date.parse(raw.exportedAt))) {
-    throw new Error('配置文件的类型、时间或密钥标记无效。');
+    throw new Error('配置文件头部里的类型、时间或密钥标记对不上。');
   }
   const base: Envelope = { format: 'witch-paintbox-config', version: raw.version, kind: raw.kind as ArchiveKind,
     exportedAt: raw.exportedAt, includesKeys: raw.includesKeys };
   const data = object(raw.data, '配置内容');
   let result: ParsedArchive;
-  if (raw.kind !== 'all' && raw.includesKeys) throw new Error('局部配置文件不应包含密钥。');
+  if (raw.kind !== 'all' && raw.includesKeys) throw new Error('只分享画师串/预设的文件里不该夹着 API 密钥，已拦下。');
   if (raw.kind === 'artists') {
     fields(data, raw.version === 1 ? ['artists'] : ['provider', 'artists'], '画师串分享文件');
     const provider = raw.version === 1 ? 'novelai' : imageProvider(data.provider);
@@ -256,20 +256,20 @@ export function parseArchive(source: string): ParsedArchive {
     let image: AllImageSettings, model: AllModelSettings;
     if (raw.version === 1) {
       const modelRaw = object(data.model, '模型配置');
-      if (modelRaw.worldbookSource !== 'uploads') throw new Error('配置文件的世界书来源不受支持。');
+      if (modelRaw.worldbookSource !== 'uploads') throw new Error('这份配置里的世界书来源格式现在用不了。');
       image = validateAllImageSettings(validateImageSettings({ ...object(data.image, '生图配置'), provider: 'novelai' }));
       model = validateAllModelSettings(validateModelSettings({ ...modelRaw, presetProvider: 'novelai' }));
     } else {
       const modelRaw = object(data.model, '模型配置');
       if (object(data.image, '生图配置').version !== 2 || modelRaw.version !== 2) {
-        throw new Error('新版完整配置必须包含各生图通道的配置。');
+        throw new Error('新版完整配置文件里得把各个生图通道的块带全。');
       }
       const presets = object(modelRaw.presets, '模型预设');
       for (const provider of IMAGE_PROVIDERS) {
         // Gemini / Grok presets are absent in files exported before those channels existed.
         if (presets[provider] === undefined && (provider === 'gemini' || provider === 'grok')) continue;
         if (object(presets[provider], `${providerName(provider)} 预设`).worldbookSource !== 'uploads') {
-          throw new Error(`${providerName(provider)} 预设的世界书来源不受支持。`);
+          throw new Error(`${providerName(provider)} 预设里的世界书来源格式现在用不了。`);
         }
       }
       image = validateAllImageSettings(data.image);
@@ -280,7 +280,7 @@ export function parseArchive(source: string): ParsedArchive {
     const sharedOutfits = validateSharedOutfits(Object.hasOwn(data, 'sharedOutfits') ? data.sharedOutfits : []);
     result = { ...base, kind: 'all', data: { image, model, worldbooks, anchors: anchors(data.anchors), sharedOutfits, preferences: preferences(data.preferences) } };
   }
-  if (!result.includesKeys && archiveKeyCount(result)) throw new Error('文件标记为不含密钥，但实际包含密钥，已停止导入。');
+  if (!result.includesKeys && archiveKeyCount(result)) throw new Error('文件头写着不含密钥，里面却偷偷夹了密钥，为了安全已经停下导入。');
   return result;
 }
 
@@ -318,16 +318,16 @@ export async function exportArchive(kind: ArchiveKind, includeKeys: boolean, con
     data = { image, model, preferences: readSettings(context), anchors: portable, sharedOutfits: loadSharedOutfits(), worldbooks };
   }
   const blob = new Blob([JSON.stringify({ ...envelope, data }, null, 2)], { type: 'application/json' });
-  if (blob.size > MAX_ARCHIVE_BYTES) throw new Error('配置文件超过 128 MiB，请先减少角色图或世界书体积。');
+  if (blob.size > MAX_ARCHIVE_BYTES) throw new Error('导出的包超过 128 MiB 了，先删减一点角色图或大世界书再导吧。');
   return blob;
 }
 
 export function summarizeArchive(archive: ParsedArchive): ArchiveSummary[] {
   const rows: ArchiveSummary[] = [];
   if (archive.version === 1) rows.push({ title: '旧版配置兼容', detail: archive.kind === 'all'
-    ? '旧版单套配置归入 NAI；文件中其他通道为空，不会改动本地对应配置。'
+    ? '老版本那一套配置会归进 NAI；文件里没有的其他通道，本地原本配好的不会动。'
     : archive.kind === 'worldbooks' ? '旧版世界书挂载归入 NAI。'
-      : '旧版分享文件的目标为 NAI，不会替换 GPT 的画师串或预设。' });
+      : '老版本分享文件默认归给 NAI，不会覆盖其他服务的画师串和预设。' });
   if (archive.kind === 'artists') {
     const artists = archive.data.artists;
     rows.push({ title: `${providerName(archive.data.provider)} 画师串`, detail: `${artists.artists.length} 个命名配置及当前提示词、选用状态。${artists.artists.map(item => item.name).join('、')}` });
@@ -341,7 +341,7 @@ export function summarizeArchive(archive: ParsedArchive): ArchiveSummary[] {
   if (archive.kind === 'worldbooks') {
     const { worldbooks, attachments } = archive.data;
     rows.push({ title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目。${worldbooks.map(book => book.name).join('、')}` });
-    for (const provider of IMAGE_PROVIDERS) rows.push({ title: `${providerName(provider)} 条目挂载`, detail: `${attachments[provider].reduce((total, book) => total + book.entries.length, 0)} 个条目，来自 ${attachments[provider].filter(book => book.entries.length).length} 本书；该套世界书层的启用状态和预设位置保留当前设置。` });
+    for (const provider of IMAGE_PROVIDERS) rows.push({ title: `${providerName(provider)} 条目挂载`, detail: `${attachments[provider].reduce((total, book) => total + book.entries.length, 0)} 个条目（共 ${attachments[provider].filter(book => book.entries.length).length} 本书）；原本世界书层开没开、排在预设哪儿继续沿用本地设置。` });
     return rows;
   }
   const { image, model, anchors, sharedOutfits, worldbooks } = archive.data;
@@ -364,6 +364,6 @@ export function summarizeArchive(archive: ParsedArchive): ArchiveSummary[] {
     { title: '标签锚定', detail: `${anchors.length} 个角色、${anchors.reduce((total, anchor) => total + anchor.aliases.length, 0)} 个别名、${anchors.reduce((total, anchor) => total + anchor.outfits.length, 0)} 套服装、${anchors.filter(anchor => anchor.portrait).length} 张角色图。` },
     { title: '通用服装库', detail: `${sharedOutfits.length} 套通用服装。${sharedOutfits.map(outfit => outfit.name).join('、')}` },
     { title: '世界书', detail: `${worldbooks.length} 本、${worldbooks.reduce((total, book) => total + book.entries.length, 0)} 个条目，含各通道挂载关系。${worldbooks.map(book => book.name).join('、')}` },
-    { title: '生图设置与使用偏好', detail: `含生图设置、页面记忆与悬浮球位置。最大同时生图数：${archive.data.preferences.imageConcurrency} 张。回复后自动写 Tag：${archive.data.preferences.autoProcessReplies ? '开启' : '关闭'}；新标记自动出图：${archive.data.preferences.autoGenerateImages ? '开启' : '关闭'}（仅限最新一楼，间隔 ${archive.data.preferences.autoImageDelay} 秒）；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，采用文件偏好后会清理本机过期图片` : '关闭'}。` });
+    { title: '生图设置与使用偏好', detail: `含出图习惯、上次页码和悬浮球位置。最多同时画 ${archive.data.preferences.imageConcurrency} 张；回复后自动写 Tag：${archive.data.preferences.autoProcessReplies ? '开' : '关'}；新标记自动出图：${archive.data.preferences.autoGenerateImages ? '开' : '关'}（只管最新一楼，间隔 ${archive.data.preferences.autoImageDelay} 秒）；自动清理：${archive.data.preferences.imageRetentionDays ? `保留 ${archive.data.preferences.imageRetentionDays} 天，应用后会清掉过期的本地图` : '关'}。` });
   return rows;
 }

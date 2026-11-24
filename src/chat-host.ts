@@ -75,14 +75,14 @@ function host(): ChatHost {
   const root = globalThis as typeof globalThis & { SillyTavern?: { getContext(): unknown } };
   const value = root.SillyTavern?.getContext() as Partial<ChatHost> | undefined;
   if (!value || !Array.isArray(value.chat) || typeof value.getRequestHeaders !== 'function') {
-    throw new ChatHostError('当前环境没有提供酒馆聊天接口。');
+    throw new ChatHostError('这个环境里没接通酒馆聊天接口。');
   }
   return value as ChatHost;
 }
 
 function chatId(context: ChatHost): string {
   const value = context.getCurrentChatId?.() ?? context.chatId;
-  if (value === undefined || value === null || value === '') throw new ChatHostError('请先打开一个已保存的聊天。');
+  if (value === undefined || value === null || value === '') throw new ChatHostError('得先打开一个已经保存过的聊天才行。');
   return String(value);
 }
 
@@ -93,20 +93,20 @@ async function nativeState() {
     import(new URL('/script.js', location.href).href),
     import(new URL('/scripts/group-chats.js', location.href).href),
   ]).then(([main, group]) => ({ main: main as NativeState, group: group as { is_group_generating?: boolean } }))
-    .catch(() => { nativePromise = undefined; throw new ChatHostError('无法核对酒馆生成状态，请稍后重试。'); });
+    .catch(() => { nativePromise = undefined; throw new ChatHostError('没法确认酒馆现在是不是还在输出，稍后再试试。'); });
   return nativePromise;
 }
 
 function requireIdle(state: Awaited<ReturnType<typeof nativeState>>): void {
   if (typeof state.main.isGenerating !== 'function' && typeof state.main.is_send_press !== 'boolean') {
-    throw new ChatHostError('当前酒馆版本未提供生成状态，暂时不能安全处理楼层。');
+    throw new ChatHostError('你这版酒馆没提供生成状态接口，画匣不敢贸然改楼层。');
   }
   if (state.main.isGenerating?.() || state.main.is_send_press || state.group.is_group_generating) {
-    throw new ChatHostError('请等酒馆完成当前回复后再处理。');
+    throw new ChatHostError('等酒馆把这一楼写完，再点处理哦。');
   }
-  if (state.main.isChatSaving || saving) throw new ChatHostError('酒馆正在保存聊天，请稍后再试。');
+  if (state.main.isChatSaving || saving) throw new ChatHostError('酒馆正存着聊天呢，稍等一秒再点。');
   if (document.querySelector('#chat .edit_textarea, #chat .reasoning_edit_textarea')) {
-    throw new ChatHostError('请先完成或取消正在进行的楼层编辑。');
+    throw new ChatHostError('你现在还开着楼层编辑框呢，保存或取消编辑后再继续吧。');
   }
 }
 
@@ -137,14 +137,14 @@ function latestAssistant(context: ChatHost): number {
     const message = context.chat[id];
     if (message && !message.is_user && !message.is_system && typeof message.mes === 'string') return id;
   }
-  throw new ChatHostError('当前聊天还没有可处理的 AI 回复。');
+  throw new ChatHostError('聊到这儿还没有可以加配图的 AI 回复呢。');
 }
 
 function currentSwipe(message: ChatMessage): number | null {
   if (!Array.isArray(message.swipes)) return null;
   const id = message.swipe_id ?? 0;
   if (!Number.isInteger(id) || id < 0 || id >= message.swipes.length || typeof message.swipes[id] !== 'string') {
-    throw new ChatHostError('当前楼层的 swipe 状态无效，请重新打开聊天。');
+    throw new ChatHostError('这一楼的分支切换状态不对劲，退出来重进一次聊天吧。');
   }
   return id;
 }
@@ -184,7 +184,7 @@ function sameTarget(snapshot: ChatSnapshot, expectedText: string): ChatHost | nu
 
 function requireSnapshot(snapshot: ChatSnapshot): ChatHost {
   const context = sameTarget(snapshot, snapshot.text);
-  if (!context) throw new ChatHostError('聊天或原回复已发生变化，本次结果没有写回。');
+  if (!context) throw new ChatHostError('刚才切了聊天或者原楼层变了，为了防止写串，这次结果没写回去。');
   return context;
 }
 
@@ -194,7 +194,7 @@ export async function captureLatestAssistant(): Promise<ChatSnapshot> {
   requireIdle(state);
   const context = host();
   const id = latestAssistant(context);
-  if (!context.chat[id].mes.trim()) throw new ChatHostError('最新 AI 回复为空。');
+  if (!context.chat[id].mes.trim()) throw new ChatHostError('最新一楼 AI 回复还是空的。');
   return takeSnapshot(context, id);
 }
 
@@ -238,7 +238,7 @@ function matchesSavedChat(value: unknown, expected: ChatMessage[], metadata: Rec
 /** Commit only after the host confirms storage; updating image controls never rebuilds the floor. */
 export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: ImageInsertionResult, signal?: AbortSignal): Promise<ChatSnapshot> {
   const nextText = result.text;
-  if (typeof nextText !== 'string' || !nextText.trim()) throw new ChatHostError('处理结果为空，原回复已保留。');
+  if (typeof nextText !== 'string' || !nextText.trim()) throw new ChatHostError('处理出来是空的，楼层原文一点没动。');
   if (isSifangEnvironment()) return replaceSifangAssistant(snapshot, nextText, signal);
   const change: ImageDisplayChange = {
     previousText: snapshot.text, text: nextText, added: result.added.map(marker => ({ ...marker })),
@@ -259,11 +259,11 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: Im
     ? undefined : context.groups.find(item => String(item.id) === String(context.groupId));
   const character = context.characters[Number(context.characterId)];
   if (context.groupId !== undefined && context.groupId !== null && context.groupId !== '' && !group) {
-    throw new ChatHostError('无法确认当前群聊的保存位置。');
+    throw new ChatHostError('找不着当前群聊要存去哪儿。');
   }
-  if (!group && (!character?.avatar || !character.chat)) throw new ChatHostError('无法确认当前聊天的保存位置。');
+  if (!group && (!character?.avatar || !character.chat)) throw new ChatHostError('找不着当前聊天要存去哪儿。');
   if (String(group ? group.chat_id : character.chat) !== snapshot.chatId) {
-    throw new ChatHostError('聊天保存位置已改变，本次结果没有写回。');
+    throw new ChatHostError('刚才聊天保存路径变了，为了安全这次没往里写。');
   }
   const endpoint = group ? '/api/chats/group/save' : '/api/chats/save';
   const body = JSON.stringify(group
@@ -285,10 +285,10 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: Im
     const response = await fetch(endpoint, {
       method: 'POST', headers, body, credentials: 'same-origin', redirect: 'error', signal: controller.signal,
     });
-    if (!response.ok) throw new ChatHostError('聊天保存失败，服务端状态待确认；请检查连接或重新打开聊天。');
+    if (!response.ok) throw new ChatHostError('保存聊天没过，不确定酒馆服务端存上没；看下连接或者重进聊天确认一眼吧。');
     const confirmation = jsonRecord(await response.json().catch(() => null));
     if (confirmation?.error || confirmation?.ok === false || confirmation?.success === false) {
-      throw new ChatHostError('酒馆返回了保存失败的回执，插件未改动当前正文和界面。');
+      throw new ChatHostError('酒馆那边回了个保存失败，画匣没有乱改现在页面上的正文。');
     }
     // ST 1.13.5 uses { result: 'ok' } for individual chats; newer ST and TT use { ok: true }.
     if (confirmation?.ok !== true && confirmation?.result !== 'ok') {
@@ -299,22 +299,22 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: Im
       });
       const stored: unknown = readback.ok ? await readback.json().catch(() => null) : null;
       if (!matchesSavedChat(stored, chat, header.chat_metadata, snapshot)) {
-        throw new ChatHostError('保存回执异常，回读也未能确认配图已保存；请重新打开当前聊天检查，暂勿重复 AI 处理。');
+        throw new ChatHostError('保存回执看着不对，再读一遍也没确认存没存上；先重进一次聊天看一眼，先别急着再跑一遍 AI 处理。');
       }
     }
     persisted = true;
     let current: ChatHost;
     try { current = requireSnapshot(snapshot); }
-    catch { throw new ChatHostError('结果已保存到原聊天；当前聊天或楼层已变化，请重新打开原聊天确认。'); }
+    catch { throw new ChatHostError('配图其实存进原聊天了；只是页面刚才切了或楼层变了，退回去重开原聊天就能看到。'); }
     saved.message.mes = nextText;
     if (snapshot.swipeId !== null) saved.message.swipes![snapshot.swipeId] = nextText;
     try { await saved.embedded?.save(nextText); }
     catch {
       notifyRendered(snapshot.messageId, change);
-      throw new ChatHostError('配图已保存到酒馆，但前端历史同步未获确认；请检查当前回合，暂勿重复 AI 处理。');
+      throw new ChatHostError('配图已经存进酒馆了，不过没收到前端历史同步的回信；看一眼这一轮正不正常，先别重复跑 AI。');
     }
     if (!sameTarget(snapshot, nextText)) {
-      throw new ChatHostError('配图已保存，但前端或聊天已切换；请返回原聊天确认。');
+      throw new ChatHostError('配图存进去了，不过你刚刚切走聊天或换了前端；退回原本那个聊天就能确认。');
     }
     // Capture the committed version before a view listener can change the active chat.
     const committed = takeSnapshot(current, snapshot.messageId);
@@ -323,8 +323,8 @@ export async function replaceAssistantMessage(snapshot: ChatSnapshot, result: Im
   } catch (error) {
     if (error instanceof ChatHostError) throw error;
     throw new ChatHostError(persisted
-      ? '结果已保存，但当前页面未能同步，请重新打开原聊天确认。'
-      : '聊天保存未获确认，服务端状态待确认；插件未改动当前正文和界面。');
+      ? '其实已经存好了，只是这个页面刚才没同步上，重开一下原聊天看看。'
+      : '没收到聊天保存确认，不确定服务端有没有落盘；画匣这边没改动你现在看到的正文。');
   } finally {
     clearTimeout(timer);
     saving = false;
@@ -383,10 +383,10 @@ export function readAssistantMessages(): Array<{ scope: string; chatId: string; 
 
 /** Uses the host sanitizer; rendering transient text never writes it into chat storage. */
 export function formatChatText(text: string, messageId: number): string {
-  if (isSifangEnvironment()) throw new ChatHostError('独立前端的正文由原生配图接口渲染。');
+  if (isSifangEnvironment()) throw new ChatHostError('独立前端这边的正文交由原生配图接口自己渲染。');
   const context = host();
   const message = context.chat[messageId];
-  if (!message || typeof context.messageFormatting !== 'function') throw new ChatHostError('当前楼层无法渲染。');
+  if (!message || typeof context.messageFormatting !== 'function') throw new ChatHostError('这一楼现在渲染不出来。');
   // At message 0 the native formatter may expand macros into chat.mes. A replaced
   // marker differs from mes and avoids this; otherwise use the transient-message path.
   const formattingId = messageId === 0 && text === message.mes ? -1 : messageId;
@@ -465,7 +465,7 @@ export function watchReplyGeneration(callback: (event: ReplyActivity) => void): 
   const context = host();
   const source = context.eventSource;
   if (!source?.on || !source.removeListener || !context.eventTypes?.MESSAGE_RECEIVED || !context.eventTypes.GENERATION_STARTED) {
-    throw new ChatHostError('当前宿主未提供回复完成事件。');
+    throw new ChatHostError('当前的酒馆环境没开放回复完成的通知事件。');
   }
   const subscriptions: Array<{ event: string; handler: (...args: unknown[]) => void; last: boolean }> = [];
   const reorder = () => {

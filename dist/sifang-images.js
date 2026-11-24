@@ -21,7 +21,7 @@ export function bindSifangImages(root, signal) {
     const report = (error) => {
         if (signal.aborted)
             return;
-        const text = error instanceof Error ? error.message : '配图显示接口未能完成操作。';
+        const text = error instanceof Error ? error.message : '配图展示这边刚才没跑通。';
         if (text === errorText)
             return;
         errorText = text;

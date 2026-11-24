@@ -1,13 +1,13 @@
 export const pluginName = '魔女画匣';
 
 export const pages = {
-  guide: { title: '开始使用', description: '认识插件，找到你需要的入口。', group: 'guide' },
-  'image-api': { title: '生图 API', description: '管理用于生成图片的服务连接。', group: 'connections' },
-  'model-api': { title: '模型 API', description: '生成提示词并插入正文，交给生图 API 绘图。', group: 'connections' },
-  features: { title: '插件功能', description: '让角色与世界资料参与配图。', group: 'features' },
-  'image-workflow': { title: '出图与生图', description: '安排自动配图、同时生图数量与图片留存。', group: 'preferences' },
-  review: { title: '生图回顾', description: '翻看保存在这台设备上的配图。', group: 'review' },
-  preferences: { title: '使用偏好', description: '调整使用习惯，迁移或分享配置。', group: 'preferences' },
+  guide: { title: '开始使用', description: '先看一眼画匣怎么用，各个入口都在哪。', group: 'guide' },
+  'image-api': { title: '生图 API', description: '接上你的画图接口、画幅参数和画师串。', group: 'connections' },
+  'model-api': { title: '模型 API', description: '负责看懂剧情、写好场景词并插进楼层，再交给生图 API 来画。', group: 'connections' },
+  features: { title: '插件功能', description: '把角色长相、衣柜和世界书一起带进配图里。', group: 'features' },
+  'image-workflow': { title: '出图与生图', description: '定好自动出图的时机、一次并发几张，以及本机留几天图。', group: 'preferences' },
+  review: { title: '生图回顾', description: '翻一翻这台设备上存下来的画。', group: 'review' },
+  preferences: { title: '使用偏好', description: '调顺手使用习惯，或者把配置打包带走、分享给别人。', group: 'preferences' },
 } as const;
 
 export type PageId = keyof typeof pages;

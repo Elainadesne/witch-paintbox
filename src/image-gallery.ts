@@ -322,12 +322,12 @@ export function createImageGallery(summary: string, signal: AbortSignal, handler
     if (!selectedId || deletingId) return;
     deletingId = selectedId;
     renderSelected();
-    message('正在删除当前图片…');
+    message('正在把这张图删掉…');
     try {
       await handlers.onDelete(deletingId);
       if (!signal.aborted) message();
     } catch (error) {
-      if (!signal.aborted) message(error instanceof Error ? error.message : '删除图片失败，请重试。', true);
+      if (!signal.aborted) message(error instanceof Error ? error.message : '没删成，再点一次试试。', true);
     } finally {
       deletingId = null;
       if (!signal.aborted) renderSelected();

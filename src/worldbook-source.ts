@@ -40,18 +40,18 @@ function database(): Promise<IDBDatabase> {
   if (connection) return connection;
   const pending = new Promise<IDBDatabase>((resolve, reject) => {
     let settled = false;
-    const timer = setTimeout(() => fail('打开插件世界书库超时，请关闭其他酒馆页面后重试。'), 15_000);
+    const timer = setTimeout(() => fail('半天没打开世界书库，把多余的酒馆页面关掉再试试。'), 15_000);
     function fail(message: string): void {
       if (settled) return;
       settled = true; clearTimeout(timer); reject(new Error(message));
     }
     let request: IDBOpenDBRequest;
     try { request = window.indexedDB.open(databaseName, 1); }
-    catch { fail('浏览器无法打开插件世界书库，请检查站点存储权限。'); return; }
-    request.onblocked = () => fail('插件世界书库被其他页面占用，请关闭其他酒馆页面后重试。');
+    catch { fail('浏览器打不开世界书库，看看是不是站点存储权限被拦住了。'); return; }
+    request.onblocked = () => fail('世界书库正被别的页面占着，关掉其他酒馆页再试试。');
     request.onerror = () => fail(request.error?.name === 'VersionError'
-      ? '世界书库版本较新，请更新插件后重试。'
-      : '浏览器未能打开插件世界书库，请检查存储权限或剩余空间。');
+      ? '世界书库的数据版本比当前画匣新，把插件升到新版再试。'
+      : '浏览器没打开世界书库，查一下存储权限或硬盘还够不够空间。');
     request.onupgradeneeded = () => {
       if (settled) { request.transaction?.abort(); return; }
       try {
@@ -59,7 +59,7 @@ function database(): Promise<IDBDatabase> {
         if (!db.objectStoreNames.contains(storeName)) db.createObjectStore(storeName, { keyPath: 'name' });
         if (!db.objectStoreNames.contains(namesStoreName)) db.createObjectStore(namesStoreName);
       } catch {
-        request.transaction?.abort(); fail('插件世界书库初始化失败，原有记录未修改。');
+        request.transaction?.abort(); fail('世界书库初始化没成功，原来的书都还在没动。');
       }
     };
     request.onsuccess = () => {
@@ -79,8 +79,8 @@ function database(): Promise<IDBDatabase> {
 
 function operationError(action: string, error?: DOMException | null): Error {
   return new Error(error?.name === 'QuotaExceededError'
-    ? `世界书${action}失败，浏览器存储空间不足。`
-    : `世界书${action}失败，请检查站点存储权限后重试。`);
+    ? `世界书${action}没存上，浏览器存储空间不够了。`
+    : `世界书${action}没成功，查一下站点存储权限再试。`);
 }
 
 async function transact<T>(mode: IDBTransactionMode, action: string,
@@ -103,7 +103,7 @@ async function transact<T>(mode: IDBTransactionMode, action: string,
       reject(error);
     };
     const cancel = () => fail(new DOMException('读取已取消。', 'AbortError'));
-    const timer = setTimeout(() => fail(new Error(`世界书${action}超时，尚未确认完成，请重试。`)), 30_000);
+    const timer = setTimeout(() => fail(new Error(`世界书${action}等太久了，还没确认写成，再试一次。`)), 30_000);
     signal?.addEventListener('abort', cancel, { once: true });
     transaction.onabort = () => fail(operationError(action, transaction.error));
     transaction.onerror = () => fail(operationError(action, transaction.error));
@@ -119,7 +119,7 @@ async function transact<T>(mode: IDBTransactionMode, action: string,
 
 function bookName(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > nameLimit) {
-    throw new Error('世界书名称不能为空，且不能超过 512 个字符。');
+    throw new Error('世界书不能没名字，也不能超过 512 个字。');
   }
   return value.trim();
 }
@@ -133,12 +133,12 @@ function entryId(value: unknown): string {
     const numeric = Number(value);
     if (Number.isSafeInteger(numeric)) return String(numeric);
   }
-  throw new Error('世界书含有无效条目标识；请使用非负整数或非空字符串。');
+  throw new Error('世界书里有个条目标识不对劲（得是非负整数或非空字符串）。');
 }
 
 function activationBoolean(value: unknown, fallback: boolean, label: string): boolean {
   if (value === undefined || value === null) return fallback;
-  if (typeof value !== 'boolean') throw new Error(`世界书激活设置 ${label} 必须是布尔值。`);
+  if (typeof value !== 'boolean') throw new Error(`世界书激活设置里的 ${label} 必须是开关布尔值。`);
   return value;
 }
 
@@ -146,7 +146,7 @@ function activationKeys(value: unknown, label: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > entryLimit
     || value.some(key => typeof key !== 'string' || key.length > 32_768)) {
-    throw new Error(`世界书激活设置 ${label} 必须是文本数组。`);
+    throw new Error(`世界书激活设置里的 ${label} 必须是文本列表。`);
   }
   return [...value];
 }
@@ -154,7 +154,7 @@ function activationKeys(value: unknown, label: string): string[] {
 function activationLogic(value: unknown): WorldbookActivation['selectiveLogic'] {
   if (value === undefined || value === null) return 0;
   if (value !== 0 && value !== 1 && value !== 2 && value !== 3) {
-    throw new Error('世界书 selectiveLogic 必须为 0、1、2 或 3。');
+    throw new Error('世界书的 selectiveLogic 只能是 0、1、2 或 3。');
   }
   return value;
 }
@@ -167,7 +167,7 @@ function parseActivation(entry: Record<string, unknown>, source: 'native' | 'cha
     if (!saved || ['constant', 'selective', 'caseSensitive', 'matchWholeWords'].some(key => typeof saved[key] !== 'boolean')
       || !Array.isArray(saved.keys) || !Array.isArray(saved.secondaryKeys)
       || ![0, 1, 2, 3].includes(saved.selectiveLogic as number)) {
-      throw new Error('已保存的世界书激活设置无效，请重新导入原世界书。');
+      throw new Error('存着的世界书激活设置坏掉了，找原世界书重导一遍吧。');
     }
     return {
       constant: saved.constant as boolean,
@@ -196,13 +196,13 @@ function parseActivation(entry: Record<string, unknown>, source: 'native' | 'cha
 function parseEntries(value: unknown, source: 'native' | 'character' | 'stored' = 'stored'): WorldbookSourceEntry[] {
   const object = record(value);
   const array = Array.isArray(value);
-  if (!array && !object) throw new Error('世界书需要 entries 对象或数组。');
+  if (!array && !object) throw new Error('这本世界书里缺了 entries，看着不像酒馆世界书。');
   const rows = array ? value.map((entry, index) => [String(index), entry] as const) : Object.entries(object!);
-  if (rows.length > entryLimit) throw new Error('每本世界书最多导入 10000 条。');
+  if (rows.length > entryLimit) throw new Error('一本世界书最多装 10000 条，这本太厚了。');
   const used = new Set<string>();
   return rows.map(([key, raw]) => {
     const entry = record(raw);
-    if (!entry) throw new Error(`世界书条目 ${key} 格式无效。`);
+    if (!entry) throw new Error(`第 ${key} 号世界书条目格式不对。`);
     // CharacterBook permits omitted IDs; the import index becomes its persisted ID.
     const id = entryId(entry.uid ?? entry.id ?? key);
     if ((entry.uid !== undefined && entryId(entry.uid) !== id)
@@ -210,7 +210,7 @@ function parseEntries(value: unknown, source: 'native' | 'character' | 'stored' 
       || (!array && (!/^\d+$/.test(key) || entryId(key) !== id))) {
       throw new Error(`世界书条目 ${key} 的标识不一致。`);
     }
-    if (used.has(id)) throw new Error(`世界书中条目标识“${id}”重复，请先修正后导入。`);
+    if (used.has(id)) throw new Error(`世界书里条目标识“${id}”写重了，改完再导进来吧。`);
     used.add(id);
     if (typeof entry.content !== 'string') throw new Error(`世界书条目 ${id} 的 content 必须是文本。`);
     if ((entry.enabled !== undefined && typeof entry.enabled !== 'boolean')
@@ -234,10 +234,10 @@ function parseEntries(value: unknown, source: 'native' | 'character' | 'stored' 
 
 function parseBook(value: unknown, filename: string): StoredWorldbook {
   const root = record(value);
-  if (!root) throw new Error('世界书 JSON 顶层必须是对象。');
+  if (!root) throw new Error('世界书 JSON 最外层格式不对。');
   const wrapped = root.character_book !== undefined ? root.character_book : record(root.data)?.character_book;
   const source = wrapped === undefined ? root : record(wrapped);
-  if (!source) throw new Error('character_book 格式无效。');
+  if (!source) throw new Error('文件里的 character_book 那一段格式不对。');
   if (source.name !== undefined && typeof source.name !== 'string') throw new Error('世界书名称必须是文本。');
   const filenameName = typeof filename === 'string' ? filename.replace(/\.json$/i, '').trim() : '';
   const name = bookName(typeof source.name === 'string' && source.name.trim() ? source.name : filenameName || '未命名世界书');
@@ -256,20 +256,20 @@ export function onWorldbooksChanged(listener: () => void): () => void {
 }
 
 export function validateWorldbookArchive(value: unknown): StoredWorldbook[] {
-  if (!Array.isArray(value)) throw new Error('世界书备份必须是数组，原有记录未修改。');
+  if (!Array.isArray(value)) throw new Error('世界书备份格式不对，原来的书没动。');
   const names = new Set<string>();
   return Array.from(value, raw => {
     const book = record(raw);
-    if (!book || !Array.isArray(book.entries)) throw new Error('世界书备份格式无效，原有记录未修改。');
+    if (!book || !Array.isArray(book.entries)) throw new Error('世界书备份里有本书格式不对，原来的书没动。');
     const name = bookName(book.name);
-    if (name !== book.name) throw new Error('世界书备份名称不能包含首尾空白，原有记录未修改。');
-    if (names.has(name)) throw new Error(`世界书备份中名称“${name}”重复，原有记录未修改。`);
+    if (name !== book.name) throw new Error('备份里的世界书名字前后多了空格，原来的书没动。');
+    if (names.has(name)) throw new Error(`备份里有两本都叫“${name}”，原来的书没动。`);
     names.add(name);
     const entries = parseEntries(book.entries);
     for (let index = 0; index < entries.length; index++) {
       const entry = record(book.entries[index])!;
       if (entry.id !== entries[index].id || entry.name !== entries[index].name || typeof entry.enabled !== 'boolean') {
-        throw new Error(`世界书“${name}”的备份条目标识、名称或启用状态无效，原有记录未修改。`);
+        throw new Error(`“${name}”的备份条目里标识、名字或开关状态坏了，原来的书没动。`);
       }
     }
     return { name, entries };
@@ -331,7 +331,7 @@ export async function readWorldbook(name: string, signal?: AbortSignal): Promise
   if (getHostStore()) return withHostLock(hostLock, async () => {
     const manifest = await nativeManifest(signal);
     const reference = manifest.books.find(book => book.name === key);
-    if (!reference) throw new Error(`插件中没有世界书“${key}”，请重新导入或移除挂载。`);
+    if (!reference) throw new Error(`画匣书库里找不着“${key}”，重新传一遍或者把这里的挂载取消吧。`);
     return (await readNativeBook(reference, signal)).entries;
   });
   const value = await transact<unknown>('readonly', '读取', (store, result) => {
@@ -339,8 +339,8 @@ export async function readWorldbook(name: string, signal?: AbortSignal): Promise
   }, signal);
   signal?.throwIfAborted();
   const book = record(value);
-  if (!book) throw new Error(`插件中没有世界书“${key}”，请重新导入或移除挂载。`);
-  if (book.name !== key) throw new Error('已保存的世界书标识无效，原记录未修改。');
+  if (!book) throw new Error(`画匣书库里找不着“${key}”，重新传一遍或者把这里的挂载取消吧。`);
+  if (book.name !== key) throw new Error('存着的世界书名字和索引对不上，原来的记录没动。');
   return parseEntries(book.entries);
 }
 
@@ -349,9 +349,9 @@ export async function updateWorldbookEntryContent(name: string, id: string, cont
   const key = bookName(name), target = entryId(id);
   const update = (book: StoredWorldbook): WorldbookSourceEntry => {
     const entry = book.entries.find(entry => entry.id === target);
-    if (!entry) throw new Error('该世界书条目已被删除，未保存修改。');
+    if (!entry) throw new Error('这条世界书刚才被删掉了，没存进去。');
     if (entry.content !== previous && entry.content !== content) {
-      throw new Error('条目已在其他位置修改，请复制当前草稿，刷新酒馆页面后再编辑保存。');
+      throw new Error('这条刚才在别处被改过了，先把你刚写的内容复制出来，刷新一下页面再改吧。');
     }
     entry.content = content;
     return entry;
@@ -361,7 +361,7 @@ export async function updateWorldbookEntryContent(name: string, id: string, cont
     entry = await withHostLock(hostLock, async () => {
       const manifest = await nativeManifest();
       const index = manifest.books.findIndex(book => book.name === key);
-      if (index < 0) throw new Error(`世界书“${key}”已被删除，未保存修改。`);
+      if (index < 0) throw new Error(`“${key}”这本书已经被删掉了，刚才的修改没存进去。`);
       const book = await readNativeBook(manifest.books[index]);
       const saved = update(book);
       manifest.books[index] = await writeNativeBook(book);
@@ -373,9 +373,9 @@ export async function updateWorldbookEntryContent(name: string, id: string, cont
       const request = store.get(key);
       request.onsuccess = () => {
         try {
-          if (!request.result) throw new Error(`世界书“${key}”已被删除，未保存修改。`);
+          if (!request.result) throw new Error(`“${key}”这本书已经被删掉了，刚才的修改没存进去。`);
           const [book] = validateWorldbookArchive([request.result]);
-          if (book.name !== key) throw new Error('已保存的世界书标识无效，未保存修改。');
+          if (book.name !== key) throw new Error('存着的世界书名字对不上，刚才的修改没存进去。');
           const saved = update(book);
           store.put(book).onsuccess = () => result(saved);
         } catch (error) { fail(error instanceof Error ? error : operationError('内容保存')); }
@@ -413,7 +413,7 @@ export async function importWorldbook(value: unknown, filename: string): Promise
         registry.add(true, unique);
         const request = store.add({ ...book, name: unique });
         request.onsuccess = () => result(unique);
-      } catch (error) { fail(error instanceof Error ? error : new Error('世界书导入失败，原有记录未修改。')); }
+      } catch (error) { fail(error instanceof Error ? error : new Error('世界书没导进去，原来书库里的东西都没动。')); }
     };
   });
   notify();
@@ -449,27 +449,27 @@ function uniqueBookName(name: string, used: ReadonlySet<unknown>): string {
 function validateNativeManifest(value: unknown): NativeBookManifest {
   const manifest = record(value);
   if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.books) || !Array.isArray(manifest.reservedNames)) {
-    throw new Error('同步世界书目录格式无效，未使用旧本地记录覆盖，请检查同步状态。');
+    throw new Error('同步过来的世界书目录格式不对，本地书库没动，先看看同步状态吧。');
   }
   const names = new Set<string>(), keys = new Set<string>();
   const books = manifest.books.map(raw => {
     const reference = record(raw);
     if (!reference || typeof reference.key !== 'string' || !/^book-[a-f0-9-]{36}$/.test(reference.key)) {
-      throw new Error('同步世界书文件标识无效。');
+      throw new Error('同步过来的世界书文件标识不对。');
     }
     const name = bookName(reference.name);
-    if (name !== reference.name || names.has(name) || keys.has(reference.key)) throw new Error('同步世界书目录包含重复或无效标识。');
+    if (name !== reference.name || names.has(name) || keys.has(reference.key)) throw new Error('同步过来的世界书目录里有重复或坏掉的标识。');
     names.add(name); keys.add(reference.key);
     return { name, key: reference.key };
   });
   const reservedNames = manifest.reservedNames.map(raw => {
     const name = bookName(raw);
-    if (name !== raw) throw new Error('同步世界书保留名称无效。');
+    if (name !== raw) throw new Error('同步过来的世界书名称前后多了空白或不对。');
     return name;
   });
   const reserved = new Set(reservedNames);
   if (reserved.size !== reservedNames.length || books.some(book => !reserved.has(book.name))) {
-    throw new Error('同步世界书名称目录不完整。');
+    throw new Error('同步过来的世界书目录缺了几页。');
   }
   return { version: 1, books, reservedNames };
 }
@@ -493,9 +493,9 @@ async function readNativeBook(reference: NativeBookReference, signal?: AbortSign
   signal?.throwIfAborted();
   const stored = await readHostJson(reference.key, hostTable);
   signal?.throwIfAborted();
-  if (!stored.found) throw new Error(`世界书“${reference.name}”的同步文件尚未就绪，请等待同步完成后重试。`);
+  if (!stored.found) throw new Error(`“${reference.name}”的同步文件还没传完，等同步好再试试。`);
   const [book] = validateWorldbookArchive([stored.value]);
-  if (book.name !== reference.name) throw new Error('同步世界书名称与目录不一致，原记录未修改。');
+  if (book.name !== reference.name) throw new Error('同步过来的书名和目录对不上，原来的书没动。');
   return book;
 }
 

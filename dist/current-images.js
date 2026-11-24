@@ -10,7 +10,7 @@ export async function getCurrentRoundImages() {
     const message = readAssistantMessages().find(item => item.messageId === snapshot.messageId
         && item.chatId === snapshot.chatId && item.swipeId === snapshot.swipeId && item.text === snapshot.text);
     if (!message)
-        throw new Error('最新回复尚未就绪，请稍后刷新本轮生图。');
+        throw new Error('最新一楼还没落稳呢，稍等一秒再点刷新吧。');
     const signature = signatureOf(message);
     const groups = await Promise.all(markerEntries(message).map(async ({ marker, historyKey }) => {
         if (!historyKey)
@@ -22,7 +22,7 @@ export async function getCurrentRoundImages() {
     await assertChatSnapshot(snapshot);
     const current = readAssistantMessages().at(-1);
     if (!current || signatureOf(current) !== signature)
-        throw new Error('当前聊天或最新回复已变化，请刷新本轮生图。');
+        throw new Error('刚才切换聊天或者最新一楼变了，刷新一下本轮生图吧。');
     const images = groups.flat().sort((a, b) => b.entry.createdAt - a.entry.createdAt || b.entry.id.localeCompare(a.entry.id));
     // Include the record set so save/delete events invalidate the view even when the floor is unchanged.
     return { images, signature: JSON.stringify([signature, images.map(({ entry }) => [entry.id, entry.createdAt])]) };

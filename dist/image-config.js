@@ -23,7 +23,7 @@ function validateConnectionFor(settings, connection) {
             return validateOpenAIImageConnection(connection);
         const key = connection.key.trim().replace(/^Bearer\s+/i, '');
         if (!key || /[^\x21-\x7e]/.test(key))
-            throw new Error('请填写有效的 API 密钥。');
+            throw new Error('API 密钥没填或者里面夹了空格、中文等非法字符。');
         return { channel: 'official', url: '', key, appendSuffix: connection.appendSuffix };
     }
     return validateOpenAIImageConnection(connection);
@@ -60,7 +60,7 @@ export class ImageConfig {
         this.imageUrl = '';
         this.imageRecord = null;
         if (!this.request)
-            this.generationMessage = '本机图片已清理。';
+            this.generationMessage = '本机旧图已经清过了。';
         this.syncGeneration();
     });
     imageFilename = 'witch-paintbox.png';
@@ -195,7 +195,7 @@ export class ImageConfig {
         try {
             await saveImageSettings(structuredClone(settings));
             if (revision === this.saveRevision && this.settings === settings)
-                this.message(area, '已保存。');
+                this.message(area, '存好啦。');
         }
         catch (error) {
             if (revision === this.saveRevision && this.settings === settings)
@@ -336,7 +336,7 @@ export class ImageConfig {
             this.cancelModelRefresh();
             this.clearModels();
             this.render();
-            this.message('settings', '接口协议已切换；如使用中转站，请确认服务 URL。');
+            this.message('settings', '接口协议切好了；如果是走中转站，顺手核对一下上面的服务 URL。');
         }
         else if (parameter !== 'model') {
             this.render();
@@ -380,8 +380,8 @@ export class ImageConfig {
             }
             select.value = this.connectionId;
         }
-        this.message('connection', this.connectionSaving || this.connectionTimer ? '正在自动保存…'
-            : saved ? '已自动保存。' : this.connectionError ? `填写完整后自动保存：${this.connectionError}` : '填写后自动保存。', !saved && !this.connectionTimer && !this.connectionSaving && Boolean(this.connectionError));
+        this.message('connection', this.connectionSaving || this.connectionTimer ? '正在存进配置…'
+            : saved ? '已经自动存好了。' : this.connectionError ? `还没存下，先补齐这里：${this.connectionError}` : '填完就会自动存好。', !saved && !this.connectionTimer && !this.connectionSaving && Boolean(this.connectionError));
     }
     clearConnectionTimer() {
         if (this.connectionTimer)
@@ -425,7 +425,7 @@ export class ImageConfig {
             }
             catch (error) {
                 this.connectionWriteFailed = true;
-                this.connectionError = `存储写入失败（${error.message}），再次修改或离开页面时重试`;
+                this.connectionError = `刚才没写进存储里（${error.message}），改一下内容或切页面时再试着存`;
             }
         })();
         this.connectionSaving = run;
@@ -517,10 +517,10 @@ export class ImageConfig {
         if (label)
             label.textContent = aspect ? mode === 'ai' ? '兜底比例' : '画面比例' : mode === 'ai' ? '兜底尺寸' : '预设尺寸';
         this.message('size-mode', error || (isImageSizeModeSaving() ? '正在同步画幅模式…' : aspect ? mode === 'ai'
-            ? 'AI 动态画幅启用中：配图标记里的 7 种画幅会换成对应比例（1:1 / 2:3 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9），按下方分辨率生成；没写画幅时用兜底比例。'
-            : '所有配图使用下方比例与分辨率。切换模式会互斥启用当前模型 API 预设中的同名格式条目。' : mode === 'ai'
-            ? '按每张配图返回的 size 选择画幅；缺少或不支持的尺寸使用下方兜底尺寸。'
-            : '所有配图使用下方画幅。切换模式会互斥启用当前模型 API 预设中的同名格式条目。'), Boolean(error));
+            ? '现在开着 AI 动态画幅：正文配图里写的 7 种画幅会自动换成对应比例（1:1 / 2:3 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9），按下面选的分辨率来画；没标画幅就按兜底比例走。'
+            : '现在所有图都按下面选的比例和分辨率来画。切这个模式时，会自动替你开好模型 API 预设里对应的格式条目。' : mode === 'ai'
+            ? '每张图按模型给的 size 来定画幅；没写或者不在 7 种尺寸里的，就按下面兜底尺寸画。'
+            : '现在所有图都用下面选好的画幅。切这个模式时，会自动替你开好模型 API 预设里对应的格式条目。'), Boolean(error));
     }
     async select(event) {
         if (this.writing)
@@ -675,7 +675,7 @@ export class ImageConfig {
             this.autoNamed = true;
         }
         else if (taken(name))
-            throw new Error('已有同名连接配置，请换一个配置名称。');
+            throw new Error('这个配置名字已经用过了，换一个吧。');
         const profile = { ...connection, id, name };
         const next = {
             ...settings, connection, activeConnectionId: id,
@@ -698,18 +698,18 @@ export class ImageConfig {
         let next;
         if (action === 'delete-artist') {
             if (!current)
-                throw new Error('请先选择要删除的配置。');
+                throw new Error('先从下拉框里挑一个要删的配置吧。');
             next = { ...settings, artists: settings.artists.filter(item => item.id !== current.id), activeArtistId: '' };
         }
         else {
             const name = this.artistName.trim();
             if (!name)
-                throw new Error('请填写配置名称。');
+                throw new Error('还没给这套配置起名字呢。');
             if (action === 'update-artist' && !current)
-                throw new Error('请先选择要更新的配置。');
+                throw new Error('先挑一套已有配置，才能点更新。');
             const id = action === 'update-artist' ? current.id : newId();
             if (settings.artists.some(item => item.id !== id && item.name === name)) {
-                throw new Error('已有同名配置，请使用“更新”，或填写其他名称后保存。');
+                throw new Error('已经有一套叫这个名字的配置了；想覆盖旧的就点“更新”，不然改个名再存。');
             }
             const preset = { id, name, positive: settings.positive, negative: settings.negative };
             next = {
@@ -724,7 +724,7 @@ export class ImageConfig {
         else
             this.artistName = this.artistName.trim();
         this.render();
-        this.message('artist', action === 'delete-artist' ? '配置已删除，当前填写的提示词仍保留。' : '配置已保存。');
+        this.message('artist', action === 'delete-artist' ? '这套配置已经删掉了，输入框里现写着的内容还留着。' : '画师配置存好啦。');
     }
     validParameters() {
         const fields = this.container?.querySelectorAll('[data-parameter]') ?? [];
@@ -857,7 +857,7 @@ export class ImageConfig {
             if (!current())
                 return;
             if (!models.length) {
-                this.message('model-list', '接口没有返回可选模型，已保留原列表，可手动填写模型名称。');
+                this.message('model-list', '对面没返回模型列表，旧列表还留着，也可以直接手填模型名。');
                 return;
             }
             this.modelOptions = models;
@@ -885,7 +885,7 @@ export class ImageConfig {
                 }
             }
             if (current())
-                this.message('model-list', `已获取 ${models.length} 个模型，当前填写的模型名称保持不变。${confirmed ? '' : '连接自动保存后会保留此列表。'}`);
+                this.message('model-list', `拉到 ${models.length} 个模型，你框里填的模型名没动。${confirmed ? '' : '连接自动存好后会把这份列表一起记住。'}`);
         }
         catch (error) {
             if (current())
@@ -907,7 +907,7 @@ export class ImageConfig {
         if (this.request)
             return;
         if (!this.isConnectionSaved()) {
-            this.generationMessage = this.connectionError ? `密钥配置还不能使用：${this.connectionError}` : '请先填写密钥配置。';
+            this.generationMessage = this.connectionError ? `上面的密钥配置还没弄好：${this.connectionError}` : '先把上面的密钥配置填好再试绘吧。';
             this.generationFailed = true;
             this.syncGeneration();
             emitPetEvent({ type: 'end', id: petTaskId(), task: 'image', source: 'config', result: 'failed', fault: 'setup', message: this.generationMessage });
@@ -962,7 +962,7 @@ export class ImageConfig {
             }
             catch (error) {
                 if (this.settings?.provider === snapshot.provider)
-                    this.generationMessage = `图片已生成，但未能保存到回顾：${error instanceof Error ? error.message : '存储不可用'}`;
+                    this.generationMessage = `图画好了，不过没存进回顾里：${error instanceof Error ? error.message : '存储写不进去'}`;
                 emitPetEvent({ type: 'history', id: pet, saved: false, message: this.generationMessage });
             }
             finally {
@@ -976,7 +976,7 @@ export class ImageConfig {
             }
             this.generationFailed = !request.signal.aborted;
             this.generationMessage = request.signal.aborted
-                ? this.generationPhase === 'queued' ? '已取消排队。' : '已取消等待，服务端任务可能仍在继续。'
+                ? this.generationPhase === 'queued' ? '已经撤出排队了。' : '已经不再等结果了，不过对面的生成任务可能还在后台继续跑。'
                 : error.message;
             endPet({ ...petImage, result: request.signal.aborted ? 'cancelled' : 'failed', message: this.generationMessage,
                 fault: request.signal.aborted ? undefined : petFault(error), serverMayContinue: request.signal.aborted && this.generationPhase !== 'queued' });

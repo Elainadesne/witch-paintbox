@@ -24,7 +24,7 @@ export function requireSifangHost() {
         || typeof host.game.save !== 'function' || typeof host.game.replaceText !== 'function'
         || typeof host.ui?.imageMarkers !== 'function' || typeof host.ui.imageMarker !== 'function'
         || typeof host.on !== 'function') {
-        throw new Error('独立前端与魔女画匣的接口版本不匹配，请更新支持正文写回和原位配图的独立前端。');
+        throw new Error('这个独立前端的接口版本比画匣老了，需要更新到支持正文写回和原位配图的版本。');
     }
     return host;
 }

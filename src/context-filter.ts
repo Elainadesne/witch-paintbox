@@ -79,7 +79,7 @@ function host(): FilterHost {
   const context = root.SillyTavern?.getContext() as Partial<FilterHost> | undefined;
   if (!context?.extensionSettings || !context.eventTypes || typeof context.eventSource?.on !== 'function'
     || typeof context.eventSource.removeListener !== 'function') {
-    throw new Error('当前酒馆未提供正则设置或生成事件接口，无法隐藏主 API 的图片上下文。');
+    throw new Error('这版酒馆没开放正则设置或生成事件接口，没法帮主 API 遮掉图片上下文。');
   }
   return context as FilterHost;
 }
@@ -96,7 +96,7 @@ function engine(): Promise<RegexEngine> {
     return module as RegexEngine;
   }).catch(() => {
     if (nativeEngine === pending) nativeEngine = null;
-    throw new Error('无法加载酒馆原生正则接口，图片上下文隐藏尚未生效。请检查酒馆版本及正则扩展。');
+    throw new Error('调不出来酒馆自带的正则接口，图片上下文遮蔽还没生效；看一眼酒馆版本和正则扩展开了没。');
   });
   nativeEngine = pending;
   return pending;
@@ -124,14 +124,14 @@ export function bindContextFilter(signal: AbortSignal): void {
       enabled = loadModelSettings().hideImageContext;
       const context = host();
       if (enabled && !context.eventTypes.GENERATION_AFTER_COMMANDS && !context.eventTypes.GENERATION_STARTED) {
-        throw new Error('当前酒馆缺少生成前事件，无法确认图片上下文隐藏会在主 API 请求前生效。');
+        throw new Error('这版酒馆缺了生成前钩子，没法保证在发给主 API 前把图片标记遮掉。');
       }
       if (enabled && (!Array.isArray(context.extensionSettings.disabledExtensions)
         || context.extensionSettings.disabledExtensions.includes('regex'))) {
-        throw new Error('酒馆原生正则扩展未启用。请先启用正则扩展，再开启图片上下文隐藏。');
+        throw new Error('酒馆自带的正则扩展现在关着呢，先去打开它，再来开图片上下文遮蔽。');
       }
       const scripts = native.getScriptsByType(native.SCRIPT_TYPES.GLOBAL);
-      if (!Array.isArray(scripts)) throw new Error('酒馆全局正则列表格式无效，原有规则未修改。');
+      if (!Array.isArray(scripts)) throw new Error('酒馆的全局正则列表格式对不上，原有的规则一条没动。');
       const rule: RegexRule = {
         id: ruleId, scriptName: '魔女画匣 · 图片标记仅从上下文隐藏',
         findRegex: imageBlocks.toString(), replaceString: '', trimStrings: [],
@@ -150,7 +150,7 @@ export function bindContextFilter(signal: AbortSignal): void {
       publish({ enabled, active: enabled, error: '' });
     } catch (error) {
       if (signal.aborted) return;
-      publish({ enabled, active: false, error: error instanceof Error ? error.message : '图片上下文隐藏未能接入酒馆。' });
+      publish({ enabled, active: false, error: error instanceof Error ? error.message : '图片上下文遮蔽没能挂到酒馆上。' });
     }
   }
 
@@ -172,7 +172,7 @@ export function bindContextFilter(signal: AbortSignal): void {
       subscriptions.push({ context, event });
     }
   } catch (error) {
-    publish({ enabled: status.enabled, active: false, error: error instanceof Error ? error.message : '酒馆接口不可用。' });
+    publish({ enabled: status.enabled, active: false, error: error instanceof Error ? error.message : '酒馆这会儿的接口用不了。' });
   }
   signal.addEventListener('abort', () => {
     for (const { context, event } of subscriptions) context.eventSource.removeListener(event, schedule);

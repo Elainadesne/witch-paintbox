@@ -35,7 +35,7 @@ function database(): Promise<IDBDatabase> {
   if (connection) return connection;
   const pending = new Promise<IDBDatabase>((resolve, reject) => {
     let settled = false;
-    const timer = setTimeout(() => fail('打开角色锚定库超时，请关闭其他酒馆页面后重试。'), 15_000);
+    const timer = setTimeout(() => fail('半天没打开角色库，先关掉其他酒馆页面再试试。'), 15_000);
     function fail(message: string): void {
       if (settled) return;
       settled = true;
@@ -44,11 +44,11 @@ function database(): Promise<IDBDatabase> {
     }
     let request: IDBOpenDBRequest;
     try { request = window.indexedDB.open(databaseName, 1); }
-    catch { fail('浏览器无法打开角色锚定库，请检查站点存储权限。'); return; }
-    request.onblocked = () => fail('角色锚定库被其他页面占用，请关闭其他酒馆页面后重试。');
+    catch { fail('浏览器打不开角色库，看看是不是站点存储权限被拦住了。'); return; }
+    request.onblocked = () => fail('角色库正被别的页面占着，关掉其他酒馆页面再试。');
     request.onerror = () => fail(request.error?.name === 'VersionError'
-      ? '角色锚定库版本较新，请更新插件后重试。'
-      : '浏览器未能打开角色锚定库，请检查存储权限或剩余空间。');
+      ? '角色库的数据版本比当前插件新，把画匣更新到新版再试吧。'
+      : '浏览器没打开角色库，查一下存储权限或硬盘还够不够空间。');
     request.onupgradeneeded = () => {
       if (settled) { request.transaction?.abort(); return; }
       try {
@@ -59,7 +59,7 @@ function database(): Promise<IDBDatabase> {
         if (!store.indexNames.contains('name')) store.createIndex('name', 'name', { unique: true });
       } catch {
         request.transaction?.abort();
-        fail('角色锚定库初始化失败，原有记录未修改。');
+        fail('角色库初始化没成功，原来的记录没动。');
       }
     };
     request.onsuccess = () => {
@@ -79,9 +79,9 @@ function database(): Promise<IDBDatabase> {
 }
 
 function operationError(action: string, error?: DOMException | null): Error {
-  if (error?.name === 'QuotaExceededError') return withFault(new Error(`角色锚定${action}失败，浏览器存储空间不足。`), 'storage');
-  if (error?.name === 'ConstraintError') return withFault(new Error('已有同名角色，请更换角色名称。'), 'storage');
-  return withFault(new Error(`角色锚定${action}失败，请检查站点存储权限后重试。`), 'storage');
+  if (error?.name === 'QuotaExceededError') return withFault(new Error(`角色锚定${action}没存上，浏览器存储空间不够了。`), 'storage');
+  if (error?.name === 'ConstraintError') return withFault(new Error('已经有同名角色了，换个名字吧。'), 'storage');
+  return withFault(new Error(`角色锚定${action}失败了，检查一下站点存储权限再试。`), 'storage');
 }
 
 async function transact<T>(mode: IDBTransactionMode, action: string, makeRequest: (store: IDBObjectStore, fail: (error: Error) => void) => IDBRequest<T>): Promise<T> {
@@ -93,7 +93,7 @@ async function transact<T>(mode: IDBTransactionMode, action: string, makeRequest
     let settled = false;
     const timer = setTimeout(() => {
       try { transaction.abort(); } catch { /* Completion may already be pending. */ }
-      fail(withFault(new Error(`角色锚定${action}超时，尚未确认完成，请重试。`), 'storage'));
+      fail(withFault(new Error(`角色锚定${action}等太久了，还没确认写成，再试一次。`), 'storage'));
     }, 30_000);
     const fail = (error: Error) => {
       if (settled) return;
@@ -122,9 +122,9 @@ async function transact<T>(mode: IDBTransactionMode, action: string, makeRequest
 }
 
 function requiredText(value: unknown, label: string, limit: number): string {
-  if (typeof value !== 'string' || !value.trim()) throw new Error(`请填写${label}。`);
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`得填上${label}。`);
   const text = value.trim();
-  if (text.length > limit) throw new Error(`${label}不能超过 ${limit} 个字符。`);
+  if (text.length > limit) throw new Error(`${label}太长了，最多 ${limit} 个字。`);
   return text;
 }
 
@@ -140,43 +140,43 @@ function snapshot(value: unknown): CharacterAnchor {
   if (!anchor || !Array.isArray(anchor.outfits) || typeof anchor.selectedOutfitId !== 'string'
     || !Number.isFinite(anchor.updatedAt) || anchor.updatedAt < 0
     || (anchor.portrait !== null && !(anchor.portrait instanceof Blob))) {
-    throw new Error('角色锚定记录格式无效，原有记录未修改。');
+    throw new Error('这条角色记录格式对不上，原来的记录没动。');
   }
   const ids = new Set<string>();
   const names = new Set<string>();
   const outfits = anchor.outfits.map(outfit => {
     const id = requiredText(outfit?.id, '服装标识', 128);
     const name = anchorName(outfit?.name, '服装名称');
-    if (name === '无服装') throw new Error('“无服装”用于仅添加外貌，请为这套服装使用其他名称。');
-    if (ids.has(id)) throw new Error('服装标识重复，原有记录未修改。');
-    if (names.has(name)) throw new Error('同一角色内不能有同名服装。');
+    if (name === '无服装') throw new Error('“无服装”是系统保留词，给这套衣服换个名字吧。');
+    if (ids.has(id)) throw new Error('这套衣服的标识撞了，原来的记录没动。');
+    if (names.has(name)) throw new Error('同一个角色里不能有两套一样名字的衣服。');
     ids.add(id);
     names.add(name);
     return { id, name, tags: requiredText(outfit?.tags, '服装标签', ANCHOR_TAG_LIMIT) };
   });
   const selectedOutfitId = anchor.selectedOutfitId.trim();
-  if (selectedOutfitId && !ids.has(selectedOutfitId)) throw new Error('选中的服装不存在，请重新选择。');
+  if (selectedOutfitId && !ids.has(selectedOutfitId)) throw new Error('之前选的那套衣服找不到了，重新挑一套吧。');
   if (anchor.portrait && (!anchor.portrait.size || anchor.portrait.size > ANCHOR_PORTRAIT_LIMIT)) {
-    throw new Error('封面图片不能为空，且不能超过 10 MB。');
+    throw new Error('封面图片不能是空的，也不能超过 10 MB。');
   }
   const name = anchorName(anchor.name, '角色名称');
-  if (!/\p{Script=Han}/u.test(name)) throw new Error('请使用包含中文汉字的角色名称，以便与英文生图 tag 区分。');
+  if (!/\p{Script=Han}/u.test(name)) throw new Error('角色名里得带中文汉字，这样才不会和英文生图 tag 混在一起。');
   // Older records and backups predate aliases; no database upgrade is needed.
   const rawAliases = anchor.aliases === undefined ? [] : anchor.aliases;
-  if (!Array.isArray(rawAliases)) throw new Error('角色别名必须是数组，原有记录未修改。');
+  if (!Array.isArray(rawAliases)) throw new Error('角色别名列表格式不对，原来的记录没动。');
   if (rawAliases.length > ANCHOR_ALIAS_LIMIT) throw new Error(`每个角色最多添加 ${ANCHOR_ALIAS_LIMIT} 个别名。`);
   const aliasNames = new Set<string>();
   const aliases = Array.from(rawAliases, value => {
     const alias = anchorName(value, '角色别名');
-    if (!/\p{Script=Han}/u.test(alias)) throw new Error(`角色别名“${alias}”必须包含中文汉字，以便与英文生图 tag 区分。`);
-    if (alias === name) throw new Error(`角色别名“${alias}”不能与自己的正式名称相同。`);
-    if (aliasNames.has(alias)) throw new Error(`角色别名“${alias}”重复，请只保留一个。`);
+    if (!/\p{Script=Han}/u.test(alias)) throw new Error(`别名“${alias}”里得带中文汉字，才不会和英文 tag 混在一起。`);
+    if (alias === name) throw new Error(`别名“${alias}”跟正式名字重了，不用重复写。`);
+    if (aliasNames.has(alias)) throw new Error(`别名“${alias}”写重了，留一个就行。`);
     aliasNames.add(alias);
     return alias;
   });
   // Older local records, native manifests and backups have no character negatives.
   const rawNegative = anchor.negative === undefined ? '' : anchor.negative;
-  if (typeof rawNegative !== 'string') throw new Error('角色负面提示词必须是文本，原有记录未修改。');
+  if (typeof rawNegative !== 'string') throw new Error('角色负面词格式不对，原来的记录没动。');
   const negative = rawNegative.trim();
   if (negative.length > ANCHOR_TAG_LIMIT) throw new Error(`角色负面提示词不能超过 ${ANCHOR_TAG_LIMIT} 个字符。`);
   return {
@@ -217,10 +217,10 @@ export async function loadAnchors(): Promise<CharacterAnchor[]> {
         try {
           const blob = await getHostStore()!.getBlob({ namespace: HOST_NAMESPACE, table: hostTable, key: item.portraitKey });
           const normalized = await nativePortrait(blob);
-          if (!item.portraitKey.endsWith(`.${normalized.extension}`)) throw new Error('封面内容与文件类型不符。');
+          if (!item.portraitKey.endsWith(`.${normalized.extension}`)) throw new Error('这张封面的内容和文件后缀对不上。');
           portrait = normalized.data;
         }
-        catch { throw new Error(`角色“${item.name}”的同步封面暂不可读，请等待同步完成后重试。`); }
+        catch { throw new Error(`角色“${item.name}”的封面还没同步完，等会儿再试试。`); }
       }
       loaded.push(snapshot({ ...item, portrait }));
     }
@@ -238,13 +238,13 @@ async function nativeManifest(): Promise<NativeAnchor[]> {
   }
   const value = stored.value as { version?: unknown; anchors?: unknown } | null;
   if (!value || value.version !== 1 || !Array.isArray(value.anchors)) {
-    throw new Error('同步角色库格式无效，未使用旧本地记录覆盖，请检查同步状态。');
+    throw new Error('同步过来的角色库格式不对，本地记录没动，先看看同步状态吧。');
   }
   const records = value.anchors.map(raw => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('同步角色记录格式无效。');
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('同步过来的某条角色记录格式不对。');
     const { portraitKey, ...fields } = raw as NativeAnchor;
     if (portraitKey !== null && (typeof portraitKey !== 'string' || !/^portrait-[a-f0-9]{64}\.(?:png|jpg|webp)$/.test(portraitKey))) {
-      throw new Error('同步角色封面标识无效。');
+      throw new Error('同步过来的角色封面标识不对。');
     }
     const { portrait: _portrait, ...anchor } = snapshot({ ...fields, portrait: null });
     return { ...anchor, portraitKey };
@@ -262,7 +262,7 @@ async function nativePortrait(blob: Blob): Promise<{ data: Blob; extension: 'png
     : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? 'jpg'
       : [82, 73, 70, 70].every((byte, index) => bytes[index] === byte)
         && [87, 69, 66, 80].every((byte, index) => bytes[index + 8] === byte) ? 'webp' : null;
-  if (!extension) throw new Error('角色图必须是 PNG、JPEG 或 WebP 图片。');
+  if (!extension) throw new Error('角色图得是 PNG、JPEG 或 WebP 格式。');
   const type = extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
   return { data: blob.slice(0, blob.size, type), extension };
 }
@@ -297,17 +297,17 @@ export function validateAnchor(value: unknown): CharacterAnchor {
 }
 
 export function validateAnchorLibrary(value: unknown): CharacterAnchor[] {
-  if (!Array.isArray(value)) throw new Error('角色锚定库必须是数组，原有记录未修改。');
+  if (!Array.isArray(value)) throw new Error('整个角色库格式不对，原来的记录没动。');
   const saved = Array.from(value, validateAnchor);
   const ids = new Set<string>();
   const names = new Map<string, { role: string; kind: string }>();
   for (const anchor of saved) {
-    if (ids.has(anchor.id)) throw new Error('角色锚定库中角色标识重复，原有记录未修改。');
+    if (ids.has(anchor.id)) throw new Error('角色库里撞了重复标识，原来的记录没动。');
     ids.add(anchor.id);
     for (const [index, name] of [anchor.name, ...anchor.aliases].entries()) {
       const kind = index === 0 ? '正式名' : '别名';
       const owner = names.get(name);
-      if (owner) throw new Error(`角色“${anchor.name}”的${kind}“${name}”与角色“${owner.role}”的${owner.kind}冲突，请更换称呼。`);
+      if (owner) throw new Error(`“${anchor.name}”的${kind}“${name}”跟“${owner.role}”的${owner.kind}重了，换一个叫法吧。`);
       names.set(name, { role: anchor.name, kind });
     }
   }

@@ -55,7 +55,7 @@ export function applyImageSizeMode<T extends SizeProtocolSettings>(settings: T, 
 
 export function selectImageSizeMode<T extends SizeProtocolSettings>(settings: T, mode: ImageSizeMode): T {
   if (![...settings.head, ...settings.tail].some(entry => imageSizeEntryMode(entry) === mode)) {
-    throw new Error(`请先在当前生图接口的模型 API 预设中导入并保存“${SIZE_PROTOCOL_NAMES[mode]}”条目。`);
+    throw new Error(`当前这个生图服务的模型预设里还缺“${SIZE_PROTOCOL_NAMES[mode]}”条目，先导进去存好再来切模式。`);
   }
   return applyImageSizeMode(settings, mode);
 }
